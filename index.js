@@ -22,32 +22,52 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 
-
-let keytar = requireOrMockKeytar();
+/**
+ * @typedef {{
+ *  setPassword(service: string, account: string, password: string): Promise<void>,
+ *  getPassword(service: string, account: string): Promise<string>
+ * }} KeytarLike
+ */
+/** @type {KeytarLike | Promise<KeytarLike>} */
+let keytarOrPromise = requireOrMockKeytar();
 
 function requireOrMockKeytar() {
+
   const CRED_FILE = path.join(__dirname, '.bluesky_creds.json');
-  try {
-    return require('keytar');
-  } catch (e) {
-    return {
-      async setPassword(service, account, password) {
-        let creds = {};
-        if (fs.existsSync(CRED_FILE)) {
-          try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
-        }
-        creds[account] = password;
-        fs.writeFileSync(CRED_FILE, JSON.stringify(creds, null, 2));
-        return true;
-      },
-      async getPassword(service, account) {
-        let creds = {};
-        if (fs.existsSync(CRED_FILE)) {
-          try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
-        }
-        return creds[account] || null;
+  const fallbackKeytar = {
+    async setPassword(service, account, password) {
+      let creds = {};
+      if (fs.existsSync(CRED_FILE)) {
+        try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
       }
-    };
+      creds[account] = password;
+      fs.writeFileSync(CRED_FILE, JSON.stringify(creds, null, 2));
+    },
+    async getPassword(service, account) {
+      let creds = {};
+      if (fs.existsSync(CRED_FILE)) {
+        try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
+      }
+      return creds[account] || null;
+    }
+  };
+
+  try {
+    const keytarMod = require('keytar');
+    const tryPromise = keytarMod.getPassword(name, "default_handle");
+    return (
+      tryPromise
+        .then(() => keytarMod)
+        .catch(() => {
+          return fallbackKeytar;
+        })
+        .then((successKeytar) => {
+          keytarOrPromise = successKeytar;
+          return keytarOrPromise;
+        })
+    );
+  } catch (e) {
+    return fallbackKeytar;
   }
 }
 
@@ -57,6 +77,7 @@ function requireOrMockKeytar() {
 async function handleLogin({ handle, password }) {
   if (!handle || !password)
     throw new Error('Handle and password are required.');
+  const keytar = await keytarOrPromise;
 
   await keytar.setPassword(name, handle, password);
   await keytar.setPassword(name, "default_handle", handle);
@@ -72,6 +93,8 @@ async function handleLogin({ handle, password }) {
  * @param {string} [handle]
  */
 async function getCredentials(handle) {
+  const keytar = await keytarOrPromise;
+
   let password;
   if (!handle) handle = await keytar.getPassword(name, "default_handle") || undefined;
   if (!handle) throw new Error('Handle and password for BlueSky are required.');
@@ -134,6 +157,7 @@ async function handlePost({ text, handle, password, replyToURI }) {
 }
 
 async function handleFeed({ cursor, handle, password }) {
+  const keytar = await keytarOrPromise;
   if (!handle) handle = await keytar.getPassword(name, "default_handle");
   if (handle === 'anonymous') handle = undefined;
 
@@ -229,6 +253,7 @@ async function handleProfile({ user, cursor }) {
 }
 
 async function handleSearch({ from, query, handle, password, cursor }) {
+  const keytar = await keytarOrPromise;
   if (!handle) handle = await keytar.getPassword(name, "default_handle");
   if (handle === 'anonymous') handle = undefined;
 
@@ -364,6 +389,7 @@ async function handleRepost({ postURI, handle, password }) {
 
 async function handleThreads({ postURI, handle, password }) {
   if (!postURI) throw new Error('postURI is required.');
+  const keytar = await keytarOrPromise;
   if (!handle) handle = await keytar.getPassword(name, "default_handle");
   if (handle === 'anonymous') handle = undefined;
   if (handle && !password) [{ password }] = [await getCredentials(handle)];
@@ -893,6 +919,7 @@ async function install(globalMode = true) {
 
 async function login() {
   try {
+    const keytar = await keytarOrPromise;
     const handle = prompt('BlueSky handle: ');
     const password = prompt('BlueSky password: ', { echo: '' });
     await keytar.setPassword(name, handle, password);
@@ -904,9 +931,10 @@ async function login() {
 }
 
 async function printFeedPreview() {
+  console.log();
   const feed = await handleFeed({});
   const posts = feed.structuredContent.posts.slice(0, 10);
-  console.log('\nCurrent feed:');
+  console.log('Current feed:');
   const now = new Date();
   let output = [];
   for (const post of posts) {
