@@ -1,0 +1,12 @@
+{
+  "allowMCPServers": ["autoreply"],
+  "mcpServers": {
+    "autoreply": {
+      "command": "node",
+      "args": [
+        "../index.js"
+      ]
+    }
+    },
+  "experimentalAcp": true
+}
