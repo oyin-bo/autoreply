@@ -1189,9 +1189,11 @@ async function localInstall(globalMode = true) {
 
 async function localLogin() {
   try {
+    process.stdout.write('BlueSky login for ' + name + ' v' + version + ' MCP');
     const keytar = await keytarOrPromise;
-    const login = prompt('BlueSky handle: ');
-    const password = prompt('BlueSky password: ', { echo: '' });
+    console.log();
+    const login = prompt('   account: ');
+    const password = prompt('  password: ', { echo: '' });
     await keytar.setPassword(name, login, password);
     await keytar.setPassword(name, 'default_handle', login);
     console.log('Login successful. Credentials stored.');
