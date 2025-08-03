@@ -89,14 +89,15 @@ async function handleLogin({ handle, password }) {
 }
 
 /**
- * @param {string} [handle]
+ * @param {string} [handleImpersonate]
  */
-async function getCredentials(handle) {
+async function getCredentials(handleImpersonate) {
   const keytar = await keytarOrPromise;
 
   let password;
+  let handle = handleImpersonate;
   if (!handle) handle = await keytar.getPassword(name, "default_handle") || undefined;
-  if (!handle) throw new Error('Handle and password for BlueSky are required.');
+  if (!handle) throw new Error('BlueSky login is required.');
   password = await keytar.getPassword(name, handle);
   if (!password) throw new Error('Password for ' + handle + ' is lost, please login again.');
   return { handle, password };
@@ -425,7 +426,6 @@ async function handleThreads({ postURI, handle, password }) {
   /**
    * Flatten thread into array
    * @param {PostOrPlaceholder} [node]
-   * @returns {Array}
    */
   function flattenThread(node) {
     /**
@@ -483,15 +483,15 @@ async function handleThreads({ postURI, handle, password }) {
         type: 'text',
         text:
           posts.map(post =>
-            post.indexedAt + ' @' + post.author + (post.post.author.displayName ? ' ' + JSON.stringify(post.post.author.displayName) + ' ' : '') + ' postURI: ' + post.postURI + ' in reply to postURI: ' + post.replyToURI + '\n' +
+            post.indexedAt + ' @' + post.author + (post.author.displayName ? ' ' + JSON.stringify(post.author.displayName) + ' ' : '') + ' postURI: ' + post.postURI + ' in reply to postURI: ' + post.replyToURI + '\n' +
             post.text +
-            (post.post.likeCount || post.post.replyCount || post.post.repostCount || post.post.quoteCount ?
+            (post.likeCount || post.replyCount || post.repostCount || post.quoteCount ?
               '\n(' +
               [
-                post.post.likeCount ? post.post.likeCount + ' likes' : '',
-                post.post.replyCount ? post.post.replyCount + ' replies' : '',
-                post.post.repostCount ? post.post.repostCount + ' reposts' : '',
-                post.post.quoteCount ? post.post.quoteCount + ' quotes' : ''
+                post.likeCount ? post.likeCount + ' likes' : '',
+                post.replyCount ? post.replyCount + ' replies' : '',
+                post.repostCount ? post.repostCount + ' reposts' : '',
+                post.quoteCount ? post.quoteCount + ' quotes' : ''
               ].filter(Boolean).join(', ') +
               ')'
               : '')
