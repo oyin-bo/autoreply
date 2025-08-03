@@ -1,15 +1,8 @@
 // @ts-check
 const { AtpAgent } = require('@atproto/api');
-let keytar;
-try {
-  keytar = require('keytar');
-} catch (e) {
-  keytar = null;
-}
-const fs = require('fs');
-const path = require('path');
-const CRED_FILE = path.join(__dirname, '.bluesky_creds.json');
+
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+
 const {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -39,6 +32,34 @@ const server = new Server(
     }
   }
 );
+
+let keytar;
+const fs = require('fs');
+const path = require('path');
+const CRED_FILE = path.join(__dirname, '.bluesky_creds.json');
+try {
+  keytar = require('keytar');
+} catch (e) {
+  keytar = {
+    async setPassword(service, account, password) {
+      let creds = {};
+      if (fs.existsSync(CRED_FILE)) {
+        try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
+      }
+      creds[account] = password;
+      fs.writeFileSync(CRED_FILE, JSON.stringify(creds, null, 2));
+      return true;
+    },
+    async getPassword(service, account) {
+      let creds = {};
+      if (fs.existsSync(CRED_FILE)) {
+        try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
+      }
+      return creds[account] || null;
+    }
+  };
+}
+
 
 // Register MCP tools
 server.setRequestHandler(ListToolsRequestSchema, async (request) => {
@@ -255,18 +276,8 @@ async function handleLogin({ handle, password }) {
   if (!handle || !password)
     throw new Error('Handle and password are required.');
 
-  if (keytar) {
-    await keytar.setPassword(name, handle, password);
-    await keytar.setPassword(name, "default_handle", handle);
-  } else {
-    let creds = {};
-    if (fs.existsSync(CRED_FILE)) {
-      try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch {}
-    }
-    creds[handle] = password;
-    creds["default_handle"] = handle;
-    fs.writeFileSync(CRED_FILE, JSON.stringify(creds, null, 2));
-  }
+  await keytar.setPassword(name, handle, password);
+  await keytar.setPassword(name, "default_handle", handle);
   return {
     content: [{
       type: 'text',
@@ -280,19 +291,9 @@ async function handleLogin({ handle, password }) {
  */
 async function getCredentials(handle) {
   let password;
-  if (keytar) {
-    if (!handle) handle = await keytar.getPassword(name, "default_handle") || undefined;
-    if (!handle) throw new Error('Handle and password for BlueSky are required.');
-    password = await keytar.getPassword(name, handle);
-  } else {
-    let creds = {};
-    if (fs.existsSync(CRED_FILE)) {
-      try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch {}
-    }
-    if (!handle) handle = creds["default_handle"];
-    if (!handle) throw new Error('Handle and password for BlueSky are required.');
-    password = creds[handle];
-  }
+  if (!handle) handle = await keytar.getPassword(name, "default_handle") || undefined;
+  if (!handle) throw new Error('Handle and password for BlueSky are required.');
+  password = await keytar.getPassword(name, handle);
   if (!password) throw new Error('Password for ' + handle + ' is lost, please login again.');
   return { handle, password };
 }
