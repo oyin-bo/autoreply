@@ -267,7 +267,12 @@ async function handleLogin({ handle, password }) {
     creds["default_handle"] = handle;
     fs.writeFileSync(CRED_FILE, JSON.stringify(creds, null, 2));
   }
-  return { content: "Credentials stored and default handle set." };
+  return {
+    content: [{
+      type: 'text',
+      text: 'Credentials stored and default handle set to ' + handle + '.'
+    }]
+  };
 }
 
 /**
