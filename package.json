@@ -1,6 +1,6 @@
 {
   "name": "autoreply",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "main": "index.js",
   "bin": {
     "autoreply": "index.js"
