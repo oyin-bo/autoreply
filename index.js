@@ -1,7 +1,13 @@
 // @ts-check
-const { AtpAgent } = require('@atproto/api');
 
-const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+const { name, version } = require('./package.json');
+
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
+const os = require('os');
+
+const { AtpAgent } = require('@atproto/api');
 
 const {
   CallToolRequestSchema,
@@ -11,263 +17,37 @@ const {
 } = require("@modelcontextprotocol/sdk/types.js");
 
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-const { name, version } = require('./package.json');
 
-const server = new Server(
-  { name, version },
-  {
-    capabilities: {
-      tools: {
-        post: ToolSchema,
-        feed: ToolSchema,
-        followers: ToolSchema,
-        following: ToolSchema,
-        search: ToolSchema,
-        threads: ToolSchema,
-        delete: ToolSchema,
-        like: ToolSchema,
-        repost: ToolSchema,
-        login: ToolSchema
+const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+
+
+let keytar = requireOrMockKeytar();
+
+function requireOrMockKeytar() {
+  const CRED_FILE = path.join(__dirname, '.bluesky_creds.json');
+  try {
+    return require('keytar');
+  } catch (e) {
+    return {
+      async setPassword(service, account, password) {
+        let creds = {};
+        if (fs.existsSync(CRED_FILE)) {
+          try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
+        }
+        creds[account] = password;
+        fs.writeFileSync(CRED_FILE, JSON.stringify(creds, null, 2));
+        return true;
+      },
+      async getPassword(service, account) {
+        let creds = {};
+        if (fs.existsSync(CRED_FILE)) {
+          try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
+        }
+        return creds[account] || null;
       }
-    }
+    };
   }
-);
-
-let keytar;
-const fs = require('fs');
-const path = require('path');
-const CRED_FILE = path.join(__dirname, '.bluesky_creds.json');
-try {
-  keytar = require('keytar');
-} catch (e) {
-  keytar = {
-    async setPassword(service, account, password) {
-      let creds = {};
-      if (fs.existsSync(CRED_FILE)) {
-        try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
-      }
-      creds[account] = password;
-      fs.writeFileSync(CRED_FILE, JSON.stringify(creds, null, 2));
-      return true;
-    },
-    async getPassword(service, account) {
-      let creds = {};
-      if (fs.existsSync(CRED_FILE)) {
-        try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
-      }
-      return creds[account] || null;
-    }
-  };
 }
-
-
-// Register MCP tools
-server.setRequestHandler(ListToolsRequestSchema, async (request) => {
-  return {
-    tools: [
-      {
-        name: "login",
-        description: "Login and cache BlueSky handle and password.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            handle: { type: "string", description: "Your BlueSky handle, who are you on BlueSky?" },
-            password: { type: "string", description: "Your BlueSky app password (better not share it)." }
-          },
-          required: ["handle", "password"]
-        }
-      },
-      {
-        name: "post",
-        description: "Post a message to BlueSky.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            replyToURI: { type: "string", description: "The post URI (or BlueSky URL of the post) to which the reply is made (if any)." },
-            text: { type: "string", description: "The text to post." },
-            handle: { type: "string", description: "(Optional) BlueSky handle to post the message as." },
-            password: { type: "string", description: "(Optional) BlueSky password to use." }
-          },
-          required: ["text"]
-        }
-      },
-      {
-        name: "feed",
-        description: "Get the latest feed from BlueSky.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            handle: {
-              type: "string", description:
-                "(Optional) BlueSky handle for which the feed is requested. " +
-                "If unspecified, or specified as anonymous, the feed will be retrieved in the incognito mode."
-            },
-            password: { type: "string", description: "(Optional) BlueSky password to use." }
-          },
-          required: []
-        },
-        outputSchema: {
-          type: "object",
-          properties: {
-            posts: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
-                  author: { type: "string", description: "BlueSky handle of the author." },
-                  postURI: { type: "string", description: "URI of the post." },
-                  text: { type: "string", description: "Text content of the post." },
-                  likeCount: { type: "number", description: "Number of likes.", nullable: true },
-                  replyCount: { type: "number", description: "Number of replies.", nullable: true },
-                  repostCount: { type: "number", description: "Number of reposts.", nullable: true },
-                  quoteCount: { type: "number", description: "Number of quotes.", nullable: true }
-                },
-                required: ["indexedAt", "author", "postURI", "text"]
-              }
-            }
-          }
-        }
-      },
-      {
-        name: "followers",
-        description: "Get followers for a user.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            user: { type: "string", description: "The handle of the user to get followers for." }
-          },
-          required: ["user"]
-        }
-      },
-      {
-        name: "following",
-        description: "Get following list for a user.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            user: { type: "string", description: "The handle of the user to get following for." }
-          },
-          required: ["user"]
-        }
-      },
-      {
-        name: "search",
-        description: "Search posts on BlueSky by text query.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            from: { type: "string", description: "(Optional) Messages from who, a handle or say 'me' for self." },
-            query: { type: "string", description: "(Optional) Text to search for in posts." },
-            handle: { type: "string", description: "(Optional) BlueSky handle to use for authenticated search, anonymous to force unanuthenticated." },
-            password: { type: "string", description: "(Optional) BlueSky password to use." }
-          },
-          required: []
-        },
-        outputSchema: {
-          type: "object",
-          properties: {
-            posts: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
-                  author: { type: "string", description: "BlueSky handle of the author." },
-                  postURI: { type: "string", description: "URI of the post." },
-                  text: { type: "string", description: "Text content of the post." },
-                  likeCount: { type: "number", description: "Number of likes.", nullable: true },
-                  replyCount: { type: "number", description: "Number of replies.", nullable: true },
-                  repostCount: { type: "number", description: "Number of reposts.", nullable: true },
-                  quoteCount: { type: "number", description: "Number of quotes.", nullable: true }
-                },
-                required: ["indexedAt", "author", "postURI", "text"]
-              }
-            }
-          }
-        }
-      },
-      {
-        name: "threads",
-        description: "Fetch a thread by post URI. Authenticated if handle/password provided, otherwise public.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            postURI: { type: "string", description: "The BlueSky URL of the post, or also can be at:// URI of the post to fetch the thread for." },
-            handle: { type: "string", description: "(Optional) BlueSky handle to use for authenticated fetch." },
-            password: { type: "string", description: "(Optional) BlueSky password to use." }
-          },
-          required: ["postURI"]
-        },
-        outputSchema: {
-          type: "object",
-          properties: {
-            posts: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
-                  author: { type: "string", description: "BlueSky handle of the author." },
-                  postURI: { type: "string", description: "URI of the post." },
-                  text: { type: "string", description: "Text content of the post." }
-                },
-                required: ["indexedAt", "author", "postURI", "text"]
-              }
-            }
-          }
-        }
-      },
-      {
-        name: "delete",
-        description: "Delete a post by URI (authenticated only).",
-        inputSchema: {
-          type: "object",
-          properties: {
-            postURI: { type: "string", description: "The URI of the post to delete." },
-            handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as, if not logged in already." },
-            password: { type: "string", description: "(Optional) BlueSky password to use." }
-          },
-          required: ["postURI"]
-        },
-        outputSchema: {
-          type: "object",
-          properties: {
-            success: { type: "boolean" },
-            message: { type: "string" }
-          },
-          required: ["success", "message"]
-        }
-      },
-      {
-        name: "like",
-        description: "Like a post by URI or BlueSky URL.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            postURI: { type: "string", description: "The BlueSky URL or at:// URI of the post to like." },
-            handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as. Leave empty for already logged in user." },
-            password: { type: "string", description: "(Optional) BlueSky password to use. Leave empty for already logged in user." }
-          },
-          required: ["postURI"]
-        }
-      },
-      {
-        name: "repost",
-        description: "Repost a post by URI or BlueSky URL.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            postURI: { type: "string", description: "The BlueSky URL or at:// URI of the post to repost." },
-            handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as. Leave empty for already logged in user." },
-            password: { type: "string", description: "(Optional) BlueSky password to use. Leave empty for already logged in user." }
-          },
-          required: ["postURI"]
-        }
-      }
-    ]
-  };
-});
 
 /**
  * @param {{ handle?: string, password?: string }} args
@@ -333,7 +113,7 @@ async function handlePost({ text, handle, password, replyToURI }) {
     replyTracking = replyToPost.value.text;
   }
 
-  await agent.post({
+  const posted = await agent.post({
     text,
     reply
   });
@@ -343,40 +123,40 @@ async function handlePost({ text, handle, password, replyToURI }) {
       {
         type: 'text',
         text:
-          replyTracking ? 'Replied to ' + replyTracking + ':\n' + text :
-            replyToURI ? 'Could not split ' + JSON.stringify(replyToURI) + '/' + JSON.stringify(postRef) + ', posted alone:\n' + text :
-              'Posted:\n' + text
+          replyTracking ? 'Replied to ' + replyTracking + ' with '  + posted.uri + ':\n' + text :
+            replyToURI ? 'Could not split ' + JSON.stringify(replyToURI) + '/' + JSON.stringify(postRef) + ', posted alone ' + posted.uri + ':\n' + text :
+              'Posted ' + posted.uri + ':\n' + text
       }
     ]
   };
 }
 
-async function handleFeed({ handle, password }) {
+async function handleFeed({ cursor, handle, password }) {
   if (!handle) handle = await keytar.getPassword(name, "default_handle");
   if (handle === 'anonymous') handle = undefined;
 
   if (handle && !password) [{ password }] = [await getCredentials(handle)];
 
-  let posts;
+  let feed;
   if (!handle) {
     const agent = new AtpAgent({ service: 'https://api.bsky.app' });
-    const feed = await agent.app.bsky.feed.getFeed({
-      feed: 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
+    feed = await agent.app.bsky.feed.getFeed({
+      feed: 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot',
+      cursor
     });
-    posts = feed.data.feed;
   } else {
     const agent = new AtpAgent({ service: 'https://bsky.social' });
     await agent.login({ identifier: handle, password });
-    const feed = await agent.getTimeline();
-    posts = feed.data.feed;
+    feed = await agent.getTimeline();
   }
   return {
     content: [
       {
         type: 'text',
         text:
-          posts.map(post =>
-            post.post.indexedAt + ' @' + post.post.author.handle + ' postURI: ' + post.post.uri + '\n' +
+          'cursor: ' + feed.data.cursor + '\n' +
+          'feed:\n\n' + feed.data.feed.map(post =>
+            post.post.indexedAt + ' @' + post.post.author.handle + (post.post.author.displayName ? ' ' + JSON.stringify(post.post.author.displayName) + ' ' : '') +  ' postURI: ' + post.post.uri + '\n' +
             post.post.record.text +
             (post.post.likeCount || post.post.replyCount || post.post.repostCount || post.post.quoteCount ?
               '\n(' +
@@ -392,15 +172,17 @@ async function handleFeed({ handle, password }) {
       }
     ],
     structuredContent: {
-      posts: posts.map(post => ({
+      cursor: feed.data.cursor,
+      posts: feed.data.feed.map(post => ({
         indexedAt: post.post.indexedAt,
         author: post.post.author.handle,
+        authorName: post.post.author.displayName,
         postURI: post.post.uri,
-        text: post.post.record.text,
-        likeCount: post.post.likeCount ?? null,
-        replyCount: post.post.replyCount ?? null,
-        repostCount: post.post.repostCount ?? null,
-        quoteCount: post.post.quoteCount ?? null
+        text: /** @type {string} */(post.post.record.text),
+        likeCount: post.post.likeCount,
+        replyCount: post.post.replyCount,
+        repostCount: post.post.repostCount,
+        quoteCount: post.post.quoteCount
       }))
     }
   };
@@ -434,51 +216,7 @@ async function handleFollowing({ user }) {
   };
 }
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  try {
-    const { name, arguments = {} } = request.params;
-
-    if (!name) throw new Error('Tool name is required.');
-
-    switch (name) {
-      case "login":
-        return await handleLogin(arguments);
-      case "post":
-        return await handlePost(arguments);
-      case "feed":
-        return await handleFeed(arguments);
-      case "followers":
-        return await handleFollowers(arguments);
-      case "following":
-        return await handleFollowing(arguments);
-      case "search":
-        return await handleSearch(arguments);
-      case "delete":
-        return await handleDelete(arguments);
-        case "threads":
-          return await handleThreads(arguments);
-        case "like":
-          return await handleLike(arguments);
-        case "repost":
-          return await handleRepost(arguments);
-      default:
-        throw new Error(`Tool ${name} is not supported.`);
-    }
-  } catch (error) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'Error: ' + error.message,
-          error: error.message
-        }
-      ],
-      isError: true
-    };
-  }
-});
-
-async function handleSearch({ from, query, handle, password }) {
+async function handleSearch({ from, query, handle, password, cursor }) {
   if (!handle) handle = await keytar.getPassword(name, "default_handle");
   if (handle === 'anonymous') handle = undefined;
 
@@ -486,23 +224,23 @@ async function handleSearch({ from, query, handle, password }) {
 
   if (!query && !from) query = '*';
 
-  let posts;
+  let feed;
   if (!handle) {
     // Unauthenticated search: use public feed and filter
     const agent = new AtpAgent({ service: 'https://api.bsky.app' });
-    const feed = await agent.app.bsky.feed.searchPosts({
-      q: query + ( from ? ' from:' + from : '' ),
+    feed = await agent.app.bsky.feed.searchPosts({
+      q: query + (from ? ' from:' + from : ''),
+      cursor
     });
-    posts = feed.data.posts;
   } else {
     // Authenticated search: get timeline and filter
     if (!password) [{ password }] = [await getCredentials(handle)];
     const agent = new AtpAgent({ service: 'https://bsky.social' });
     await agent.login({ identifier: handle, password });
-    const feed = await agent.app.bsky.feed.searchPosts({
-      q: query + ( from ? ' from:' + from : '' ),
+    feed = await agent.app.bsky.feed.searchPosts({
+      q: query + (from ? ' from:' + from : ''),
+      cursor
     });
-    posts = feed.data.posts;
   }
 
   return {
@@ -510,8 +248,10 @@ async function handleSearch({ from, query, handle, password }) {
       {
         type: 'text',
         text:
-          posts.map(post =>
-            post.indexedAt + ' @' + post.author.handle + ' postURI: ' + post.uri + '\n' +
+          'cursor: ' + feed.data.cursor + '\n' +
+          'search feed:\n\n' +
+          feed.data.posts.map(post =>
+            post.indexedAt + ' @' + post.author.handle + (post.author.displayName ? ' ' + JSON.stringify(post.author.displayName) + ' ' : '') + ' postURI: ' + post.uri + '\n' +
             post.record.text +
             (post.likeCount || post.replyCount || post.repostCount || post.quoteCount ?
               '\n(' +
@@ -527,9 +267,11 @@ async function handleSearch({ from, query, handle, password }) {
       }
     ],
     structuredContent: {
-      posts: posts.map(post => ({
+      cursor: feed.data.cursor,
+      posts: feed.data.posts.map(post => ({
         indexedAt: post.indexedAt,
         author: post.author.handle,
+        authorName: post.author.displayName,
         postURI: post.uri,
         text: post.record.text,
         likeCount: post.likeCount ?? null,
@@ -634,19 +376,53 @@ async function handleThreads({ postURI, handle, password }) {
 
   // Fetch thread
   const thread = await agent.app.bsky.feed.getPostThread({ uri: postURI });
-  // Flatten thread into array
+  const anchorRecord = /** @type {import('@atproto/api').AppBskyFeedPost.Record} */(/** @type {*} */(
+  /** @type {import('@atproto/api/dist/client/types/app/bsky/feed/defs').ThreadViewPost} */(thread.data.thread).post?.record));
+
+  /**
+   * @typedef {Omit<Partial<import('@atproto/api/dist/client/types/app/bsky/feed/defs').ThreadViewPost &
+   *  Partial<import('@atproto/api/dist/client/types/app/bsky/feed/defs').NotFoundPost> &
+   *  Partial<import('@atproto/api/dist/client/types/app/bsky/feed/defs').BlockedPost>>, '$type'> & { $type: string }} PostOrPlaceholder
+   */
+
+  /**
+   * Flatten thread into array
+   * @param {PostOrPlaceholder} [node]
+   * @returns {Array}
+   */
   function flattenThread(node) {
-    if (!node) return [];
+    /**
+     * @type {{
+     *  indexedAt: string,
+     *  author: string,
+     *  authorName?: string,
+     *  postURI: string,
+     *  replyToURI: string,
+     *  text: unknown,
+     *  likeCount?: number,
+     *  replyCount?: number,
+     *  repostCount?: number,
+     *  quoteCount?: number
+     * }[]}
+     */
     const arr = [];
+    if (!node) return arr;
     if (node.post) {
-      arr.push({
+      const postData ={
         indexedAt: node.post.indexedAt,
         author: node.post.author.handle,
+        authorName: node.post.author.displayName,
         postURI: node.post.uri,
-        text: node.post.record.text
-      });
+        replyToURI: node.post.uri,
+        text: node.post.record.text,
+        likeCount: node.post.likeCount,
+        replyCount: node.post.replyCount,
+        repostCount: node.post.repostCount,
+        quoteCount: node.post.quoteCount
+      };
+      arr.push(postData);
     }
-    if (node.replies && Array.isArray(node.replies)) {
+    if (node.replies?.length) {
       for (const reply of node.replies) {
         arr.push(...flattenThread(reply));
       }
@@ -654,11 +430,35 @@ async function handleThreads({ postURI, handle, password }) {
     return arr;
   }
   const posts = flattenThread(thread.data.thread);
+
+  // restore the context
+  if (!posts.find(p => p.postURI === anchorRecord?.reply?.root?.uri)) {
+    if (anchorRecord?.reply?.root?.uri) {
+      const rootPost = await agent.app.bsky.feed.getPostThread({ uri: anchorRecord?.reply?.root?.uri });
+      const updated = flattenThread(rootPost.data.thread);
+      posts.unshift(...updated);
+    }
+  }
+
   return {
     content: [
       {
         type: 'text',
-        text: posts.map(post => post.indexedAt + ' @' + post.author + ' postURI: ' + post.postURI + '\n' + post.text).join('\n\n')
+        text:
+          posts.map(post =>
+            post.indexedAt + ' @' + post.author + (post.post.author.displayName ? ' ' + JSON.stringify(post.post.author.displayName) + ' ' : '') + ' postURI: ' + post.postURI + ' in reply to postURI: ' + post.replyToURI + '\n' +
+            post.text +
+            (post.post.likeCount || post.post.replyCount || post.post.repostCount || post.post.quoteCount ?
+              '\n(' +
+              [
+                post.post.likeCount ? post.post.likeCount + ' likes' : '',
+                post.post.replyCount ? post.post.replyCount + ' replies' : '',
+                post.post.repostCount ? post.post.repostCount + ' reposts' : '',
+                post.post.quoteCount ? post.post.quoteCount + ' quotes' : ''
+              ].filter(Boolean).join(', ') +
+              ')'
+              : '')
+          ).join('\n\n')
       }
     ],
     structuredContent: {
@@ -674,22 +474,6 @@ async function handleDelete({ postURI, handle, password }) {
   await agent.deletePost(postURI);
   return { content: { type: 'text', success: true, text: 'Post deleted' } };
 }
-
-// Handles post-initialization setup, specifically checking for and fetching MCP roots.
-server.oninitialized = async () => {
-  const clientCapabilities = server.getClientCapabilities();
-
-  if (clientCapabilities?.roots) {
-    const response = await server.listRoots();
-    // console.log(response);
-  } else {
-  }
-};
-
-const transport = new StdioServerTransport();
-server.connect(transport).then(() => {
-});
-
 
 /**
 * @param {string | null | undefined} url
@@ -751,4 +535,424 @@ const _breakFeedUri_Regex = /^at\:\/\/(did:plc:)?([a-z0-9]+)\/([a-z\.]+)\/?(.*)?
 
 function makeFeedUri(shortDID, postID) {
   return 'at://' + unwrapShortDID(shortDID) + '/app.bsky.feed.post/' + postID;
+}
+
+function runMCP() {
+
+  const server = new Server(
+    { name, version },
+    {
+      capabilities: {
+        tools: {
+          post: ToolSchema,
+          feed: ToolSchema,
+          followers: ToolSchema,
+          following: ToolSchema,
+          search: ToolSchema,
+          threads: ToolSchema,
+          delete: ToolSchema,
+          like: ToolSchema,
+          repost: ToolSchema,
+          login: ToolSchema
+        }
+      }
+    }
+  );
+
+  // Register MCP tools
+  server.setRequestHandler(ListToolsRequestSchema, async (request) => {
+    return {
+      tools: [
+        {
+          name: "login",
+          description: "Login and cache BlueSky handle and password.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              handle: { type: "string", description: "Your BlueSky handle, who are you on BlueSky?" },
+              password: { type: "string", description: "Your BlueSky app password (better not share it)." }
+            },
+            required: ["handle", "password"]
+          }
+        },
+        {
+          name: "post",
+          description: "Post a message to BlueSky. Some people call these messages tweets or skeets or posts, same difference.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              replyToURI: { type: "string", description: "The post URI (or BlueSky URL of the post) to which the reply is made (if any)." },
+              text: { type: "string", description: "The text to post." },
+              handle: { type: "string", description: "(Optional) BlueSky handle to post the message as." },
+              password: { type: "string", description: "(Optional) BlueSky password to use." }
+            },
+            required: ["text"]
+          }
+        },
+        {
+          name: "feed",
+          description:
+            "Get the latest feed from BlueSky. " +
+            "Returns a list of messages or tweets or posts or skeets however you call them. " +
+            "If you want to see the latest posts from a specific user, just provide their handle. " +
+            "These feeds are paginated, you get the top chunk and a cursor, you can call the same tool again with the cursor to get more posts.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              handle: {
+                type: "string", description:
+                  "(Optional) BlueSky handle for which the feed is requested. " +
+                  "If unspecified, or specified as anonymous, the feed will be retrieved in the incognito mode."
+              },
+              password: { type: "string", description: "(Optional) BlueSky password to use." },
+              cursor: { type: "string", description: "(Optional) Cursor for pagination." }
+            },
+            required: []
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              cursor: { type: "string", description: "Cursor for pagination, if more data is available." },
+              posts: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
+                    author: { type: "string", description: "BlueSky handle of the author." },
+                    authorName: { type: "string", description: "Name of the author, if available." },
+                    postURI: { type: "string", description: "URI of the post." },
+                    text: { type: "string", description: "Text content of the post." },
+                    likeCount: { type: "number", description: "Number of likes.", nullable: true },
+                    replyCount: { type: "number", description: "Number of replies.", nullable: true },
+                    repostCount: { type: "number", description: "Number of reposts.", nullable: true },
+                    quoteCount: { type: "number", description: "Number of quotes.", nullable: true }
+                  },
+                  required: ["indexedAt", "author", "postURI", "text"]
+                }
+              }
+            }
+          }
+        },
+        {
+          name: "followers",
+          description: "Get followers for a user.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              user: { type: "string", description: "The handle of the user to get followers for." }
+            },
+            required: ["user"]
+          }
+        },
+        {
+          name: "following",
+          description: "Get following list for a user.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              user: { type: "string", description: "The handle of the user to get following for." }
+            },
+            required: ["user"]
+          }
+        },
+        {
+          name: "search",
+          description:
+            "Search messages (also known as posts, tweets, or skeets) on BlueSky by text query. " +
+            "You can search for posts by text, or filter by author handle. " +
+            "If you want to see messages from a specific user, just provide their handle. " +
+            "That handle can also be a special value 'me' to indicate the authenticated user's posts. " +
+            "These searches are paginated, you get the top chunk and a cursor, you can call the same tool again with the cursor to get more posts.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              from: { type: "string", description: "(Optional) Messages from who, a handle or say 'me' for the user that's logged in." },
+              query: { type: "string", description: "(Optional) Text to search for in messages. Here's an old blog post about search tricks, https://bsky.social/about/blog/05-31-2024-search but you can probably find more Googling, because these things change and improve often." },
+              cursor: { type: "string", description: "(Optional) Cursor for pagination." },
+              handle: { type: "string", description: "(Optional) BlueSky handle to use for authenticated search, anonymous to force unanuthenticated." },
+              password: { type: "string", description: "(Optional) BlueSky password to use." }
+            },
+            required: []
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              cursor: { type: "string", description: "Cursor for pagination, if more data is available." },
+              posts: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
+                    author: { type: "string", description: "BlueSky handle of the author." },
+                    authorName: { type: "string", description: "Name of the author, if available." },
+                    postURI: { type: "string", description: "URI of the post." },
+                    text: { type: "string", description: "Text content of the post." },
+                    likeCount: { type: "number", description: "Number of likes.", nullable: true },
+                    replyCount: { type: "number", description: "Number of replies.", nullable: true },
+                    repostCount: { type: "number", description: "Number of reposts.", nullable: true },
+                    quoteCount: { type: "number", description: "Number of quotes.", nullable: true }
+                  },
+                  required: ["indexedAt", "author", "postURI", "text"]
+                }
+              }
+            }
+          }
+        },
+        {
+          name: "threads",
+          description:
+            "Fetch a thread by post URI, it returns all the replies and replies to replies, the whole bunch. " +
+            "If you're already logged in, this will fetch the thread as viewed by the logged in user (or you can provide handle/password directly). " +
+            "If the handle is a special placeholder value 'anonymous', it will fetch the thread in incognito mode, " +
+            "that sometimes yields more if your logged in account is blocked by other posters. " +
+            "Note that messages in the thread are sometimes called skeets, tweets, or posts, but they are all the same thing.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              postURI: { type: "string", description: "The BlueSky URL of the post, or also can be at:// URI of the post to fetch the thread for." },
+              cursor: { type: "string", description: "(Optional) Cursor for pagination." },
+              handle: { type: "string", description: "(Optional) BlueSky handle to use for authenticated fetch." },
+              password: { type: "string", description: "(Optional) BlueSky password to use." }
+            },
+            required: ["postURI"]
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              cursor: { type: "string", description: "Cursor for pagination, if more data is available." },
+              posts: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
+                    author: { type: "string", description: "BlueSky handle of the author." },
+                    authorName: { type: "string", description: "Name of the author, if available." },
+                    postURI: { type: "string", description: "URI of the post." },
+                    replyToURI: { type: "string", description: "URI of the post being replied to, if any." },
+                    text: { type: "string", description: "Text content of the post." },
+                    likeCount: { type: "number", description: "Number of likes.", nullable: true },
+                    replyCount: { type: "number", description: "Number of replies.", nullable: true },
+                    repostCount: { type: "number", description: "Number of reposts.", nullable: true },
+                    quoteCount: { type: "number", description: "Number of quotes.", nullable: true }
+                  },
+                  required: ["indexedAt", "author", "postURI", "text"]
+                }
+              }
+            }
+          }
+        },
+        {
+          name: "delete",
+          description: "Delete a post by URI (authenticated only).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              postURI: { type: "string", description: "The URI of the post to delete." },
+              handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as, if not logged in already." },
+              password: { type: "string", description: "(Optional) BlueSky password to use." }
+            },
+            required: ["postURI"]
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              message: { type: "string" }
+            },
+            required: ["success", "message"]
+          }
+        },
+        {
+          name: "like",
+          description: "Like a post by URI or BlueSky URL.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              postURI: { type: "string", description: "The BlueSky URL or at:// URI of the post to like." },
+              handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as. Leave empty for already logged in user." },
+              password: { type: "string", description: "(Optional) BlueSky password to use. Leave empty for already logged in user." }
+            },
+            required: ["postURI"]
+          }
+        },
+        {
+          name: "repost",
+          description: "Repost a post by URI or BlueSky URL.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              postURI: { type: "string", description: "The BlueSky URL or at:// URI of the post to repost." },
+              handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as. Leave empty for already logged in user." },
+              password: { type: "string", description: "(Optional) BlueSky password to use. Leave empty for already logged in user." }
+            },
+            required: ["postURI"]
+          }
+        }
+      ]
+    };
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    try {
+      const { name, arguments = {} } = request.params;
+
+      if (!name) throw new Error('Tool name is required.');
+
+      switch (name) {
+        case "login":
+          return await handleLogin(arguments);
+        case "post":
+          return await handlePost(arguments);
+        case "feed":
+          return await handleFeed(arguments);
+        case "followers":
+          return await handleFollowers(arguments);
+        case "following":
+          return await handleFollowing(arguments);
+        case "search":
+          return await handleSearch(arguments);
+        case "delete":
+          return await handleDelete(arguments);
+        case "threads":
+          return await handleThreads(arguments);
+        case "like":
+          return await handleLike(arguments);
+        case "repost":
+          return await handleRepost(arguments);
+        default:
+          throw new Error(`Tool ${name} is not supported.`);
+      }
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Error: ' + error.message,
+            error: error.message
+          }
+        ],
+        isError: true
+      };
+    }
+  });
+
+  // Handles post-initialization setup, specifically checking for and fetching MCP roots.
+  server.oninitialized = async () => {
+    const clientCapabilities = server.getClientCapabilities();
+
+    if (clientCapabilities?.roots) {
+      const response = await server.listRoots();
+      // console.log(response);
+    } else {
+    }
+  };
+
+  const transport = new StdioServerTransport();
+  server.connect(transport).then(() => {
+  });
+
+}
+
+function getGeminiSettingsPath(globalMode) {
+  if (globalMode) {
+    const home = os.homedir();
+    return path.join(home, '.gemini', 'settings.json');
+  } else {
+    return path.join(process.cwd(), '.gemini', 'settings.json');
+  }
+}
+
+async function install(globalMode = true) {
+  const settingsPath = getGeminiSettingsPath(globalMode);
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  let settings = {};
+  if (fs.existsSync(settingsPath)) {
+    try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { }
+  }
+  settings.autoremove = path.resolve(__filename);
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  console.log(`Gemini settings updated at: ${settingsPath}`);
+  console.log(`autoremove set to: ${settings.autoremove}`);
+}
+
+async function login() {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  function ask(q, hide = false) {
+    return new Promise((resolve) => {
+      if (!hide) rl.question(q, resolve);
+      else {
+        process.stdout.write(q);
+        let input = '';
+        process.stdin.on('data', (chunk) => {
+          input += chunk;
+          if (input.includes('\n')) {
+            rl.output.write('\n');
+            resolve(input.trim());
+          }
+        });
+      }
+    });
+  }
+  try {
+    const handle = await ask('BlueSky handle: ');
+    const password = await ask('BlueSky password: ', true);
+    await keytar.setPassword(name, handle, password);
+    await keytar.setPassword(name, 'default_handle', handle);
+    console.log('Login successful. Credentials stored.');
+  } catch (e) {
+    console.error('Login failed:', e.message);
+  } finally {
+    rl.close();
+  }
+}
+
+async function printFeedPreview() {
+  const feed = await handleFeed({});
+  const posts = feed.structuredContent.posts.slice(0, 10);
+  console.log('\nCurrent feed:');
+  const now = new Date();
+  let output = [];
+  for (const post of posts) {
+    const dtPost = new Date(post.indexedAt);
+    const dtStr =
+      dtPost.toISOString().split('T')[0] === now.toISOString().split('T')[0] ?
+        dtPost.toLocaleTimeString() :
+        dtPost.toLocaleDateString();
+
+    const text = post.text.trim().split('\n').filter(ln => ln.trim())[0];
+    if (!text) continue;
+
+    output.push(
+      '  ' + dtStr + ' @' + post.author + (text.length > 60 ? text.slice(0, 55) + '...' : text)
+    );
+
+    if (output.length >= 15) break;
+  }
+
+  console.log(output.length ? output.join('\n') : 'No posts found in the feed.');
+}
+
+async function runInteractive() {
+  const args = process.argv.slice(2);
+  if (args[0] === 'install') {
+    await install(args[1] !== 'local');
+  } else if (args[0] === 'login') {
+    await login();
+  } else {
+    console.log(name + ' MCP  v' + version);
+    console.log('Usage: autoreply [install|login]');
+    console.log('If no arguments, shows feed preview.');
+    await printFeedPreview();
+  }
+}
+
+if (require.main === module) {
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    runInteractive();
+  } else {
+    runMCP();
+  }
 }
