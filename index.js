@@ -905,8 +905,9 @@ function getGeminiSettingsPath(globalMode) {
 
 async function localInstall(globalMode = true) {
   const settingsPath = getGeminiSettingsPath(globalMode);
-  process.stdout.write('Installing autoreply MCP to Gemini CLI at ' + settingsPath + '... ');
+  process.stdout.write('Installing autoreply MCP to Gemini CLI at ' + settingsPath + '..');
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  process.stdout.write('.');
   let settingsJson = {};
   if (fs.existsSync(settingsPath)) {
     try { settingsJson = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { }
@@ -938,8 +939,12 @@ async function localInstall(globalMode = true) {
       path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Code', 'User', 'mcp.json') :
       process.platform === 'darwin' ?
         path.join(os.homedir(), 'Library', 'Application Support', 'Code', 'User', 'mcp.json') :
-        path.join(os.homedir(), '.config', 'Code', 'User', 'mcp.json');
-  process.stdout.write('Installing autoreply MCP to VSCode at ' + mcpJsonPath + '...');
+        !!process.env.CODESPACES || !!process.env.CODESPACE_NAME ?
+          path.join(os.homedir(), '.vscode-remote', 'data', 'User', 'mcp.json') :
+          path.join(os.homedir(), '.config', 'Code', 'User', 'mcp.json');
+  process.stdout.write('Installing autoreply MCP to VSCode at ' + mcpJsonPath + '..');
+  fs.mkdirSync(path.dirname(mcpJsonPath), { recursive: true });
+  process.stdout.write('.');
 
   let mcpJson = {};
   if (fs.existsSync(mcpJsonPath)) {
