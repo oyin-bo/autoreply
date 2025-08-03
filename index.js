@@ -188,31 +188,41 @@ async function handleFeed({ cursor, handle, password }) {
   };
 }
 
-async function handleFollowers({ user }) {
+async function handleProfile({ user, cursor }) {
   const agent = new AtpAgent({ service: 'https://api.bsky.app' });
-  const profile = await agent.getProfile({ actor: user });
-  const followers = await agent.getFollowers({ actor: profile.data.did });
-  return {
-    content: [{
-      type: 'text',
-      text:
-        'Followers (' + followers.data.followers.length + '):\n' +
-        followers.data.followers.map((follower) => '@' + follower.handle).join(', ')
-    }]
-  };
-}
+  const [followersCursor, followsCursor] = cursor ? JSON.parse(cursor) : [undefined, undefined];
+  const [profile, followers, following] = await Promise.all([
+    agent.getProfile({ actor: user }),
+    agent.getFollowers({ actor: user, cursor: followersCursor }),
+    agent.getFollows({ actor: user, cursor: followsCursor })
+  ]);
 
-async function handleFollowing({ user }) {
-  const agent = new AtpAgent({ service: 'https://api.bsky.app' });
-  const profile = await agent.getProfile({ actor: user });
-  const following = await agent.getFollows({ actor: profile.data.did });
+  const structuredContent = {
+    handle: profile.data.handle,
+    displayName: profile.data.displayName,
+    description: profile.data.description,
+    createdAt: profile.data.createdAt,
+    followersCount: profile.data.followersCount,
+    followingCount: profile.data.followsCount,
+    postsCount: profile.data.postsCount,
+    followers: followers.data.followers.map((follower) => '@' + follower.handle),
+    following: following.data.follows.map((follow) => '@' + follow.handle),
+    cursor: JSON.stringify([followers.data.cursor, following.data.cursor])
+  };
+
   return {
-    content: [{
-      type: 'text',
-      text:
-        'Following (' + following.data.follows.length + '):\n' +
-        following.data.follows.map((follow) => '@' + follow.handle).join(', ')
-    }]
+    content: [
+      {
+        type: 'text',
+        text: `Profile: @${structuredContent.handle} (${structuredContent.displayName})\n\n` +
+          'created: ' + structuredContent.createdAt + '\n\n' +
+          `${structuredContent.description}\n\n` +
+          `Followers: ${structuredContent.followersCount}, Following: ${structuredContent.followingCount}, Posts: ${structuredContent.postsCount}\n` +
+          `\nFollowers:\n${structuredContent.followers.join(', ')}\n` +
+          `\nFollowing:\n${structuredContent.following.join(', ')}`
+      }
+    ],
+    structuredContent
   };
 }
 
@@ -546,8 +556,7 @@ function runMCP() {
         tools: {
           post: ToolSchema,
           feed: ToolSchema,
-          followers: ToolSchema,
-          following: ToolSchema,
+          profile: ToolSchema,
           search: ToolSchema,
           threads: ToolSchema,
           delete: ToolSchema,
@@ -635,25 +644,29 @@ function runMCP() {
           }
         },
         {
-          name: "followers",
-          description: "Get followers for a user.",
+          name: "profile",
+          description: "Get profile details, followers, and following for an account.",
           inputSchema: {
             type: "object",
             properties: {
-              user: { type: "string", description: "The handle of the user to get followers for." }
+              user: { type: "string", description: "The handle of the user to get the profile for." },
+              cursor: { type: "string", description: "(Optional) Cursor for pagination of followers/following." },
             },
             required: ["user"]
-          }
-        },
-        {
-          name: "following",
-          description: "Get following list for a user.",
-          inputSchema: {
+          },
+          outputSchema: {
             type: "object",
             properties: {
-              user: { type: "string", description: "The handle of the user to get following for." }
-            },
-            required: ["user"]
+              handle: { type: "string" },
+              displayName: { type: "string" },
+              description: { type: "string" },
+              followersCount: { type: "number" },
+              followingCount: { type: "number" },
+              postsCount: { type: "number" },
+              followers: { type: "array", items: { type: "string" } },
+              following: { type: "array", items: { type: "string" } },
+              cursor: { type: "string", description: "Cursor for pagination of followers/following." }
+            }
           }
         },
         {
@@ -803,25 +816,23 @@ function runMCP() {
 
       switch (name) {
         case "login":
-          return await handleLogin(arguments);
+          return await handleLogin(/** @type {any} */(arguments));
         case "post":
-          return await handlePost(arguments);
+          return await handlePost(/** @type {any} */(arguments));
         case "feed":
-          return await handleFeed(arguments);
-        case "followers":
-          return await handleFollowers(arguments);
-        case "following":
-          return await handleFollowing(arguments);
+          return await handleFeed(/** @type {any} */(arguments));
+        case "profile":
+          return await handleProfile(/** @type {any} */(arguments));
         case "search":
-          return await handleSearch(arguments);
+          return await handleSearch(/** @type {any} */(arguments));
         case "delete":
-          return await handleDelete(arguments);
+          return await handleDelete(/** @type {any} */(arguments));
         case "threads":
-          return await handleThreads(arguments);
+          return await handleThreads(/** @type {any} */(arguments));
         case "like":
-          return await handleLike(arguments);
+          return await handleLike(/** @type {any} */(arguments));
         case "repost":
-          return await handleRepost(arguments);
+          return await handleRepost(/** @type {any} */(arguments));
         default:
           throw new Error(`Tool ${name} is not supported.`);
       }
