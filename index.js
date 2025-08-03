@@ -1,5 +1,3 @@
-
-
 // @ts-check
 const { AtpAgent } = require('@atproto/api');
 const keytar = require('keytar');
@@ -72,6 +70,28 @@ server.setRequestHandler(ListToolsRequestSchema, async (request) => {
             password: { type: "string", description: "(Optional) BlueSky password to use." }
           },
           required: []
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            posts: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
+                  author: { type: "string", description: "BlueSky handle of the author." },
+                  postURI: { type: "string", description: "URI of the post." },
+                  text: { type: "string", description: "Text content of the post." },
+                  likeCount: { type: "number", description: "Number of likes.", nullable: true },
+                  replyCount: { type: "number", description: "Number of replies.", nullable: true },
+                  repostCount: { type: "number", description: "Number of reposts.", nullable: true },
+                  quoteCount: { type: "number", description: "Number of quotes.", nullable: true }
+                },
+                required: ["indexedAt", "author", "postURI", "text"]
+              }
+            }
+          }
         }
       },
       {
@@ -109,7 +129,7 @@ async function handleLogin({ handle, password }) {
 
   await keytar.setPassword(name, handle, password);
   await keytar.setPassword(name, "default_handle", handle);
-  return { toolResult: "Credentials stored and default handle set." };
+  return { content: "Credentials stored and default handle set." };
 }
 
 /**
@@ -132,11 +152,45 @@ async function handlePost({ text, handle, password, replyToURI }) {
 
   const agent = new AtpAgent({ service: 'https://bsky.social' });
   await agent.login({ identifier: handle, password });
+  let reply;
+  let replyTracking;
+  const postRef = breakPostURL(replyToURI) || breakFeedURI(replyToURI);
+  if (postRef) {
+    const replyToPost = await agent.getPost({
+      repo: unwrapShortDID(postRef.shortDID),
+      rkey: postRef.postID
+    });
+    reply = /** @type {const} */({
+      root: replyToPost.value.reply?.root || {
+        $type: 'com.atproto.repo.strongRef',
+        uri: replyToPost.uri,
+        cid: replyToPost.cid
+      },
+      parent: {
+        $type: 'com.atproto.repo.strongRef',
+        uri: replyToPost.uri,
+        cid: replyToPost.cid
+      }
+    });
+    replyTracking = replyToPost.value.text;
+  }
+
   await agent.post({
     text,
-    reply: replyToURI ? { root: replyToURI, parent: replyToURI } : undefined
+    reply
   });
-  return { toolResult: "Post successful!" };
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          replyTracking ? 'Replied to ' + replyTracking + ':\n' + text :
+            replyToURI ? 'Could not split ' + JSON.stringify(replyToURI) + '/' + JSON.stringify(postRef) + ', posted alone:\n' + text :
+              'Posted:\n' + text
+      }
+    ]
+  };
 }
 
 async function handleFeed({ handle, password }) {
@@ -159,20 +213,38 @@ async function handleFeed({ handle, password }) {
     posts = feed.data.feed;
   }
   return {
-    toolResult: posts.map(post =>
-      post.post.indexedAt + ' @' + post.post.author.handle + ' postURI: ' + post.post.uri + '\n' +
-      post.post.record.text +
-      (post.post.likeCount || post.post.replyCount || post.post.repostCount || post.post.quoteCount ?
-        '\n(' +
-        [
-          post.post.likeCount ? post.post.likeCount + ' likes' : '',
-          post.post.replyCount ? post.post.replyCount + ' replies' : '',
-          post.post.repostCount ? post.post.repostCount + ' reposts' : '',
-          post.post.quoteCount ? post.post.quoteCount + ' quotes' : ''
-        ].filter(Boolean).join(', ') +
-        ')'
-        : '')
-    )
+    content: [
+      {
+        type: 'text',
+        text:
+          posts.map(post =>
+            post.post.indexedAt + ' @' + post.post.author.handle + ' postURI: ' + post.post.uri + '\n' +
+            post.post.record.text +
+            (post.post.likeCount || post.post.replyCount || post.post.repostCount || post.post.quoteCount ?
+              '\n(' +
+              [
+                post.post.likeCount ? post.post.likeCount + ' likes' : '',
+                post.post.replyCount ? post.post.replyCount + ' replies' : '',
+                post.post.repostCount ? post.post.repostCount + ' reposts' : '',
+                post.post.quoteCount ? post.post.quoteCount + ' quotes' : ''
+              ].filter(Boolean).join(', ') +
+              ')'
+              : '')
+          ).join('\n\n')
+      }
+    ],
+    structuredContent: {
+      posts: posts.map(post => ({
+        indexedAt: post.post.indexedAt,
+        author: post.post.author.handle,
+        postURI: post.post.uri,
+        text: post.post.record.text,
+        likeCount: post.post.likeCount ?? null,
+        replyCount: post.post.replyCount ?? null,
+        repostCount: post.post.repostCount ?? null,
+        quoteCount: post.post.quoteCount ?? null
+      }))
+    }
   };
 }
 
@@ -180,16 +252,28 @@ async function handleFollowers({ user }) {
   const agent = new AtpAgent({ service: 'https://api.bsky.app' });
   const profile = await agent.getProfile({ actor: user });
   const followers = await agent.getFollowers({ actor: profile.data.did });
-  const handles = followers.data.followers.map((follower) => follower.handle);
-  return { toolResult: handles };
+  return {
+    content: [{
+      type: 'text',
+      text:
+        'Followers (' + followers.data.followers.length + '):\n' +
+        followers.data.followers.map((follower) => '@' + follower.handle).join(', ')
+    }]
+  };
 }
 
 async function handleFollowing({ user }) {
   const agent = new AtpAgent({ service: 'https://api.bsky.app' });
   const profile = await agent.getProfile({ actor: user });
   const following = await agent.getFollows({ actor: profile.data.did });
-  const handles = following.data.follows.map((follow) => follow.handle);
-  return { toolResult: handles };
+  return {
+    content: [{
+      type: 'text',
+      text:
+        'Following (' + following.data.follows.length + '):\n' +
+        following.data.follows.map((follow) => '@' + follow.handle).join(', ')
+    }]
+  };
 }
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -213,7 +297,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Tool ${name} is not supported.`);
     }
   } catch (error) {
-    return { toolResult: { error: error.message }, isError: true };
+    return {
+      content: [
+        {
+          type: 'text',
+          text: 'Error: ' + error.message,
+          error: error.message
+        }
+      ],
+      isError: true
+    };
   }
 });
 
@@ -223,7 +316,7 @@ server.oninitialized = async () => {
 
   if (clientCapabilities?.roots) {
     const response = await server.listRoots();
-    console.log(response);
+    // console.log(response);
   } else {
   }
 };
@@ -231,3 +324,54 @@ server.oninitialized = async () => {
 const transport = new StdioServerTransport();
 server.connect(transport).then(() => {
 });
+
+
+/**
+* @param {string | null | undefined} url
+*/
+function breakPostURL(url) {
+  if (!url) return;
+  const matchBsky = _breakBskyPostURL_Regex.exec(url);
+  if (matchBsky) return { shortDID: shortenDID(matchBsky[1]), postID: matchBsky[2]?.toString().toLowerCase() };
+  const matchGisting = _breakGistingPostURL_Regex.exec(url);
+  if (matchGisting) return { shortDID: shortenDID(matchGisting[2]), postID: matchGisting[3]?.toString().toLowerCase() };
+  const matchBskyStyle = _breakBskyStylePostURL_Regex.exec(url);
+  if (matchBskyStyle) return { shortDID: shortenDID(matchBskyStyle[2]), postID: matchBskyStyle[3]?.toString().toLowerCase() };
+}
+const _breakBskyPostURL_Regex = /^http[s]?\:\/\/bsky\.app\/profile\/([a-z0-9\.\:\-]+)\/post\/([a-z0-9]+)(\/|$)/i;
+const _breakBskyStylePostURL_Regex = /^http[s]?\:\/\/(bsky\.app|6sky\.app|gist\.ing|gisti\.ng|gist\.ink)\/profile\/([a-z0-9\.\:\-]+)\/post\/([a-z0-9]+)(\/|$)/i;
+const _breakGistingPostURL_Regex = /^http[s]?\:\/\/(6sky\.app|gist\.ing|gisti\.ng|gist\.ink)\/([a-z0-9\.\:\-]+)\/([a-z0-9]+)(\/|$)/i;
+
+/**
+ * @param {T} did
+ * @returns {T}
+ * @template {string | undefined | null} T
+ */
+function shortenDID(did) {
+  return did && /** @type {T} */(did.replace(_shortenDID_Regex, '').toLowerCase() || undefined);
+}
+
+const _shortenDID_Regex = /^did\:plc\:/;
+
+/**
+ * @param {T} shortDID
+ * @returns {T}
+ * @template {string | undefined | null} T
+ */
+function unwrapShortDID(shortDID) {
+  return /** @type {T} */(
+    !shortDID ? undefined : shortDID.indexOf(':') < 0 ? 'did:plc:' + shortDID.toLowerCase() : shortDID.toLowerCase()
+  );
+}
+
+/**
+* @param {string | null | undefined} uri
+*/
+function breakFeedURI(uri) {
+  if (!uri) return;
+  const match = _breakFeedUri_Regex.exec(uri);
+  if (!match || !match[4]) return;
+  if (match[3] === 'app.bsky.feed.post') return { shortDID: shortenDID(match[2]), postID: match[4] };
+  return { shortDID: match[2], postID: match[4], feedType: match[3] };
+}
+const _breakFeedUri_Regex = /^at\:\/\/(did:plc:)?([a-z0-9]+)\/([a-z\.]+)\/?(.*)?$/;
