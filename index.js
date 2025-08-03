@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // @ts-check
 
 const { name, version } = require('./package.json');
