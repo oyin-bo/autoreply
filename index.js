@@ -100,9 +100,9 @@ const postSchema = {
 };
 
 /**
- * @param {{ handle?: string, password?: string }} args
+ * @param {{ login?: string, password?: string }} args
  */
-async function mcpLogin({ handle: login, password }) {
+async function mcpLogin({ login, password }) {
   if (!login || !password)
     throw new Error('Login handle and password are required.');
   const keytar = await keytarOrPromise;
@@ -136,11 +136,11 @@ async function getCredentials(handleImpersonate) {
  * @param {{
  *  cursor?: string,
  *  feed?: string,
- *  loginHandle?: string,
+ *  login?: string,
  *  password?: string
  * }} _
  */
-async function mcpFeed({ cursor, feed, loginHandle, password }) {
+async function mcpFeed({ cursor, feed, login: loginHandle, password }) {
   const keytar = await keytarOrPromise;
   if (!loginHandle) loginHandle = (await keytar.getPassword(name, 'default_handle')) || undefined;
   if (loginHandle === 'anonymous') loginHandle = undefined;
@@ -200,6 +200,12 @@ async function mcpFeed({ cursor, feed, loginHandle, password }) {
   };
 }
 
+/**
+ * @param {{
+ *  user: string,
+ *  cursor?: string
+ * }} _
+ */
 async function mcpProfile({ user, cursor }) {
   const agent = new AtpAgent({ service: 'https://api.bsky.app' });
   const [followersCursor, followsCursor] = cursor ? JSON.parse(cursor) : [undefined, undefined];
@@ -1117,7 +1123,8 @@ function getGeminiSettingsPath(globalMode) {
 
 async function localInstall(globalMode = true) {
   const settingsPath = getGeminiSettingsPath(globalMode);
-  process.stdout.write('Installing ' + name + ' v' + version + ' MCP to Gemini CLI at ' + settingsPath);
+  console.log('Installing ' + name + ' v' + version + ' MCP server');
+  process.stdout.write('  for Gemini CLI ' + settingsPath);
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
   process.stdout.write('.');
   let settingsJson = {};
@@ -1156,7 +1163,7 @@ async function localInstall(globalMode = true) {
         !!process.env.CODESPACES || !!process.env.CODESPACE_NAME ?
           path.join(os.homedir(), '.vscode-remote', 'data', 'User', 'mcp.json') :
           path.join(os.homedir(), '.config', 'Code', 'User', 'mcp.json');
-  process.stdout.write('Installing autoreply MCP to VSCode at ' + mcpJsonPath + '..');
+  process.stdout.write('  for VS Code    ' + mcpJsonPath + '..');
   fs.mkdirSync(path.dirname(mcpJsonPath), { recursive: true });
   process.stdout.write('.');
 
@@ -1184,7 +1191,7 @@ async function localInstall(globalMode = true) {
   fs.writeFileSync(mcpJsonPath, JSON.stringify(mcpJson, null, 2));
   console.log(' OK.');
 
-  console.log('  autoreply MCP server at: ' + path.resolve(__filename));
+  console.log('      autoreply  ' + path.resolve(__filename));
 }
 
 async function localLogin() {
@@ -1194,9 +1201,21 @@ async function localLogin() {
     console.log();
     const login = prompt('   account: ');
     const password = prompt('  password: ', { echo: '' });
+    process.stdout.write('    access..');
+    const feed = await mcpFeed({ login, password });
+    process.stdout.write('.');
+    const profile = await mcpProfile({ user: login });
+    process.stdout.write('\n\nLogged in as @' + profile.handle + ' ' + profile.displayName);
     await keytar.setPassword(name, login, password);
     await keytar.setPassword(name, 'default_handle', login);
-    console.log('Login successful. Credentials stored.');
+    console.log();
+    if (feed.structuredContent.posts.length) {
+      for (let i = 0; i < feed.structuredContent.posts.length && i < 4; i++) {
+        const post = feed.structuredContent.posts[i];
+        console.log('  ' + post.indexedAt + ' @' + post.author + ' ' + post.text.trim().split('\n')[0]);
+      }
+    }
+    console.log('\nCredentials stored.');
   } catch (e) {
     console.error('Login failed:', e.message);
   }
