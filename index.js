@@ -1080,8 +1080,8 @@ function runMCP() {
         content: [
           {
             type: 'text',
-            text: 'Error: ' + error.message,
-            error: error.message
+            text: 'Error: ' + error.message + ' for ' + name + ' v' + version,
+            error: error.stack
           }
         ],
         isError: true
