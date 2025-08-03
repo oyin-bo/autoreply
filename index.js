@@ -1117,13 +1117,14 @@ function getGeminiSettingsPath(globalMode) {
 
 async function localInstall(globalMode = true) {
   const settingsPath = getGeminiSettingsPath(globalMode);
-  process.stdout.write('Installing autoreply MCP to Gemini CLI at ' + settingsPath + '..');
+  process.stdout.write('Installing ' + name + ' v' + version + ' MCP to Gemini CLI at ' + settingsPath);
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
   process.stdout.write('.');
   let settingsJson = {};
   if (fs.existsSync(settingsPath)) {
     try { settingsJson = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { }
   }
+  process.stdout.write('.');
 
   settingsJson = {
     ...settingsJson,
@@ -1143,6 +1144,7 @@ async function localInstall(globalMode = true) {
     }
   };
 
+  process.stdout.write('.');
   fs.writeFileSync(settingsPath, JSON.stringify(settingsJson, null, 2));
   console.log(' OK');
 
