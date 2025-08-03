@@ -5,7 +5,6 @@ const { name, version } = require('./package.json');
 
 const fs = require('fs');
 const path = require('path');
-const readline = require('readline');
 const prompt = require('prompt-sync')({ sigint: true });
 const os = require('os');
 
@@ -904,20 +903,72 @@ function getGeminiSettingsPath(globalMode) {
   }
 }
 
-async function install(globalMode = true) {
+async function localInstall(globalMode = true) {
   const settingsPath = getGeminiSettingsPath(globalMode);
+  process.stdout.write('Installing autoreply MCP to Gemini CLI at ' + settingsPath + '... ');
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  let settings = {};
+  let settingsJson = {};
   if (fs.existsSync(settingsPath)) {
-    try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { }
+    try { settingsJson = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { }
   }
-  settings.autoremove = path.resolve(__filename);
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  console.log(`Gemini settings updated at: ${settingsPath}`);
-  console.log(`autoremove set to: ${settings.autoremove}`);
+
+  settingsJson = {
+    ...settingsJson,
+    allowMCPServers: [
+      'autoreply',
+      ...(settingsJson.allowMCPServers || []).filter(server => server !== 'autoreply'),
+    ],
+    mcpServers: {
+      ...settingsJson.mcpServers,
+      autoreply: {
+        ...settingsJson.mcpServers?.autoreply,
+        command: 'node',
+        args: [
+          path.resolve(__filename)
+        ],
+      }
+    }
+  };
+
+  fs.writeFileSync(settingsPath, JSON.stringify(settingsJson, null, 2));
+  console.log(' OK');
+
+  const mcpJsonPath =
+    process.platform === 'win32' ?
+      path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Code', 'User', 'mcp.json') :
+      process.platform === 'darwin' ?
+        path.join(os.homedir(), 'Library', 'Application Support', 'Code', 'User', 'mcp.json') :
+        path.join(os.homedir(), '.config', 'Code', 'User', 'mcp.json');
+  process.stdout.write('Installing autoreply MCP to VSCode at ' + mcpJsonPath + '...');
+
+  let mcpJson = {};
+  if (fs.existsSync(mcpJsonPath)) {
+    try { mcpJson = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf8')); } catch { }
+  }
+
+  mcpJson = {
+    ...mcpJson,
+    servers: {
+      ...mcpJson.servers,
+      autoreply: {
+        ...mcpJson.servers?.autoreply,
+        name: 'autoreply',
+        type: 'stdio',
+        command: 'node',
+        args: [
+          path.resolve(__filename)
+        ]
+      }
+    }
+  };
+
+  fs.writeFileSync(mcpJsonPath, JSON.stringify(mcpJson, null, 2));
+  console.log(' OK.');
+
+  console.log('  autoreply MCP server at: ' + path.resolve(__filename));
 }
 
-async function login() {
+async function localLogin() {
   try {
     const keytar = await keytarOrPromise;
     const handle = prompt('BlueSky handle: ');
@@ -960,9 +1011,9 @@ async function printFeedPreview() {
 async function runInteractive() {
   const args = process.argv.slice(2);
   if (args[0] === 'install') {
-    await install(args[1] !== 'local');
+    await localInstall(args[1] !== 'local');
   } else if (args[0] === 'login') {
-    await login();
+    await localLogin();
   } else {
     console.log(name + ' MCP  v' + version);
     console.log('Usage: autoreply [install|login]');

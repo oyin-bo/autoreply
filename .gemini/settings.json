@@ -7,6 +7,5 @@
         "./index.js"
       ]
     }
-    },
-  "experimentalAcp": true
+    }
 }
