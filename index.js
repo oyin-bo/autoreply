@@ -24,6 +24,8 @@ const server = new Server(
         search: ToolSchema,
         threads: ToolSchema,
         delete: ToolSchema,
+        like: ToolSchema,
+        repost: ToolSchema,
         login: ToolSchema
       }
     }
@@ -207,8 +209,33 @@ server.setRequestHandler(ListToolsRequestSchema, async (request) => {
           },
           required: ["success", "message"]
         }
+      },
+      {
+        name: "like",
+        description: "Like a post by URI or BlueSky URL.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postURI: { type: "string", description: "The BlueSky URL or at:// URI of the post to like." },
+            handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as. Leave empty for already logged in user." },
+            password: { type: "string", description: "(Optional) BlueSky password to use. Leave empty for already logged in user." }
+          },
+          required: ["postURI"]
+        }
+      },
+      {
+        name: "repost",
+        description: "Repost a post by URI or BlueSky URL.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postURI: { type: "string", description: "The BlueSky URL or at:// URI of the post to repost." },
+            handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as. Leave empty for already logged in user." },
+            password: { type: "string", description: "(Optional) BlueSky password to use. Leave empty for already logged in user." }
+          },
+          required: ["postURI"]
+        }
       }
-
     ]
   };
 });
@@ -397,6 +424,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleDelete(arguments);
         case "threads":
           return await handleThreads(arguments);
+        case "like":
+          return await handleLike(arguments);
+        case "repost":
+          return await handleRepost(arguments);
       default:
         throw new Error(`Tool ${name} is not supported.`);
     }
@@ -477,6 +508,72 @@ async function handleSearch({ from, query, handle, password }) {
   };
 }
 
+
+async function handleLike({ postURI, handle, password }) {
+  if (!postURI) throw new Error('postURI is required.');
+
+  if (!handle || !password) {
+    [{ handle, password }] = [await getCredentials(handle)];
+  }
+
+  const agent = new AtpAgent({ service: 'https://bsky.social' });
+  await agent.login({ identifier: handle, password });
+
+  const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
+  if (!postRef) throw new Error('Invalid post URI or feed URI.');
+  if (!likelyDID(postRef.shortDID)) {
+    const resolved = await agent.resolveHandle({ handle: postRef.shortDID });
+    postRef.shortDID = resolved.data.did;
+  }
+
+  const likePost = await agent.getPost({
+    repo: unwrapShortDID(postRef.shortDID),
+    rkey: postRef.postID
+  });
+
+  await agent.like(makeFeedUri(postRef.shortDID, postRef.postID), likePost.cid);
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Post liked: ${postRef.shortDID}/${postRef.postID} (${likePost.uri}): ${likePost.value.text}`
+      }
+    ]
+  };
+}
+
+async function handleRepost({ postURI, handle, password }) {
+  if (!postURI) throw new Error('postURI is required.');
+
+  if (!handle || !password) {
+    [{ handle, password }] = [await getCredentials(handle)];
+  }
+
+  const agent = new AtpAgent({ service: 'https://bsky.social' });
+  await agent.login({ identifier: handle, password });
+
+  const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
+  if (!postRef) throw new Error('Invalid post URI or feed URI.');
+  if (!likelyDID(postRef.shortDID)) {
+    const resolved = await agent.resolveHandle({ handle: postRef.shortDID });
+    postRef.shortDID = resolved.data.did;
+  }
+
+  const repostPost = await agent.getPost({
+    repo: unwrapShortDID(postRef.shortDID),
+    rkey: postRef.postID
+  });
+
+  await agent.repost(makeFeedUri(postRef.shortDID, postRef.postID), repostPost.cid);
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `Post reposted: ${postRef.shortDID}/${postRef.postID} (${repostPost.uri}): ${repostPost.value.text}`
+      }
+    ]
+  };
+}
 
 async function handleThreads({ postURI, handle, password }) {
   if (!postURI) throw new Error('postURI is required.');
