@@ -20,7 +20,10 @@ const server = new Server(
         post: ToolSchema,
         feed: ToolSchema,
         followers: ToolSchema,
-        following: ToolSchema
+        following: ToolSchema,
+        search: ToolSchema,
+        delete: ToolSchema,
+        login: ToolSchema
       }
     }
   }
@@ -65,7 +68,7 @@ server.setRequestHandler(ListToolsRequestSchema, async (request) => {
             handle: {
               type: "string", description:
                 "(Optional) BlueSky handle for which the feed is requested. " +
-                "If unspecified, or specified as anonymous, the feed will be retrieved for the authenticated user."
+                "If unspecified, or specified as anonymous, the feed will be retrieved in the incognito mode."
             },
             password: { type: "string", description: "(Optional) BlueSky password to use." }
           },
@@ -115,7 +118,65 @@ server.setRequestHandler(ListToolsRequestSchema, async (request) => {
           },
           required: ["user"]
         }
+      },
+      {
+        name: "search",
+        description: "Search posts on BlueSky by text query.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            from: { type: "string", description: "(Optional) Messages from who, a handle or say 'me' for self." },
+            query: { type: "string", description: "(Optional) Text to search for in posts." },
+            handle: { type: "string", description: "(Optional) BlueSky handle to use for authenticated search, anonymous to force unanuthenticated." },
+            password: { type: "string", description: "(Optional) BlueSky password to use." }
+          },
+          required: []
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            posts: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
+                  author: { type: "string", description: "BlueSky handle of the author." },
+                  postURI: { type: "string", description: "URI of the post." },
+                  text: { type: "string", description: "Text content of the post." },
+                  likeCount: { type: "number", description: "Number of likes.", nullable: true },
+                  replyCount: { type: "number", description: "Number of replies.", nullable: true },
+                  repostCount: { type: "number", description: "Number of reposts.", nullable: true },
+                  quoteCount: { type: "number", description: "Number of quotes.", nullable: true }
+                },
+                required: ["indexedAt", "author", "postURI", "text"]
+              }
+            }
+          }
+        }
+      },
+      {
+        name: "delete",
+        description: "Delete a post by URI (authenticated only).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postURI: { type: "string", description: "The URI of the post to delete." },
+            handle: { type: "string", description: "(Optional) BlueSky handle to authenticate as, if not logged in already." },
+            password: { type: "string", description: "(Optional) BlueSky password to use." }
+          },
+          required: ["postURI"]
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            success: { type: "boolean" },
+            message: { type: "string" }
+          },
+          required: ["success", "message"]
+        }
       }
+
     ]
   };
 });
@@ -293,6 +354,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleFollowers(arguments);
       case "following":
         return await handleFollowing(arguments);
+      case "search":
+        return await handleSearch(arguments);
+      case "delete":
+        return await handleDelete(arguments);
       default:
         throw new Error(`Tool ${name} is not supported.`);
     }
@@ -309,6 +374,77 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 });
+
+async function handleSearch({ from, query, handle, password }) {
+  if (!handle) handle = await keytar.getPassword(name, "default_handle");
+  if (handle === 'anonymous') handle = undefined;
+
+  if (handle && !password) [{ password }] = [await getCredentials(handle)];
+
+  if (!query && !from) query = '*';
+
+  let posts;
+  if (!handle) {
+    // Unauthenticated search: use public feed and filter
+    const agent = new AtpAgent({ service: 'https://api.bsky.app' });
+    const feed = await agent.app.bsky.feed.searchPosts({
+      q: query + ( from ? ' from:' + from : '' ),
+    });
+    posts = feed.data.posts;
+  } else {
+    // Authenticated search: get timeline and filter
+    if (!password) [{ password }] = [await getCredentials(handle)];
+    const agent = new AtpAgent({ service: 'https://bsky.social' });
+    await agent.login({ identifier: handle, password });
+    const feed = await agent.app.bsky.feed.searchPosts({
+      q: query + ( from ? ' from:' + from : '' ),
+    });
+    posts = feed.data.posts;
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          posts.map(post =>
+            post.indexedAt + ' @' + post.author.handle + ' postURI: ' + post.uri + '\n' +
+            post.record.text +
+            (post.likeCount || post.replyCount || post.repostCount || post.quoteCount ?
+              '\n(' +
+              [
+                post.likeCount ? post.likeCount + ' likes' : '',
+                post.replyCount ? post.replyCount + ' replies' : '',
+                post.repostCount ? post.repostCount + ' reposts' : '',
+                post.quoteCount ? post.quoteCount + ' quotes' : ''
+              ].filter(Boolean).join(', ') +
+              ')'
+              : '')
+          ).join('\n\n')
+      }
+    ],
+    structuredContent: {
+      posts: posts.map(post => ({
+        indexedAt: post.indexedAt,
+        author: post.author.handle,
+        postURI: post.uri,
+        text: post.record.text,
+        likeCount: post.likeCount ?? null,
+        replyCount: post.replyCount ?? null,
+        repostCount: post.repostCount ?? null,
+        quoteCount: post.quoteCount ?? null
+      }))
+    }
+  };
+}
+
+async function handleDelete({ postURI, handle, password }) {
+  if (!postURI || !handle || !password) throw new Error('postURI, handle, and password are required.');
+  const agent = new AtpAgent({ service: 'https://bsky.social' });
+  await agent.login({ identifier: handle, password });
+  await agent.deletePost(postURI);
+  return { content: { type: 'text', success: true, text: 'Post deleted' } };
+}
 
 // Handles post-initialization setup, specifically checking for and fetching MCP roots.
 server.oninitialized = async () => {
