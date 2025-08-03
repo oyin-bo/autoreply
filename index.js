@@ -22,6 +22,7 @@ const server = new Server(
         followers: ToolSchema,
         following: ToolSchema,
         search: ToolSchema,
+        threads: ToolSchema,
         delete: ToolSchema,
         login: ToolSchema
       }
@@ -51,7 +52,7 @@ server.setRequestHandler(ListToolsRequestSchema, async (request) => {
         inputSchema: {
           type: "object",
           properties: {
-            replyToURI: { type: "string", description: "The post URI to which the reply is made (if any)." },
+            replyToURI: { type: "string", description: "The post URI (or BlueSky URL of the post) to which the reply is made (if any)." },
             text: { type: "string", description: "The text to post." },
             handle: { type: "string", description: "(Optional) BlueSky handle to post the message as." },
             password: { type: "string", description: "(Optional) BlueSky password to use." }
@@ -156,6 +157,37 @@ server.setRequestHandler(ListToolsRequestSchema, async (request) => {
         }
       },
       {
+        name: "threads",
+        description: "Fetch a thread by post URI. Authenticated if handle/password provided, otherwise public.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            postURI: { type: "string", description: "The BlueSky URL of the post, or also can be at:// URI of the post to fetch the thread for." },
+            handle: { type: "string", description: "(Optional) BlueSky handle to use for authenticated fetch." },
+            password: { type: "string", description: "(Optional) BlueSky password to use." }
+          },
+          required: ["postURI"]
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            posts: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  indexedAt: { type: "string", description: "ISO timestamp when the post was indexed." },
+                  author: { type: "string", description: "BlueSky handle of the author." },
+                  postURI: { type: "string", description: "URI of the post." },
+                  text: { type: "string", description: "Text content of the post." }
+                },
+                required: ["indexedAt", "author", "postURI", "text"]
+              }
+            }
+          }
+        }
+      },
+      {
         name: "delete",
         description: "Delete a post by URI (authenticated only).",
         inputSchema: {
@@ -217,6 +249,11 @@ async function handlePost({ text, handle, password, replyToURI }) {
   let replyTracking;
   const postRef = breakPostURL(replyToURI) || breakFeedURI(replyToURI);
   if (postRef) {
+    if (!likelyDID(postRef.shortDID)) {
+      const resolved = await agent.resolveHandle({ handle: postRef.shortDID });
+      postRef.shortDID = resolved.data.did;
+    }
+
     const replyToPost = await agent.getPost({
       repo: unwrapShortDID(postRef.shortDID),
       rkey: postRef.postID
@@ -358,6 +395,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleSearch(arguments);
       case "delete":
         return await handleDelete(arguments);
+        case "threads":
+          return await handleThreads(arguments);
       default:
         throw new Error(`Tool ${name} is not supported.`);
     }
@@ -438,6 +477,66 @@ async function handleSearch({ from, query, handle, password }) {
   };
 }
 
+
+async function handleThreads({ postURI, handle, password }) {
+  if (!postURI) throw new Error('postURI is required.');
+  if (!handle) handle = await keytar.getPassword(name, "default_handle");
+  if (handle === 'anonymous') handle = undefined;
+  if (handle && !password) [{ password }] = [await getCredentials(handle)];
+
+  let agent;
+  if (!handle) {
+    agent = new AtpAgent({ service: 'https://api.bsky.app' });
+  } else {
+    agent = new AtpAgent({ service: 'https://bsky.social' });
+    await agent.login({ identifier: handle, password });
+  }
+
+  const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
+  if (postRef) {
+    if (!likelyDID(postRef.shortDID)) {
+      const resolved = await agent.resolveHandle({ handle: postRef.shortDID });
+      postRef.shortDID = resolved.data.did;
+    }
+
+    postURI = makeFeedUri(postRef.shortDID, postRef.postID);
+  }
+
+  // Fetch thread
+  const thread = await agent.app.bsky.feed.getPostThread({ uri: postURI });
+  // Flatten thread into array
+  function flattenThread(node) {
+    if (!node) return [];
+    const arr = [];
+    if (node.post) {
+      arr.push({
+        indexedAt: node.post.indexedAt,
+        author: node.post.author.handle,
+        postURI: node.post.uri,
+        text: node.post.record.text
+      });
+    }
+    if (node.replies && Array.isArray(node.replies)) {
+      for (const reply of node.replies) {
+        arr.push(...flattenThread(reply));
+      }
+    }
+    return arr;
+  }
+  const posts = flattenThread(thread.data.thread);
+  return {
+    content: [
+      {
+        type: 'text',
+        text: posts.map(post => post.indexedAt + ' @' + post.author + ' postURI: ' + post.postURI + '\n' + post.text).join('\n\n')
+      }
+    ],
+    structuredContent: {
+      posts
+    }
+  };
+}
+
 async function handleDelete({ postURI, handle, password }) {
   if (!postURI || !handle || !password) throw new Error('postURI, handle, and password are required.');
   const agent = new AtpAgent({ service: 'https://bsky.social' });
@@ -478,6 +577,14 @@ const _breakBskyPostURL_Regex = /^http[s]?\:\/\/bsky\.app\/profile\/([a-z0-9\.\:
 const _breakBskyStylePostURL_Regex = /^http[s]?\:\/\/(bsky\.app|6sky\.app|gist\.ing|gisti\.ng|gist\.ink)\/profile\/([a-z0-9\.\:\-]+)\/post\/([a-z0-9]+)(\/|$)/i;
 const _breakGistingPostURL_Regex = /^http[s]?\:\/\/(6sky\.app|gist\.ing|gisti\.ng|gist\.ink)\/([a-z0-9\.\:\-]+)\/([a-z0-9]+)(\/|$)/i;
 
+/** @param {string | null | undefined} text */
+function likelyDID(text) {
+  return !!text && (
+    !text.trim().indexOf('did:') ||
+    text.trim().length === 24 && !/[^\sa-z0-9]/i.test(text)
+  );
+}
+
 /**
  * @param {T} did
  * @returns {T}
@@ -511,3 +618,7 @@ function breakFeedURI(uri) {
   return { shortDID: match[2], postID: match[4], feedType: match[3] };
 }
 const _breakFeedUri_Regex = /^at\:\/\/(did:plc:)?([a-z0-9]+)\/([a-z\.]+)\/?(.*)?$/;
+
+function makeFeedUri(shortDID, postID) {
+  return 'at://' + unwrapShortDID(shortDID) + '/app.bsky.feed.post/' + postID;
+}
