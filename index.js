@@ -115,7 +115,7 @@ async function handlePost({ text, handle, password, replyToURI }) {
   const postRef = breakPostURL(replyToURI) || breakFeedURI(replyToURI);
   if (postRef) {
     if (!likelyDID(postRef.shortDID)) {
-      const resolved = await agent.resolveHandle({ handle: postRef.shortDID });
+      const resolved = await agent.resolveHandle({ handle: postRef.shortDID.replace('@', '') });
       postRef.shortDID = resolved.data.did;
     }
 
@@ -334,7 +334,7 @@ async function handleLike({ postURI, handle, password }) {
   const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
   if (!postRef) throw new Error('Invalid post URI or feed URI.');
   if (!likelyDID(postRef.shortDID)) {
-    const resolved = await agent.resolveHandle({ handle: postRef.shortDID });
+    const resolved = await agent.resolveHandle({ handle: postRef.shortDID.replace('@', '') });
     postRef.shortDID = resolved.data.did;
   }
 
@@ -367,7 +367,7 @@ async function handleRepost({ postURI, handle, password }) {
   const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
   if (!postRef) throw new Error('Invalid post URI or feed URI.');
   if (!likelyDID(postRef.shortDID)) {
-    const resolved = await agent.resolveHandle({ handle: postRef.shortDID });
+    const resolved = await agent.resolveHandle({ handle: postRef.shortDID.replace('@', '') });
     postRef.shortDID = resolved.data.did;
   }
 
@@ -405,7 +405,7 @@ async function handleThreads({ postURI, handle, password }) {
   const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
   if (postRef) {
     if (!likelyDID(postRef.shortDID)) {
-      const resolved = await agent.resolveHandle({ handle: postRef.shortDID });
+      const resolved = await agent.resolveHandle({ handle: postRef.shortDID.replace('@', '') });
       postRef.shortDID = resolved.data.did;
     }
 
