@@ -1,6 +1,6 @@
 {
   "name": "autoreply",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "main": "index.js",
   "bin": {
     "autoreply": "index.js"
@@ -28,7 +28,8 @@
     "@types/node": "^24.1.0",
     "typescript": "^5.9.2",
     "zod": "^3.25.76",
-    "zod-to-json-schema": "^3.24.6"
+    "zod-to-json-schema": "^3.24.6",
+    "prompt-sync": "^4.2.0"
   },
   "optionalDependencies": {
     "keytar": "^7.9.0"

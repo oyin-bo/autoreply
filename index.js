@@ -5,6 +5,7 @@ const { name, version } = require('./package.json');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const prompt = require('prompt-sync')({ sigint: true });
 const os = require('os');
 
 const { AtpAgent } = require('@atproto/api');
@@ -890,33 +891,14 @@ async function install(globalMode = true) {
 }
 
 async function login() {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  function ask(q, hide = false) {
-    return new Promise((resolve) => {
-      if (!hide) rl.question(q, resolve);
-      else {
-        process.stdout.write(q);
-        let input = '';
-        process.stdin.on('data', (chunk) => {
-          input += chunk;
-          if (input.includes('\n')) {
-            rl.output.write('\n');
-            resolve(input.trim());
-          }
-        });
-      }
-    });
-  }
   try {
-    const handle = await ask('BlueSky handle: ');
-    const password = await ask('BlueSky password: ', true);
+    const handle = prompt('BlueSky handle: ');
+    const password = prompt('BlueSky password: ', { echo: '' });
     await keytar.setPassword(name, handle, password);
     await keytar.setPassword(name, 'default_handle', handle);
     console.log('Login successful. Credentials stored.');
   } catch (e) {
     console.error('Login failed:', e.message);
-  } finally {
-    rl.close();
   }
 }
 
