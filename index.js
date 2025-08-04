@@ -445,10 +445,17 @@ async function mcpRepost({ postURI, handle, password }) {
   };
 }
 
+/**
+ * @param {{
+ * postURI: string,
+ * handle?: string,
+ * password?: string
+ * }} _
+ */
 async function mcpThread({ postURI, handle, password }) {
   if (!postURI) throw new Error('postURI is required.');
   const keytar = await keytarOrPromise;
-  if (!handle) handle = await keytar.getPassword(name, 'default_handle');
+  if (!handle) handle = (await keytar.getPassword(name, 'default_handle')) || undefined;
   if (handle === 'anonymous') handle = undefined;
   if (handle && !password) [{ password }] = [await getCredentials(handle)];
 
@@ -457,7 +464,10 @@ async function mcpThread({ postURI, handle, password }) {
     agent = new AtpAgent({ service: 'https://api.bsky.app' });
   } else {
     agent = new AtpAgent({ service: 'https://bsky.social' });
-    await agent.login({ identifier: handle, password });
+    await agent.login({
+      identifier: handle,
+      password: /** @type {string} */(password)
+    });
   }
 
   const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
@@ -518,7 +528,7 @@ async function mcpThread({ postURI, handle, password }) {
       {
         type: 'text',
         text:
-          posts.map(post => post.text).join('\n\n')
+          posts.map(post => post.textual).join('\n\n')
       }
     ],
     structuredContent: {
@@ -1254,6 +1264,10 @@ async function runInteractive() {
     await localInstall(args[1] !== 'local');
   } else if (args[0] === 'login') {
     await localLogin();
+  } else if (args[0] === 'thread') {
+    process.stdout.write('[debug] Thread ' + name + ' v' + version + '...');
+    const thread = await mcpThread({ postURI: args[1] });
+    console.log('\n', thread);
   } else {
     console.log(name + ' MCP  v' + version);
     console.log('Usage: autoreply [install|login]');
