@@ -870,7 +870,7 @@ function runMCP() {
               login: { type: 'string', description: 'Your BlueSky handle, who are you on BlueSky?' },
               password: { type: 'string', description: 'Your BlueSky app password (better not share it).' }
             },
-            required: ['handle', 'password']
+            required: ['login', 'password']
           }
         },
         {
