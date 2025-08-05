@@ -1153,6 +1153,7 @@ async function localInstall(globalMode = true) {
       ...settingsJson.mcpServers,
       autoreply: {
         ...settingsJson.mcpServers?.autoreply,
+        type: 'stdio',
         command: 'node',
         args: [
           path.resolve(__filename)
