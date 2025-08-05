@@ -12,8 +12,8 @@
     "type": "git",
     "url": "git+https://github.com/oyin-bo/autoreply.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["mcp", "BlueSky", "atproto", "ai", "agent", "autoreply"],
+  "author": "Oleg Mihailik",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/oyin-bo/autoreply/issues"
