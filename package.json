@@ -1,6 +1,6 @@
 {
   "name": "autoreply",
-  "version": "1.0.24",
+  "version": "1.1.0",
   "main": "index.js",
   "bin": {
     "autoreply": "index.js"
@@ -12,7 +12,14 @@
     "type": "git",
     "url": "git+https://github.com/oyin-bo/autoreply.git"
   },
-  "keywords": ["mcp", "BlueSky", "atproto", "ai", "agent", "autoreply"],
+  "keywords": [
+    "mcp",
+    "BlueSky",
+    "atproto",
+    "ai",
+    "agent",
+    "autoreply"
+  ],
   "author": "Oleg Mihailik",
   "license": "ISC",
   "bugs": {
@@ -21,9 +28,8 @@
   "homepage": "https://github.com/oyin-bo/autoreply#readme",
   "description": "",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.1",
-    "@atproto/api": "^0.16.0",
-    "prompt-sync": "^4.2.0"
+    "@atcute/client": "^4.0.3",
+    "readline-sync": "^1.4.10"
   },
   "optionalDependencies": {
     "keytar": "^7.9.0"

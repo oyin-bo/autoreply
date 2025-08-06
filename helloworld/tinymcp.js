@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // @ts-check
 
 // @ts-ignore Adding custom property to prototype
@@ -57,7 +58,7 @@ class McpServer {
 
   'tools/list'() {
     return {
-      tools: getInfo(this.tools).map(([name, info]) => info)
+      tools: getInfo(this.tools).map(([name, info]) => info).filter(Boolean)
     };
   }
 
@@ -65,19 +66,20 @@ class McpServer {
     if (!this.tools[name])
       throw new McpError(`Tool '${name}' not found`, -32601, `The tool '${name}' is not recognized by this server.`);
 
-    const structuredContent = this.tools[name](args);
+    const structuredContent = await this.tools[name](args);
+
+    console.error('Tool ' + name + ': ', args, structuredContent);
 
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify(structuredContent, null, 2),
+          text: typeof structuredContent === 'string' ? structuredContent : JSON.stringify(structuredContent, null, 2),
         }
       ],
       structuredContent
     };
   }
-
 }
 
 class Tools {
@@ -183,7 +185,6 @@ async function localInstall() {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
-
   const { name, version } = require('./package.json');
 
   const settingsPath = path.join(os.homedir(), '.gemini', 'settings.json');
@@ -259,10 +260,8 @@ async function localInstall() {
   console.log('Successfully installed for ' + path.resolve(__filename));
 }
 
-
 async function runInteractive() {
   const { name, version } = require('./package.json');
-
   process.stdout.write(name + ' v' + version);
   const [_node, _script, cmd] = process.argv;
   if (cmd === 'install') {
@@ -273,11 +272,11 @@ async function runInteractive() {
   const mcp = new McpServer();
   if (mcp[cmd]) {
     process.stdout.write('\n  MCP ' + JSON.stringify(cmd) + '...');
-    const result = await mcp[cmd](params());
+    const result = await mcp[cmd](params() || {});
     console.log(' ', result);
   } else if (mcp.tools[cmd]) {
     process.stdout.write('\n  MCP command ' + JSON.stringify(cmd) + '...');
-    const result = mcp.tools[cmd](params());
+    const result = await mcp.tools[cmd](params() || {});
     console.log(' ', result);
   } else {
     console.log(
@@ -286,7 +285,7 @@ async function runInteractive() {
       '\nAvailable commands:\n' +
       '  install - Installs the MCP server locally.\n' +
       getInfo(mcp).map(([key]) => '  ' + key + ' - MCP method').join('\n') + '\n' +
-      getInfo(mcp.tools).map(([key, info]) => '  ' + key + (info ? ' - ' + info.description : ' - MCP tool')).join('\n')
+      getInfo(mcp.tools).map(([key, info]) => '  ' + key + (info ? ' - ' + info.description : ' - extra')).join('\n')
     );
   }
 
