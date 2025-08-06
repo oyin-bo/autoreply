@@ -409,13 +409,16 @@ class Tools {
     // restore the context
     if (!posts.find(p => p.postURI === anchorRecord?.reply?.root?.uri)) {
       if (anchorRecord?.reply?.root?.uri) {
-        const rootPost = await agent.app.bsky.feed.getPostThread({ uri: anchorRecord?.reply?.root?.uri });
+        const agentFallback = this.clientIncognito();
+        const rootPost = await agentFallback.app.bsky.feed.getPostThread({ uri: anchorRecord?.reply?.root?.uri });
         const updated = flattenThread(rootPost.data.thread);
         posts.unshift(...updated);
       }
     }
 
-    return posts.map(post => post.structured);
+    return {
+      posts: posts.map(post => post.structured)
+    };
   }
 
   'thread:tool' = {
@@ -430,7 +433,6 @@ class Tools {
       type: 'object',
       properties: {
         postURI: { type: 'string', description: 'The BlueSky URL of the post, or also can be at:// URI of the post to fetch the thread for.' },
-        cursor: { type: 'string', description: '(Optional) Cursor for pagination.' },
         login: { type: 'string', description: '(Optional) BlueSky handle to use for authenticated fetch.' },
         password: { type: 'string', description: '(Optional) BlueSky password to use.' }
       },
@@ -439,7 +441,6 @@ class Tools {
     outputSchema: {
       type: 'object',
       properties: {
-        cursor: { type: 'string', description: 'Cursor for pagination, if more data is available.' },
         posts: {
           type: 'array',
           items: PostSchema
