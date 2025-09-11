@@ -4,8 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-//const { Client, CredentialManager, simpleFetchHandler } = require('@atcute/client');
-const { AtpAgent } = require('@atproto/api');
+const { Client, CredentialManager, simpleFetchHandler, ok } = require('@atcute/client');
 const readline = require('readline');
 const readlineSync = require('readline-sync');
 
@@ -133,22 +132,26 @@ class Tools {
       if (feed) {
         const fullFeedUri = breakFeedURI(feed);
         if (!fullFeedUri) {
-          const likelyFeeds = await agent.app.bsky.unspecced.getPopularFeedGenerators({
-            query: feed
-          });
-          if (likelyFeeds.data.feeds.length) {
-            feed = likelyFeeds.data.feeds[0].uri;
+          const likelyFeeds = await ok(agent.get('app.bsky.unspecced.getPopularFeedGenerators', {
+            params: { query: feed }
+          }));
+          if (likelyFeeds.feeds.length) {
+            feed = likelyFeeds.feeds[0].uri;
           }
         }
       }
 
-      feedData = (await agent.app.bsky.feed.getFeed({
-        feed: feed || 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot',
-        cursor,
-        limit: Math.min(limit || 20, 100)
-      })).data;
+      feedData = await ok(agent.get('app.bsky.feed.getFeed', {
+        params: {
+          feed: feed || 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot',
+          cursor,
+          limit: Math.min(limit || 20, 100)
+        }
+      }));
     } else {
-      feedData = (await agent.getTimeline()).data;
+      feedData = await ok(agent.get('app.bsky.feed.getTimeline', {
+        params: {}
+      }));
     }
 
     const formatted = /** @type {ReturnType<typeof formatPost>[]} */(feedData.feed.map(post =>
@@ -217,35 +220,35 @@ class Tools {
 
       if (/\s/.test(user) || !/\./.test(user)) {
         // need to search for the user
-        const actors = await agent.searchActors({
-          q: user
-        });
-        if (actors.data.actors.length) {
-          user = actors.data.actors[0].did;
+        const actors = await ok(agent.get('app.bsky.actor.searchActors', {
+          params: { q: user }
+        }));
+        if (actors.actors.length) {
+          user = actors.actors[0].did;
         }
       }
 
     }
 
     const [profile, followers, following] = await Promise.all([
-      agent.getProfile({ actor: user }),
-      agent.getFollowers({ actor: user, cursor: followersCursor }),
-      agent.getFollows({ actor: user, cursor: followsCursor })
+      ok(agent.get('app.bsky.actor.getProfile', { params: { actor: user } })),
+      ok(agent.get('app.bsky.graph.getFollowers', { params: { actor: user, cursor: followersCursor } })),
+      ok(agent.get('app.bsky.graph.getFollows', { params: { actor: user, cursor: followsCursor } }))
     ]);
 
     const structuredContent = {
-      handle: profile.data.handle,
-      displayName: profile.data.displayName,
-      description: profile.data.description,
-      createdAt: profile.data.createdAt,
-      avatar: profile.data.avatar,
-      banner: profile.data.banner,
-      followersCount: profile.data.followersCount,
-      followingCount: profile.data.followsCount,
-      postsCount: profile.data.postsCount,
-      followers: followers.data.followers.map((follower) => '@' + follower.handle),
-      following: following.data.follows.map((follow) => '@' + follow.handle),
-      cursor: JSON.stringify([followers.data.cursor, following.data.cursor])
+      handle: profile.handle,
+      displayName: profile.displayName,
+      description: profile.description,
+      createdAt: profile.createdAt,
+      avatar: profile.avatar,
+      banner: profile.banner,
+      followersCount: profile.followersCount,
+      followingCount: profile.followsCount,
+      postsCount: profile.postsCount,
+      followers: followers.followers.map((follower) => '@' + follower.handle),
+      following: following.follows.map((follow) => '@' + follow.handle),
+      cursor: JSON.stringify([followers.cursor, following.cursor])
     };
 
     return structuredContent;
@@ -288,33 +291,26 @@ class Tools {
 
     if (from) {
       if (likelyDID(from)) {
-        const resolved = await agent.getProfile({ actor: unwrapShortDID(from) });
-        from = resolved.data.handle
+        const resolved = await ok(agent.get('app.bsky.actor.getProfile', { params: { actor: unwrapShortDID(from) } }));
+        from = resolved.handle
       } else {
         from = unwrapShortHandle(from);
       }
     }
 
     let feed;
-    if (!agent.authenticated) {
-      // Unauthenticated search: use public feed and filter
-      feed = await agent.app.bsky.feed.searchPosts({
+    feed = await ok(agent.get('app.bsky.feed.searchPosts', {
+      params: {
         q: (query || '') + (from ? ' from:' + from : ''),
         cursor,
         limit: Math.min(limit || 20, 100)
-      });
-    } else {
-      feed = await agent.app.bsky.feed.searchPosts({
-        q: (query || '') + (from ? ' from:' + from : ''),
-        cursor,
-        limit: Math.min(limit || 20, 100)
-      });
-    }
+      }
+    }));
 
-    const formatted = feed.data.posts.map(post => formatPost(post));
+    const formatted = feed.posts.map(post => formatPost(post));
 
     return {
-      cursor: feed.data.cursor,
+      cursor: feed.cursor,
       posts: formatted.map(post => post.structured)
     };
   }
@@ -365,17 +361,17 @@ class Tools {
     const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
     if (postRef) {
       if (!likelyDID(postRef.shortDID)) {
-        const resolved = await agent.resolveHandle({ handle: postRef.shortDID.replace('@', '') });
-        postRef.shortDID = resolved.data.did;
+        const resolved = await ok(agent.get('com.atproto.identity.resolveHandle', { params: { handle: postRef.shortDID.replace('@', '') } }));
+        postRef.shortDID = resolved.did;
       }
 
       postURI = makeFeedUri(postRef.shortDID, postRef.postID);
     }
 
     // Fetch thread
-    const thread = await agent.app.bsky.feed.getPostThread({ uri: postURI });
+    const thread = await ok(agent.get('app.bsky.feed.getPostThread', { params: { uri: postURI } }));
     const anchorRecord = /** @type {import('@atproto/api').AppBskyFeedPost.Record} */(/** @type {*} */(
-  /** @type {import('@atproto/api/dist/client/types/app/bsky/feed/defs').ThreadViewPost} */(thread.data.thread).post?.record));
+  /** @type {import('@atproto/api/dist/client/types/app/bsky/feed/defs').ThreadViewPost} */(thread.thread).post?.record));
 
     /**
      * @typedef {Omit<Partial<import('@atproto/api/dist/client/types/app/bsky/feed/defs').ThreadViewPost &
@@ -404,14 +400,14 @@ class Tools {
       }
       return arr;
     }
-    const posts = flattenThread(thread.data.thread);
+    const posts = flattenThread(thread.thread);
 
     // restore the context
     if (!posts.find(p => p.postURI === anchorRecord?.reply?.root?.uri)) {
       if (anchorRecord?.reply?.root?.uri) {
         const agentFallback = this.clientIncognito();
-        const rootPost = await agentFallback.app.bsky.feed.getPostThread({ uri: anchorRecord?.reply?.root?.uri });
-        const updated = flattenThread(rootPost.data.thread);
+        const rootPost = await ok(agentFallback.get('app.bsky.feed.getPostThread', { params: { uri: anchorRecord?.reply?.root?.uri } }));
+        const updated = flattenThread(rootPost.thread);
         posts.unshift(...updated);
       }
     }
@@ -454,21 +450,23 @@ class Tools {
       [{ handle, password }] = [await this.getCredentials(handle)];
     }
 
-    const agent = new AtpAgent({ service: 'https://bsky.social' });
-    await agent.login({ identifier: handle, password });
+    const agent = await this.clientLogin({ login: handle, password });
     let reply;
     let replyTracking;
     const postRef = breakPostURL(replyToURI) || breakFeedURI(replyToURI);
     if (postRef) {
       if (!likelyDID(postRef.shortDID)) {
-        const resolved = await agent.resolveHandle({ handle: postRef.shortDID.replace('@', '') });
-        postRef.shortDID = resolved.data.did;
+        const resolved = await ok(agent.get('com.atproto.identity.resolveHandle', { params: { handle: postRef.shortDID.replace('@', '') } }));
+        postRef.shortDID = resolved.did;
       }
 
-      const replyToPost = await agent.getPost({
-        repo: unwrapShortDID(postRef.shortDID),
-        rkey: postRef.postID
-      });
+      const replyToPost = await ok(agent.get('com.atproto.repo.getRecord', {
+        params: {
+          repo: unwrapShortDID(postRef.shortDID),
+          collection: 'app.bsky.feed.post',
+          rkey: postRef.postID
+        }
+      }));
       reply = /** @type {const} */({
         root: replyToPost.value.reply?.root || {
           $type: 'com.atproto.repo.strongRef',
@@ -484,15 +482,24 @@ class Tools {
       replyTracking = replyToPost.value.text;
     }
 
-    const posted = await agent.post({
-      text,
-      reply
-    });
+    const myDid = agent.manager?.session?.did;
+    if (!myDid) throw new Error('No authenticated session found');
+
+    const posted = await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
+      repo: myDid,
+      collection: 'app.bsky.feed.post',
+      record: {
+        $type: 'app.bsky.feed.post',
+        text,
+        reply,
+        createdAt: new Date().toISOString()
+      }
+    }));
 
     return (
-      replyTracking ? 'Replied to ' + replyTracking + ' with ' + posted.uri + ':\n' + text :
-        replyToURI ? 'Could not split ' + JSON.stringify(replyToURI) + '/' + JSON.stringify(postRef) + ', posted alone ' + posted.uri + ':\n' + text :
-          'Posted ' + posted.uri + ':\n' + text
+      replyTracking ? 'Replied to ' + replyTracking + ' with ' + /** @type {any} */(posted).uri + ':\n' + text :
+        replyToURI ? 'Could not split ' + JSON.stringify(replyToURI) + '/' + JSON.stringify(postRef) + ', posted alone ' + /** @type {any} */(posted).uri + ':\n' + text :
+          'Posted ' + /** @type {any} */(posted).uri + ':\n' + text
     );
   }
 
@@ -519,16 +526,31 @@ class Tools {
     const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
     if (!postRef) throw new Error('Invalid post URI or feed URI.');
     if (!likelyDID(postRef.shortDID)) {
-      const resolved = await agent.resolveHandle({ handle: postRef.shortDID.replace('@', '') });
-      postRef.shortDID = resolved.data.did;
+      const resolved = await ok(agent.get('com.atproto.identity.resolveHandle', { params: { handle: postRef.shortDID.replace('@', '') } }));
+      postRef.shortDID = resolved.did;
     }
 
-    const likePost = await agent.getPost({
-      repo: unwrapShortDID(postRef.shortDID),
-      rkey: postRef.postID
-    });
+    const likePost = await ok(agent.get('com.atproto.repo.getRecord', {
+      params: {
+        repo: unwrapShortDID(postRef.shortDID),
+        collection: 'app.bsky.feed.post',
+        rkey: postRef.postID
+      }
+    }));
 
-    await agent.like(makeFeedUri(postRef.shortDID, postRef.postID), likePost.cid);
+    const myDid = agent.manager?.session?.did;
+    if (!myDid) throw new Error('No authenticated session found');
+
+    await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
+      repo: myDid,
+      collection: 'app.bsky.feed.like',
+      record: {
+        $type: 'app.bsky.feed.like',
+        subject: { uri: makeFeedUri(postRef.shortDID, postRef.postID) },
+        createdAt: new Date().toISOString()
+      }
+    }));
+    
     return (
       `Post liked: ${postRef.shortDID}/${postRef.postID} (${likePost.uri}): ${likePost.value.text}`
     );
@@ -556,16 +578,31 @@ class Tools {
     const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
     if (!postRef) throw new Error('Invalid post URI or feed URI.');
     if (!likelyDID(postRef.shortDID)) {
-      const resolved = await agent.resolveHandle({ handle: postRef.shortDID.replace('@', '') });
-      postRef.shortDID = resolved.data.did;
+      const resolved = await ok(agent.get('com.atproto.identity.resolveHandle', { params: { handle: postRef.shortDID.replace('@', '') } }));
+      postRef.shortDID = resolved.did;
     }
 
-    const repostPost = await agent.getPost({
-      repo: unwrapShortDID(postRef.shortDID),
-      rkey: postRef.postID
-    });
+    const repostPost = await ok(agent.get('com.atproto.repo.getRecord', {
+      params: {
+        repo: unwrapShortDID(postRef.shortDID),
+        collection: 'app.bsky.feed.post',
+        rkey: postRef.postID
+      }
+    }));
 
-    await agent.repost(makeFeedUri(postRef.shortDID, postRef.postID), repostPost.cid);
+    const myDid = agent.manager?.session?.did;
+    if (!myDid) throw new Error('No authenticated session found');
+
+    await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
+      repo: myDid,
+      collection: 'app.bsky.feed.repost',
+      record: {
+        $type: 'app.bsky.feed.repost',
+        subject: { uri: makeFeedUri(postRef.shortDID, postRef.postID) },
+        createdAt: new Date().toISOString()
+      }
+    }));
+    
     return (
       `Post reposted: ${postRef.shortDID}/${postRef.postID} (${repostPost.uri}): ${repostPost.value.text}`
     );
@@ -589,7 +626,31 @@ class Tools {
     if (!postURI) throw new Error('postURI is required.');
 
     const agent = await this.clientLogin({ login: handle, password });
-    await agent.deletePost(postURI);
+    
+    // Parse the URI to get repo and collection details
+    const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
+    if (postRef) {
+      const myDid = agent.manager?.session?.did;
+      if (!myDid) throw new Error('No authenticated session found');
+      
+      await ok(/** @type {any} */(agent).post('com.atproto.repo.deleteRecord', {
+        repo: myDid,
+        collection: 'app.bsky.feed.post',
+        rkey: postRef.postID
+      }));
+    } else {
+      // If it's already a complete URI, try to extract repo and rkey
+      const uriParts = postURI.match(/^at:\/\/([^\/]+)\/([^\/]+)\/(.+)$/);
+      if (!uriParts) throw new Error('Invalid post URI format');
+      
+      const [, repo, collection, rkey] = uriParts;
+      await ok(/** @type {any} */(agent).post('com.atproto.repo.deleteRecord', {
+        repo,
+        collection,
+        rkey
+      }));
+    }
+    
     return 'Post deleted';
   }
 
@@ -617,7 +678,7 @@ class Tools {
 
   /**
    * @param {{ login?: string, password?: string }} _
-   * @returns {Promise<AtpAgent & { authenticated?: boolean }>}
+   * @returns {Promise<Client & { authenticated?: boolean, manager?: CredentialManager }>}
    */
   async clientLoginOrFallback({ login, password }) {
     const keytar = await keytarOrPromise;
@@ -630,7 +691,7 @@ class Tools {
   }
 
   /**
-   * @type {Record<string, AtpAgent>}
+   * @type {Record<string, Client & { authenticated?: boolean, manager?: CredentialManager }>}
    */
   _clientLoggedInByHandle = {};
 
@@ -640,14 +701,11 @@ class Tools {
   async clientLogin({ login, password }) {
     const existing = this._clientLoggedInByHandle[login];
     if (existing) return existing;
-    const rpc = /** @type {AtpAgent & { authenticated?: boolean }} */(new AtpAgent({ service: 'https://bsky.social' }));
-    await rpc.login({
-      identifier: login,
-      password: password
-    });
-    // const manager = new CredentialManager({ service: 'https://bsky.social' });
-    // await manager.login({ identifier: login, password });
-    // rpc = new Client({ handler: manager });
+    
+    const manager = new CredentialManager({ service: 'https://bsky.social' });
+    const rpc = /** @type {Client & { authenticated?: boolean, manager?: CredentialManager }} */(new Client({ handler: manager }));
+    
+    await manager.login({ identifier: login, password });
 
     // store credentials
     const keytar = await keytarOrPromise;
@@ -655,21 +713,21 @@ class Tools {
     await keytar.setPassword(name, 'default_handle', login);
 
     rpc.authenticated = true;
+    rpc.manager = manager;
 
     this._clientLoggedInByHandle[login] = rpc;
     return rpc;
   }
 
   /**
-   * @type {AtpAgent | undefined}
+   * @type {Client | undefined}
    */
   _clientIncognito;
 
   clientIncognito() {
     if (this._clientIncognito) return this._clientIncognito;
-    // const handler = simpleFetchHandler({ service: 'https://public.api.bsky.app' });
-    // this._clientIncognito = new Client({ handler });
-    this._clientIncognito = new AtpAgent({ service: 'https://public.api.bsky.app' });
+    const handler = simpleFetchHandler({ service: 'https://public.api.bsky.app' });
+    this._clientIncognito = new Client({ handler });
     return this._clientIncognito;
   }
 
