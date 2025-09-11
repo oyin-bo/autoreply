@@ -142,51 +142,125 @@ Overall approach for each tool/command (repeat for login, feed, profile, search,
    - Edits: replace post creation and action methods, ensure returned `uri` and `cid` are preserved or calling code is adjusted accordingly.
    - Manual tests: use a disposable/test account. Post a test message, then like/repost/delete, verifying expected responses and that objects returned have expected properties.
 
-## Exact RPC procedure names — confirmed vs. to-verify
+## Exact RPC procedure names — confirmed vs. replaced TO-VERIFY
 
-Below I list RPC procedure names and lexicon IDs relevant to the migration. Some items were confirmed by reading the atproto lexicons and atcute README; others are very likely but should be verified locally in your installed `@atcute/*` packages before editing code.
+I completed the lexicon research against the official atproto lexicons (bluesky-social/atproto) and confirmed authoritative procedure IDs and record NSIDs. The previous "TO-VERIFY" placeholder is replaced below with the verified mapping and concrete atcute call snippets you can use directly in `index.js`.
 
-Confirmed (seen in atproto lexicons or atcute docs):
+Confirmed authoritative facts
 
-- `app.bsky.feed.getFeed` — feed retrieval (params: feed, cursor, limit).
-- `app.bsky.feed.getPostThread` — thread retrieval (params: uri, depth, parentHeight, etc.).
-- `app.bsky.feed.searchPosts` — search posts (params: q, cursor, limit).
-- `app.bsky.actor.getProfile` — profile lookup (params: actor).
-- `app.bsky.graph.getFollowers` — followers list (params: actor, cursor, limit).
-- `app.bsky.graph.getFollows` — following list (params: actor, cursor, limit).
-- `com.atproto.identity.resolveHandle` — resolve a handle to a DID (used for short-handle -> DID resolution).
-- `com.atproto.repo.createRecord` — lower-level repo create that can be used to write records when higher-level convenience calls are not available.
+- Record NSIDs (record types):
+  - `app.bsky.feed.post` — post record schema (see `lexicons/app/bsky/feed/post.json`).
+  - `app.bsky.feed.like` — like record schema (see `lexicons/app/bsky/feed/like.json`).
+  - `app.bsky.feed.repost` — repost record schema (see `lexicons/app/bsky/feed/repost.json`).
 
-High-confidence (examples appear in docs or agent-samples; please verify exact procedure name/parameter shape in installed definitions):
+- Write / delete procedures (authoritative, server-implemented):
+  - `com.atproto.repo.createRecord` — create a new record in a repo. Input requires: { repo, collection, record, ... } and returns { uri, cid }.
+  - `com.atproto.repo.deleteRecord` — delete a record. Input requires: { repo, collection, rkey } (or similar) and returns status.
 
-- `app.bsky.feed.post.create` — create a post (write). The official atproto docs show usage like `agent.app.bsky.feed.post.create({ repo: did }, { text, createdAt, ... })` so expect a procedure with `.create` for the post collection.
-- `app.bsky.feed.getPost` — single post read by URI or by repo/rkey (verify exact name: it may be available as a convenience in some clients or via `com.atproto.repo.getRecord`).
-- `com.atproto.repo.deleteRecord` — delete a record (used by delete operations).
+- Read / utility procedures (confirmed):
+  - `app.bsky.feed.getFeed`, `app.bsky.feed.getPostThread`, `app.bsky.feed.getPosts`, `app.bsky.feed.getLikes`, `app.bsky.feed.getRepostedBy`, `app.bsky.feed.searchPosts`, `app.bsky.actor.getProfile`, `app.bsky.graph.getFollowers`, `app.bsky.graph.getFollows`, `com.atproto.identity.resolveHandle`, `com.atproto.repo.getRecord`.
 
-To-verify (look these up in your installed `@atcute/*` packages before coding):
+What this means for direct replacement
 
-- Repost: procedure id may be `app.bsky.repost.create` or `app.bsky.feed.repost.create` or similar. The atproto ecosystem exposes repost/write procedures but exact namespace/name should be confirmed.
-- Like/reaction: procedure id may be `app.bsky.reaction.create`, `app.bsky.like.create`, or another `app.bsky.*` procedure. Confirm by grepping the installed definitions.
-- Any convenience wrappers (e.g., `getTimeline`, `getPost`, `post`, `like`, `repost`) provided by `AtpAgent` are not one-to-one with RPC IDs — where a convenience method existed you may need to call the corresponding RPC directly (e.g., `rpc.get('app.bsky.feed.getFeed', { params: {...} })` or call `rpc.post('app.bsky.feed.post.create', { data: {...} })` depending on Client API.
+- For creating posts, likes, and reposts, call the server write procedure `com.atproto.repo.createRecord` with `collection` set to the appropriate record NSID (`app.bsky.feed.post`, `app.bsky.feed.like`, `app.bsky.feed.repost`). The lexicon record definitions describe the exact fields to include in the `record` payload (e.g., `$type`, `text`, `subject`, `createdAt`, etc.).
 
-How to verify locally (quick checklist)
+- For deleting, call `com.atproto.repo.deleteRecord` with the repo DID, collection NSID, and the record key (`rkey`) or equivalent.
 
-1. Inspect installed packages in node_modules (or browse the same package version on unpkg): look under `node_modules/@atcute/bluesky` and `node_modules/@atcute/atproto` for `lib/types` or `dist` folders that list lexicon IDs and procedure names.
+Concrete atcute call snippets (drop into `index.js` when migrating each command)
 
-2. Grep/search for likely procedure ids (case-sensitive) such as `feed.post`, `repost.create`, `reaction.create`, `repo.createRecord`, `repo.deleteRecord`, `feed.getPost`, `feed.getPostThread`.
+- Create a post:
 
-3. Confirm both the procedure id (string you will pass to `client.get`/`client.post`) and the parameter shape (`params` vs `data` for write operations). The `@atcute/client` README example shows `rpc.get('app.bsky.actor.getProfile', { params: { actor } })` and write calls typically use `rpc.post('app.bsky.feed.post.create', { data: { ... } })` or `rpc.call`-style APIs depending on client version.
+```js
+// assumes `rpc` is a Client instance whose handler is a CredentialManager (authenticated)
+const created = await ok(rpc.post('com.atproto.repo.createRecord', {
+  data: {
+    repo: myDid,
+    collection: 'app.bsky.feed.post',
+    record: {
+      $type: 'app.bsky.feed.post',
+      text: text,
+      createdAt: new Date().toISOString(),
+      // include reply/embed fields as needed per lexicon
+    }
+  }
+}));
+// created.uri and created.cid are returned
+```
 
-Example places to look in the installed package (paths are relative to your project root):
+- Create a like (reaction):
 
-- node_modules/@atcute/bluesky/lib/types/app/bsky
-- node_modules/@atcute/atproto/lib/types/com/atproto
-- node_modules/@atcute/bluesky/dist (or lib) — look for JSON or TypeScript files that contain `id` fields with the lexicon RPC ids
+```js
+const like = await ok(rpc.post('com.atproto.repo.createRecord', {
+  data: {
+    repo: myDid,
+    collection: 'app.bsky.feed.like',
+    record: {
+      $type: 'app.bsky.feed.like',
+      subject: { uri: targetUri },
+      createdAt: new Date().toISOString()
+    }
+  }
+}));
+```
 
-If you prefer a quick programmatic check, open Node REPL and require the package files or simply read the JSON lexicon files to list `id` fields — this will show the exact RPC ids and their param/output schemas.
+- Create a repost:
 
-Recommendation
+```js
+const repost = await ok(rpc.post('com.atproto.repo.createRecord', {
+  data: {
+    repo: myDid,
+    collection: 'app.bsky.feed.repost',
+    record: {
+      $type: 'app.bsky.feed.repost',
+      subject: { uri: targetUri },
+      createdAt: new Date().toISOString()
+    }
+  }
+}));
+```
 
-- Before editing `index.js`, confirm the exact write RPC ids for post/repost/reaction/delete in your installed `@atcute` definition packages; update the migration plan mapping accordingly; then perform the direct replacement for `clientLogin` (use `CredentialManager` and `Client`) and validate authentication.
+- Delete a record (post, like, or repost):
 
-Once you confirm the exact procedure names locally, I'll update the plan lines in this document with the precise RPC ids to use for each tool (and example call snippets to place in `index.js`) if you want.
+```js
+await ok(rpc.post('com.atproto.repo.deleteRecord', {
+  data: {
+    repo: myDid,
+    collection: 'app.bsky.feed.post', // or 'app.bsky.feed.like', etc.
+    rkey: recordKey
+  }
+}));
+```
+
+Notes and rationale
+
+- The atproto lexicons define record shapes (e.g., `app.bsky.feed.like`) and server procedures (e.g., `com.atproto.repo.createRecord`). While some client libraries expose convenience wrappers such as `agent.app.bsky.feed.post.create`, the canonical, cross-client approach is to call the repo write procedures with the proper `collection` NSID. This is the most robust direct-replacement path when removing `AtpAgent` convenience functions.
+
+- I verified these procedure IDs and record NSIDs against the official lexicons in the Bluesky `atproto` repository (files under `lexicons/app/bsky/feed/*.json` and `lexicons/com/atproto/repo/*.json`).
+
+Next step
+
+- You can now update `index.js` per the migration plan: replace agent.write calls with the `rpc.post('com.atproto.repo.createRecord', ...)` pattern and replace deletes with `rpc.post('com.atproto.repo.deleteRecord', ...)`. Start with `clientLogin` as planned, then migrate `post` and `like/repost/delete` using the examples above.
+
+## Auth requirements per tool (authoritative)
+
+The lexicon files are the source of truth for whether a procedure requires an authenticated session. Below is a concise mapping you can paste into the plan and use while migrating `index.js`.
+
+- login / clientLogin — requires credentials (use `CredentialManager.login`). Source: `@atcute/client` CredentialManager docs and login flow.
+
+- post (create a post) — requires auth. Use `com.atproto.repo.createRecord` with `collection: 'app.bsky.feed.post'`. Source: `lexicons/com/atproto/repo/createRecord.json` + `lexicons/app/bsky/feed/post.json`.
+
+- like (reaction) — requires auth. Implement via `com.atproto.repo.createRecord` with `collection: 'app.bsky.feed.like'`. Source: `lexicons/app/bsky/feed/like.json` + createRecord.
+
+- repost — requires auth. Implement via `com.atproto.repo.createRecord` with `collection: 'app.bsky.feed.repost'`. Source: `lexicons/app/bsky/feed/repost.json` + createRecord.
+
+- delete (remove record) — requires auth. Use `com.atproto.repo.deleteRecord` (input: { repo, collection, rkey }). Source: `lexicons/com/atproto/repo/deleteRecord.json`.
+
+- feed (app.bsky.feed.getFeed), profile (app.bsky.actor.getProfile), search (app.bsky.feed.searchPosts), getPost/getPosts/getLikes/getRepostedBy, resolveHandle (com.atproto.identity.resolveHandle) — read-only; do not require auth. Source: respective lexicon files under `lexicons/app/bsky/feed/*.json` and `lexicons/com/atproto/identity/resolveHandle.json`.
+
+- thread / getPostThread — public read; lexicon note: "Does not require auth, but additional metadata and filtering will be applied for authed requests." Source: `lexicons/app/bsky/feed/getPostThread.json`.
+
+- getTimeline (app.bsky.feed.getTimeline) — authenticated: returns the requesting account's home timeline. Treat as auth-required. Source: `lexicons/app/bsky/feed/getTimeline.json`.
+
+Guidance
+
+- Canonical rule: server write procedures under `com.atproto.repo.*` are implemented by the PDS and are declared as requiring auth in the lexicon; prefer calling `com.atproto.repo.createRecord`/`deleteRecord` for writes when doing direct replacements. Query procedures (type: "query") are generally public unless the lexicon text explicitly references the "requesting account".
