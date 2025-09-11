@@ -70,16 +70,18 @@ Practical verification steps performed by me (results)
 
 Immediate actions you must perform locally before editing code
 
-1. Inspect the lexicon sources to get the exact RPC procedure names for write actions you need (post, like/repost, delete, getPost). If you installed the definition packages locally, inspect them under `node_modules/@atcute/bluesky` or `node_modules/@atcute/atproto`. If you didn't install them, consult the upstream lexicon files on unpkg or the atproto repo for the same information. Example: search for 'app.bsky.feed.post', 'app.bsky.feed.getFeed', 'app.bsky.repost' etc.
+1. Inspect the lexicon sources to get the exact RPC procedure names for write actions you need (post, like/repost, delete, getPost). Inspect them under `node_modules/@atcute/bluesky` or `node_modules/@atcute/atproto` if available, or consult the upstream lexicon files on unpkg or the atproto repo. Example: search for 'app.bsky.feed.post', 'app.bsky.feed.getFeed', 'app.bsky.repost' etc.
 
-2. Try a small REPL experiment to confirm login and a simple read call:
-   - Node REPL or small script:
-     - const { Client, CredentialManager, simpleFetchHandler, ok } = require('@atcute/client');
-     - const handler = simpleFetchHandler({ service: 'https://public.api.bsky.app' }); const rpc = new Client({ handler });
-     - const { ok, data } = await rpc.get('app.bsky.actor.getProfile', { params: { actor: 'bsky.app' } }); console.log(ok, data);
-   - For authenticated: const manager = new CredentialManager({ service: 'https://bsky.social' }); const rpcAuth = new Client({ handler: manager }); await manager.login({ identifier: handle, password }); then call rpcAuth.get('com.atproto.identity.resolveHandle', { params: { handle } }) and confirm `data.did`.
+2. Verify login using the project's CLI entrypoint rather than ad-hoc REPL snippets:
+  - Run the repository-supported login command:
 
-3. Confirm what RPC method to call for posting and actions by grepping the installed lexicon files or by reading the lexicon JSON files online (unpkg or the atproto lexicons in the upstream repo).
+```cmd
+node index.js login
+```
+
+  - Follow the interactive prompts to provide the test account `handle` and `password`. The command should exercise `CredentialManager` and perform an authenticated read (for example, `com.atproto.identity.resolveHandle`) to validate the login; confirm it completes successfully and that credentials are stored by the project's credential persistence logic.
+
+3. Confirm what RPC method to call for posting and actions by grepping the lexicon files or by reading the lexicon JSON files online (unpkg or the atproto lexicons in the upstream repo).
 
 Potential gotchas you should be aware of
 
@@ -266,7 +268,7 @@ Guidance
 
 ## Quick summary
 
-This document already captured a comprehensive analysis and mapping from `AtpAgent`/`@atproto/api` to `@atcute/client`. The research, confirmed RPC names, and concrete code snippets for write/read procedures are done. What remains is the hands-on migration: installing packages, updating `index.js` (starting with `clientLogin`), adapting storage/session persistence, and manually verifying each command in priority order.
+This document already captured a comprehensive analysis and mapping from `AtpAgent`/`@atproto/api` to `@atcute/client`. The research, confirmed RPC names, and concrete code snippets for write/read procedures are done. What remains is the hands-on migration: updating `index.js` (starting with `clientLogin`), adapting storage/session persistence, and manually verifying each command in priority order.
 
 ## What is done (in this repository / plan)
 
@@ -287,25 +289,22 @@ This document already captured a comprehensive analysis and mapping from `AtpAge
 
 ## What is still outstanding (hands-on migration tasks)
 
-1. Install packages locally
-  - Ensure the desired packages are present in `package.json` and run an install to populate `node_modules` and the lockfile.
-  - Suggested command (optional):
-
-```cmd
-npm install @atcute/client @atcute/bluesky @atcute/atproto
-```
-
-2. Update `clientLogin` in `index.js` (REQUIRED first step)
+1. Update `clientLogin` in `index.js` (REQUIRED first step)
   - Replace `AtpAgent`/`agent.login(...)` with `CredentialManager` + `Client` per the plan:
     - Create manager: `new CredentialManager({ service })`
     - rpc: `new Client({ handler: manager })`
     - `await manager.login({ identifier, password })`
   - Decide contract returned by `clientLogin`: either return the `rpc` Client instance (preferred) or a small wrapper with the previous convenience methods. Update callers accordingly.
   - Persist raw credentials (username/password) into keytar and update `clientLoginOrFallback` to load credentials and call `manager.login({ identifier, password })` each time; do NOT attempt to persist or reuse `manager.session` tokens.
-
-3. Run a REPL smoke test for login + one authenticated read
+2. Run a smoke test for login + one authenticated read
   - Use a disposable test account.
-  - Confirm `manager.login()` succeeds and `rpc.get('com.atproto.identity.resolveHandle', { params: { handle } })` returns a DID.
+  - Run the project's login command:
+
+```cmd
+node index.js login
+```
+
+  - Confirm `manager.login()` (used by the CLI) succeeds and that an authenticated read such as `com.atproto.identity.resolveHandle` returns a DID.
 
 4. Migrate public/read commands (low-risk)
   - `feed`: replace feed/timeline retrieval with `rpc.get('app.bsky.feed.getFeed', { params: { feed, cursor, limit } })` (or `getTimeline` for authenticated home timeline).
@@ -347,10 +346,14 @@ Migration for a single command is considered complete when:
 
 ## Suggested immediate next actions (concrete)
 
-1. Install atcute packages locally (see command above).
-2. Implement `clientLogin` change in `index.js` and update `clientLoginOrFallback` to load/store `manager.session`.
-3. Run a quick REPL or `node -e` script to verify an authenticated read.
-4. Proceed to migrate `feed` (read) next and run `node index.js feed`.
+1. Implement `clientLogin` change in `index.js` and update `clientLoginOrFallback` to load/store `manager.session`.
+2. Run the project's login command to verify an authenticated read:
+
+```cmd
+node index.js login
+```
+
+3. Proceed to migrate `feed` (read) next and run `node index.js feed`.
 
 If you'd like, I can now:
 
@@ -362,7 +365,6 @@ If you'd like, I can now:
 Requirements coverage (mapping to the migration plan)
 
 - Preliminary research and mapping: Done.
-- Install packages: Outstanding (recommended immediate action).
 - clientLogin migration: Outstanding (highest-priority implementation task).
 - Feed/profile/search/thread migrations: Outstanding (next tasks after login).
 - Post/like/repost/delete migrations: Outstanding (requires auth verification).
