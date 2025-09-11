@@ -299,13 +299,19 @@ class Tools {
     }
 
     let feed;
-    feed = await ok(agent.get('app.bsky.feed.searchPosts', {
-      params: {
-        q: (query || '') + (from ? ' from:' + from : ''),
-        cursor,
-        limit: Math.min(limit || 20, 100)
-      }
-    }));
+    try {
+      feed = await ok(agent.get('app.bsky.feed.searchPosts', {
+        params: {
+          q: (query || '') + (from ? ' from:' + from : ''),
+          cursor,
+          limit: Math.min(limit || 20, 100)
+        }
+      }));
+    } catch (e) {
+      console.error('Search RPC failed:', e?.message || e);
+      // Return an empty search result rather than throwing; keeps CLI/automation robust.
+      return { cursor: null, posts: [] };
+    }
 
     const formatted = feed.posts.map(post => formatPost(post));
 
@@ -370,14 +376,12 @@ class Tools {
 
     // Fetch thread
     const thread = await ok(agent.get('app.bsky.feed.getPostThread', { params: { uri: postURI } }));
-    const anchorRecord = /** @type {import('@atproto/api').AppBskyFeedPost.Record} */(/** @type {*} */(
-  /** @type {import('@atproto/api/dist/client/types/app/bsky/feed/defs').ThreadViewPost} */(thread.thread).post?.record));
+    // Use a generic any type for record shapes so we don't depend on @atproto/api types at runtime
+    const anchorRecord = /** @type {any} */(/** @type {*} */(/** @type {any} */(thread.thread).post?.record));
 
-    /**
-     * @typedef {Omit<Partial<import('@atproto/api/dist/client/types/app/bsky/feed/defs').ThreadViewPost &
-     *  Partial<import('@atproto/api/dist/client/types/app/bsky/feed/defs').NotFoundPost> &
-     *  Partial<import('@atproto/api/dist/client/types/app/bsky/feed/defs').BlockedPost>>, '$type'> & { $type: string }} PostOrPlaceholder
-     */
+  /**
+   * @typedef {any} PostOrPlaceholder
+   */
 
     /**
      * Flatten thread into array
@@ -486,13 +490,15 @@ class Tools {
     if (!myDid) throw new Error('No authenticated session found');
 
     const posted = await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
-      repo: myDid,
-      collection: 'app.bsky.feed.post',
-      record: {
-        $type: 'app.bsky.feed.post',
-        text,
-        reply,
-        createdAt: new Date().toISOString()
+      data: {
+        repo: myDid,
+        collection: 'app.bsky.feed.post',
+        record: {
+          $type: 'app.bsky.feed.post',
+          text,
+          reply,
+          createdAt: new Date().toISOString()
+        }
       }
     }));
 
@@ -542,12 +548,14 @@ class Tools {
     if (!myDid) throw new Error('No authenticated session found');
 
     await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
-      repo: myDid,
-      collection: 'app.bsky.feed.like',
-      record: {
-        $type: 'app.bsky.feed.like',
-        subject: { uri: makeFeedUri(postRef.shortDID, postRef.postID) },
-        createdAt: new Date().toISOString()
+      data: {
+        repo: myDid,
+        collection: 'app.bsky.feed.like',
+        record: {
+          $type: 'app.bsky.feed.like',
+          subject: { uri: makeFeedUri(postRef.shortDID, postRef.postID) },
+          createdAt: new Date().toISOString()
+        }
       }
     }));
     
@@ -594,12 +602,14 @@ class Tools {
     if (!myDid) throw new Error('No authenticated session found');
 
     await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
-      repo: myDid,
-      collection: 'app.bsky.feed.repost',
-      record: {
-        $type: 'app.bsky.feed.repost',
-        subject: { uri: makeFeedUri(postRef.shortDID, postRef.postID) },
-        createdAt: new Date().toISOString()
+      data: {
+        repo: myDid,
+        collection: 'app.bsky.feed.repost',
+        record: {
+          $type: 'app.bsky.feed.repost',
+          subject: { uri: makeFeedUri(postRef.shortDID, postRef.postID) },
+          createdAt: new Date().toISOString()
+        }
       }
     }));
     
@@ -634,9 +644,11 @@ class Tools {
       if (!myDid) throw new Error('No authenticated session found');
       
       await ok(/** @type {any} */(agent).post('com.atproto.repo.deleteRecord', {
-        repo: myDid,
-        collection: 'app.bsky.feed.post',
-        rkey: postRef.postID
+        data: {
+          repo: myDid,
+          collection: 'app.bsky.feed.post',
+          rkey: postRef.postID
+        }
       }));
     } else {
       // If it's already a complete URI, try to extract repo and rkey
@@ -645,9 +657,11 @@ class Tools {
       
       const [, repo, collection, rkey] = uriParts;
       await ok(/** @type {any} */(agent).post('com.atproto.repo.deleteRecord', {
-        repo,
-        collection,
-        rkey
+        data: {
+          repo,
+          collection,
+          rkey
+        }
       }));
     }
     
@@ -683,11 +697,34 @@ class Tools {
   async clientLoginOrFallback({ login, password }) {
     const keytar = await keytarOrPromise;
     if (!login) login = (await keytar.getPassword(name, 'default_handle')) || undefined;
+    // Treat explicit 'anonymous' as no-login
     if (login === 'anonymous') login = undefined;
-    else password = !login ? undefined : password || /** @type {string} */(await keytar.getPassword(name, login));
 
-    if (login) return await this.clientLogin({ login, password: /** @type {string} */(password) });
-    else return this.clientIncognito();
+    // Validate the stored default handle to avoid trying to derive a service from invalid values
+    if (login && !likelyDID(login)) {
+      try {
+        // normalizeAndEnsureValidHandle will throw if handle is invalid (missing domain, bad chars)
+        normalizeAndEnsureValidHandle(login);
+      } catch (err) {
+        // Bad stored default handle - ignore and fallback to incognito
+        console.error('Ignoring invalid stored default handle:', login);
+        login = undefined;
+      }
+    }
+
+    // Only attempt to read the saved password if we have a (valid) login
+    if (login) {
+      password = password || /** @type {string} */(await keytar.getPassword(name, login));
+      try {
+        return await this.clientLogin({ login, password: /** @type {string} */(password) });
+      } catch (e) {
+        // If login fails for any reason, fall back to incognito rather than crashing the feed
+        console.error('Login failed for', login, '- falling back to incognito:', e?.message || e);
+        return this.clientIncognito();
+      }
+    }
+
+    return this.clientIncognito();
   }
 
   /**
@@ -701,8 +738,30 @@ class Tools {
   async clientLogin({ login, password }) {
     const existing = this._clientLoggedInByHandle[login];
     if (existing) return existing;
-    
-    const manager = new CredentialManager({ service: 'https://bsky.social' });
+    // Derive service URL using strict atproto algorithm:
+    // 1. If the identifier is a DID, use the default PDS.
+    // 2. Otherwise, normalize and validate the handle using strict atproto rules.
+    // 3. Extract the host by dropping the leftmost label (user part) from the normalized handle.
+    // 4. Prepend 'https://' to form the service URL.
+    let service = 'https://bsky.social';
+    try {
+      // If the login is already a DID, avoid deriving host from it
+      if (likelyDID(login)) {
+        // keep default
+      } else {
+        // Use strict atproto handle normalization and validation
+        const normalized = normalizeAndEnsureValidHandle(login);
+        // Extract host: drop leftmost label (user part), keep domain part
+        const idx = normalized.indexOf('.');
+        const host = normalized.slice(idx + 1);
+        service = 'https://' + host;
+      }
+    } catch (e) {
+      // Re-throw validation errors so caller knows the handle was invalid
+      throw new Error(`Invalid handle: ${e.message}`);
+    }
+
+    const manager = new CredentialManager({ service });
     const rpc = /** @type {Client & { authenticated?: boolean, manager?: CredentialManager }} */(new Client({ handler: manager }));
     
     await manager.login({ identifier: login, password });
@@ -726,7 +785,9 @@ class Tools {
 
   clientIncognito() {
     if (this._clientIncognito) return this._clientIncognito;
-    const handler = simpleFetchHandler({ service: 'https://public.api.bsky.app' });
+    // Use the project's public read endpoint (not environment-overridable).
+    const service = 'https://public.api.bsky.app';
+    const handler = simpleFetchHandler({ service });
     this._clientIncognito = new Client({ handler });
     return this._clientIncognito;
   }
@@ -910,10 +971,10 @@ function getInfo(obj) {
 
 
 /**
- * @param {Omit<import('@atproto/api/dist/client/types/app/bsky/feed/defs').FeedViewPost['post'], '$type'>} post
+ * @param {any} post
  */
 function formatPost(post) {
-  /** @type {Partial<import('@atproto/api').AppBskyFeedPost.Record>} */
+  /** @type {any} */
   const postRecord = post.record
   let replyToURI = postRecord.reply?.parent?.uri;
   if (replyToURI === post.uri) replyToURI = undefined;
@@ -969,7 +1030,7 @@ function formatPost(post) {
 
 /**
  * @param {string} shortDID
- * @param {import('@atproto/api').AppBskyFeedPost.Record['embed'] | undefined} embed
+ * @param {any} embed
  */
 function extractEmbeds(shortDID, embed) {
   if (!embed) return;
@@ -977,18 +1038,18 @@ function extractEmbeds(shortDID, embed) {
   /** @type {{ url: string, title?: string }[] | undefined} */
   let embeds = undefined;
 
-  embeds = addEmbedImages(shortDID, /** @type {import('@atproto/api').AppBskyEmbedImages.Main} */(embed).images, embeds);
-  embeds = addEmbedVideo(shortDID, /** @type {import('@atproto/api').AppBskyEmbedVideo.Main} */(embed), embeds);
-  embeds = addEmbedExternal(shortDID, /** @type {import('@atproto/api').AppBskyEmbedExternal.Main} */(embed).external, embeds);
-  embeds = addEmbedRecord(/** @type {import('@atproto/api').AppBskyEmbedRecord.Main} */(embed).record, embeds);
-  embeds = addEmbedRecordMedia(shortDID, /** @type {import('@atproto/api').AppBskyEmbedRecordWithMedia.Main} */(embed), embeds);
+  embeds = addEmbedImages(shortDID, /** @type {any} */(embed).images, embeds);
+  embeds = addEmbedVideo(shortDID, /** @type {any} */(embed), embeds);
+  embeds = addEmbedExternal(shortDID, /** @type {any} */(embed).external, embeds);
+  embeds = addEmbedRecord(/** @type {any} */(embed).record, embeds);
+  embeds = addEmbedRecordMedia(shortDID, /** @type {any} */(embed), embeds);
 
   return embeds;
 }
 
 /**
  * @param {string} shortDID
- * @param {import('@atproto/api').AppBskyEmbedImages.Main['images'] | undefined} embedImages 
+ * @param {any} embedImages 
  * @param {{ url: string, title?: string }[] | undefined} embeds 
  */
 function addEmbedImages(shortDID, embedImages, embeds) {
@@ -1008,7 +1069,7 @@ function addEmbedImages(shortDID, embedImages, embeds) {
 
 /**
  * @param {string} shortDID
- * @param {import('@atproto/api').AppBskyEmbedVideo.Main | undefined} embedVideo 
+ * @param {any} embedVideo 
  * @param {{ url: string, title?: string }[] | undefined} embeds 
  */
 function addEmbedVideo(shortDID, embedVideo, embeds) {
@@ -1024,7 +1085,7 @@ function addEmbedVideo(shortDID, embedVideo, embeds) {
 
 /**
  * @param {string} shortDID
- * @param {import('@atproto/api').AppBskyEmbedExternal.Main['external'] | undefined} embedExternal
+ * @param {any} embedExternal
  * @param {{ url: string, title?: string }[] | undefined} embeds 
  */
 function addEmbedExternal(shortDID, embedExternal, embeds) {
@@ -1039,7 +1100,7 @@ function addEmbedExternal(shortDID, embedExternal, embeds) {
 }
 
 /**
- * @param {import('@atproto/api').AppBskyEmbedRecord.Main['record'] | undefined} embedRecord
+ * @param {any} embedRecord
  * @param {{ url: string, title?: string }[] | undefined} embeds 
  */
 function addEmbedRecord(embedRecord, embeds) {
@@ -1051,27 +1112,27 @@ function addEmbedRecord(embedRecord, embeds) {
 
 /**
  * @param {string} shortDID
- * @param {import('@atproto/api').AppBskyEmbedRecordWithMedia.Main | undefined} embedRecordMedia
+ * @param {any} embedRecordMedia
  * @param {{ url: string, title?: string }[] | undefined} embeds 
  */
 function addEmbedRecordMedia(shortDID, embedRecordMedia, embeds) {
   embeds = addEmbedImages(
     shortDID,
-    /** @type {import('@atproto/api').AppBskyEmbedImages.Main} */(embedRecordMedia?.media)?.images,
+    /** @type {any} */(embedRecordMedia?.media)?.images,
     embeds);
 
   embeds = addEmbedVideo(
     shortDID,
-    /** @type {import('@atproto/api').AppBskyEmbedVideo.Main} */(embedRecordMedia?.media),
+    /** @type {any} */(embedRecordMedia?.media),
     embeds);
 
   embeds = addEmbedExternal(
     shortDID,
-    /** @type {import('@atproto/api').AppBskyEmbedExternal.Main} */(embedRecordMedia?.media)?.external,
+    /** @type {any} */(embedRecordMedia?.media)?.external,
     embeds);
 
   embeds = addEmbedRecord(
-    /** @type {import('@atproto/api').AppBskyEmbedRecord.Main} */(embedRecordMedia?.record)?.record,
+    /** @type {any} */(embedRecordMedia?.record)?.record,
     embeds);
 
   return embeds;
@@ -1182,6 +1243,43 @@ function cheapNormalizeHandle(handle) {
   }
 
   return handle || undefined;
+}
+
+/**
+ * Normalize and ensure handle follows atproto syntax rules.
+ * This is a strict validator taken from @atproto/syntax semantics:
+ * - lower-cases input
+ * - requires domain-like handle (at least two labels)
+ * - enforces label and overall length constraints and allowed chars
+ * Throws on invalid handles.
+ * @param {string} handle
+ * @returns {string} normalized handle
+ */
+function normalizeAndEnsureValidHandle(handle) {
+  if (!handle) throw new Error('Handle is required');
+  const normalized = String(handle).trim().toLowerCase();
+
+  // overall length
+  if (normalized.length > 253) throw new Error('Handle too long (253 chars max)');
+
+  // must contain at least one dot (two labels)
+  const labels = normalized.split('.');
+  if (labels.length < 2) throw new Error('Handle must include a domain (e.g. alice.example)');
+
+  // allowed characters: ASCII letters, digits, dashes, periods
+  if (!/^[a-z0-9.-]*$/.test(normalized)) throw new Error('Invalid characters in handle');
+
+  // per-label constraints
+  for (let i = 0; i < labels.length; i++) {
+    const l = labels[i];
+    if (l.length < 1) throw new Error('Handle parts can not be empty');
+    if (l.length > 63) throw new Error('Handle part too long (max 63 chars)');
+    if (l.startsWith('-') || l.endsWith('-')) throw new Error('Handle parts can not start or end with hyphens');
+    // final label (TLD) must start with ASCII letter
+    if (i + 1 === labels.length && !/^[a-z]/.test(l)) throw new Error('Handle final component (TLD) must start with ASCII letter');
+  }
+
+  return normalized;
 }
 
 /**
