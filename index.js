@@ -80,15 +80,13 @@ const { name, version } = require('./package.json');
         items: {
           type: 'object',
           properties: {
-            url: { type: 'string', format: 'uri', description: 'URL of the link.' },
+            url: { type: 'string', description: 'URL of the link.' },
             title: { type: 'string', description: 'Title of the link, if available.' }
-          },
-          required: ['url']
+          }
         },
         description: 'List of links included in the post, which could be images, URL links, videos or other posts.'
       }
-    },
-    required: ['indexedAt', 'author', 'postURI', 'text']
+    }
   };
 
   class Tools {
@@ -287,21 +285,31 @@ const { name, version } = require('./package.json');
       }
     };
 
+    /**
+     * @param {{
+     *   from?: string,
+     *   query?: string,
+     *   login?: string,
+     *   password?: string,
+     *   cursor?: string,
+     *   limit?: number
+     * }} _
+     */
     async search({ from, query, login, password, cursor, limit }) {
-      // Always run an incognito search. Optionally try an authenticated search in parallel
-      // and prefer authenticated results if they succeed. Authenticated search failures
-      // are tolerated (403, auth errors, etc.) — incognito must be used as the fallback.
+      // Set default query if neither query nor from is provided
       if (!query && !from) query = '*';
 
-      // Normalize `from` to a handle when possible; we can do this against the incognito agent
-      // so it can't fail due to missing auth.
+      // Get appropriate client (authenticated if possible, incognito as fallback)
+      const agent = await this.clientLoginOrFallback({ login, password });
+
+      // Normalize `from` to a handle when possible
       if (from) {
         if (likelyDID(from)) {
           try {
-            const resolved = await ok(this.clientIncognito().get('app.bsky.actor.getProfile', { params: { actor: unwrapShortDID(from) } }));
+            const resolved = await ok(agent.get('app.bsky.actor.getProfile', { params: { actor: unwrapShortDID(from) } }));
             from = resolved.handle;
           } catch (e) {
-            // If resolution fails in incognito, fall back to cheap unwrap/normalization
+            // If resolution fails, fall back to cheap unwrap/normalization
             from = unwrapShortHandle(from);
           }
         } else {
@@ -315,86 +323,13 @@ const { name, version } = require('./package.json');
         limit: Math.min(limit || 20, 100)
       };
 
-      // Start incognito search
-      // Helper to try incognito search, with a fallback to bsky.social if the public API returns 403.
-      const tryIncognitoSearch = async () => {
-        try {
-          const agent = this.clientIncognito();
-          return await ok(agent.get('app.bsky.feed.searchPosts', { params }));
-        } catch (e) {
-          // If public endpoint rejects (403), try the bsky.social host fallback
-          const status = e?.status || e?.response?.status || e?.statusCode;
-          if (status === 403) {
-            try {
-              const handler = simpleFetchHandler({ service: 'https://bsky.social' });
-              const client = new Client({ handler });
-              return await ok(client.get('app.bsky.feed.searchPosts', { params }));
-            } catch (e2) {
-              // fallback failed too, rethrow original error for upstream handling
-              throw e2;
-            }
-          }
-          throw e;
-        }
-      };
-
-      const incognitoPromise = tryIncognitoSearch();
-
-      // Start authenticated search in parallel if a login looks available.
-      // We deliberately do not use clientLoginOrFallback because that would return incognito
-      // and duplicate the same request; instead attempt clientLogin and allow it to fail.
-      let authPromise = null;
-      try {
-        // Only attempt to create an authenticated client if a login is provided or a default exists
-        const keytar = await keytarOrPromise;
-        const effectiveLogin = login || (await keytar.getPassword(name, 'default_handle')) || undefined;
-        if (effectiveLogin && effectiveLogin !== 'anonymous') {
-          // Try to create/authenticate the client. This may reject; we'll catch below.
-          authPromise = (async () => {
-            const agent = await this.clientLogin({ login: effectiveLogin, password });
-            return await ok(agent.get('app.bsky.feed.searchPosts', { params }));
-          })();
-        }
-      } catch (e) {
-        // Any error here should not prevent incognito from running — just log and continue.
-        console.error('Auth search setup failed:', e?.message || e);
-        authPromise = null;
-      }
-
-      // Wait for both (or just incognito) to settle. Use allSettled so auth failure doesn't throw.
-      const settled = await Promise.allSettled([incognitoPromise, authPromise].filter(Boolean));
-
-      // settled[0] is incognito (always present). If auth was started, it's the next item.
-      const incResult = settled[0];
-      const authResult = settled[1];
-
-      let feed;
-
-      if (incResult.status === 'fulfilled') {
-        // Prefer incognito results when they succeed (public fallback must be used when available).
-        feed = incResult.value;
-
-        if (authResult && authResult.status === 'fulfilled') {
-          // If authenticated search also succeeded, prefer authenticated (more personalized).
-          feed = authResult.value;
-        } else if (authResult && authResult.status === 'rejected') {
-          console.error('Authenticated search failed (ignored):', authResult.reason?.message || authResult.reason);
-        }
-      } else {
-        // Incognito failed. Try to use authenticated result if it succeeded.
-        if (authResult && authResult.status === 'fulfilled') {
-          feed = authResult.value;
-        } else {
-          console.error('Incognito search failed and no authenticated fallback available:', incResult.reason || incResult.status, authResult?.reason || authResult?.status);
-          return { cursor: null, posts: [] };
-        }
-      }
-
-      const formatted = feed.posts.map(post => formatPost(post));
+      // Make the search request  
+      const feed = await ok(agent.get('app.bsky.feed.searchPosts', { params }));
+      const formatted = /** @type {ReturnType<typeof formatPost>[]} */(/** @type {any} */(feed).posts.map((/** @type {any} */ post) => formatPost(post)));
 
       return {
-        cursor: feed.cursor,
-        posts: formatted.map(post => post.structured)
+        cursor: /** @type {any} */(feed).cursor,
+        posts: formatted.map((/** @type {any} */ post) => post.structured)
       };
     }
 
@@ -933,10 +868,10 @@ const { name, version } = require('./package.json');
     }
 
     async 'tools/call'({ name, arguments: args }) {
-      if (!this.tools[name])
+      if (!/** @type {*} */(this.tools)[name])
         throw new McpError(`Tool '${name}' not found`, -32601, `The tool '${name}' is not recognized by this server.`);
 
-      const structuredContent = await this.tools[name](args);
+      const structuredContent = await /** @type {*} */(this).tools[name](args);
 
       console.error('Tool ' + name + ': ', args, structuredContent);
 
@@ -944,7 +879,7 @@ const { name, version } = require('./package.json');
         content: [
           {
             type: 'text',
-            text: typeof structuredContent === 'string' ? structuredContent : JSON.stringify(structuredContent, null, 2),
+            text: typeof structuredContent === 'string' ? structuredContent : JSON.stringify(structuredContent),
           }
         ],
         structuredContent
@@ -1070,7 +1005,7 @@ const { name, version } = require('./package.json');
   
     const textual = header + '\n' + text + stats;
 
-    let links = extractEmbeds(post.author.handle, postRecord.embed);
+    let links = extractEmbeds(post.author.did, postRecord.embed);
 
     return {
       textual,
@@ -1118,7 +1053,7 @@ const { name, version } = require('./package.json');
     if (!embedImages?.length) return embeds;
     for (const img of embedImages) {
       if (!img) continue;
-      const url = getFeedBlobUrl(shortDID, img.image?.ref?.toString());
+      const url = getFeedBlobUrl(shortDID, img.image?.ref?.$link);
       if (url) {
         embeds = addToArray(embeds, {
           url,
@@ -1135,7 +1070,7 @@ const { name, version } = require('./package.json');
    * @param {{ url: string, title?: string }[] | undefined} embeds 
    */
   function addEmbedVideo(shortDID, embedVideo, embeds) {
-    const url = getFeedVideoBlobUrl(shortDID, embedVideo?.video?.ref?.toString());
+    const url = getFeedVideoBlobUrl(shortDID, embedVideo?.video?.ref?.$link);
     if (url) {
       embeds = addToArray(embeds, {
         url,
