@@ -299,6 +299,27 @@ const { name, version } = require('./package.json');
       // Set default query if neither query nor from is provided
       if (!query && !from) query = '*';
 
+      // fallback to thread if query is post link
+      {
+        const postRef = breakPostURL(query) || breakFeedURI(query);
+        if (postRef) {
+          const threadResult = await this.thread({ postURI: /** @type {*} */(query), login, password });
+          if (threadResult.posts.length) {
+            const author = threadResult.posts?.[0]?.author;
+            if (shortenDID(author?.did) === shortenDID(from) || author?.handle === from)
+              return threadResult;
+
+            const filtered = threadResult.posts.filter(p => {
+              const author = p.author;
+              return shortenDID(author?.did) === shortenDID(from) || author?.handle === from;
+            });
+            return {
+              posts: filtered
+            };
+          }
+        }
+      }
+
       // Get appropriate client (authenticated if possible, incognito as fallback)
       const agent = await this.clientLoginOrFallback({ login, password });
 
