@@ -323,6 +323,17 @@ const { name, version } = require('./package.json');
       // Get appropriate client (authenticated if possible, incognito as fallback)
       const agent = await this.clientLoginOrFallback({ login, password });
 
+      const [searchCursor, feedCursor] = cursor ? cursor.split('<<SPLIT>>') : [undefined, undefined];
+
+      const feedFetchPromise = !from || from === '*' ? undefined :
+        this.feed({
+          cursor: feedCursor,
+          login,
+          password,
+          feed: from,
+          limit
+        });
+
       // Normalize `from` to a handle when possible
       if (from) {
         if (likelyDID(from)) {
@@ -340,17 +351,26 @@ const { name, version } = require('./package.json');
 
       const params = {
         q: (query || '') + (from ? ' from:' + from : ''),
-        cursor,
+        cursor: searchCursor,
         limit: Math.min(limit || 20, 100)
       };
 
       // Make the search request  
-      const feed = await ok(agent.get('app.bsky.feed.searchPosts', { params }));
-      const formatted = /** @type {ReturnType<typeof formatPost>[]} */(/** @type {any} */(feed).posts.map((/** @type {any} */ post) => formatPost(post)));
+      const searchOutput = await ok(agent.get('app.bsky.feed.searchPosts', { params }));
+      const formatted = /** @type {ReturnType<typeof formatPost>[]} */(/** @type {any} */(searchOutput).posts.map((/** @type {any} */ post) => formatPost(post)));
+
+      const feedOutput = await feedFetchPromise?.catch(() => undefined);
+
+      let combinedCursor = /** @type {any} */(searchOutput).cursor;
+      if (feedOutput?.cursor) combinedCursor += '<<SPLIT>>' + feedOutput.cursor;
+      let combinedPosts = formatted.map((/** @type {any} */ post) => post.structured);
+      if (feedOutput?.posts?.length) {
+        combinedPosts = combinedPosts.concat(feedOutput.posts);
+      }
 
       return {
-        cursor: /** @type {any} */(feed).cursor,
-        posts: formatted.map((/** @type {any} */ post) => post.structured)
+        cursor: combinedCursor,
+        posts: combinedPosts
       };
     }
 
