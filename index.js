@@ -790,18 +790,10 @@ const { name, version } = require('./package.json');
       if (login === 'anonymous') login = undefined;
 
       // Validate the stored default handle to avoid trying to derive a service from invalid values
-      if (login && !likelyDID(login)) {
-        try {
-          // normalizeAndEnsureValidHandle will throw if handle is invalid (missing domain, bad chars)
-          normalizeAndEnsureValidHandle(login);
-        } catch (err) {
-          // Bad stored default handle - ignore and fallback to incognito
-          console.error('Ignoring invalid stored default handle:', login);
-          login = undefined;
-        }
-      }
+      if (login && !likelyDID(login))
+        login = await this._resolveHandle(login);
 
-      // Only attempt to read the saved password if we have a (valid) login
+      // Only attempt to read the saved password if we have a login
       if (login) {
         password = password || /** @type {string} */(await keytar.getPassword(name, login));
         try {
@@ -1337,43 +1329,6 @@ const { name, version } = require('./package.json');
     }
 
     return handle || undefined;
-  }
-
-  /**
-   * Normalize and ensure handle follows atproto syntax rules.
-   * This is a strict validator taken from @atproto/syntax semantics:
-   * - lower-cases input
-   * - requires domain-like handle (at least two labels)
-   * - enforces label and overall length constraints and allowed chars
-   * Throws on invalid handles.
-   * @param {string} handle
-   * @returns {string} normalized handle
-   */
-  function normalizeAndEnsureValidHandle(handle) {
-    if (!handle) throw new Error('Handle is required');
-    const normalized = String(handle).trim().toLowerCase();
-
-    // overall length
-    if (normalized.length > 253) throw new Error('Handle too long (253 chars max)');
-
-    // must contain at least one dot (two labels)
-    const labels = normalized.split('.');
-    if (labels.length < 2) throw new Error('Handle must include a domain (e.g. alice.example)');
-
-    // allowed characters: ASCII letters, digits, dashes, periods
-    if (!/^[a-z0-9.-]*$/.test(normalized)) throw new Error('Invalid characters in handle');
-
-    // per-label constraints
-    for (let i = 0; i < labels.length; i++) {
-      const l = labels[i];
-      if (l.length < 1) throw new Error('Handle parts can not be empty');
-      if (l.length > 63) throw new Error('Handle part too long (max 63 chars)');
-      if (l.startsWith('-') || l.endsWith('-')) throw new Error('Handle parts can not start or end with hyphens');
-      // final label (TLD) must start with ASCII letter
-      if (i + 1 === labels.length && !/^[a-z]/.test(l)) throw new Error('Handle final component (TLD) must start with ASCII letter');
-    }
-
-    return normalized;
   }
 
   /**
