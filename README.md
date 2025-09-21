@@ -14,7 +14,7 @@ It gets `autoreply` MCP tool in your local Gemini CLI and VSCode ready to talk t
 
 ## What is this Sorcery?
 
-`autoreply` is a lightweight Model Context Protocol (MCP) server that plugs directly into your favorite AI assistant (like Google's Gemini in VSCode or any other MCP-compatible tool). It's your personal, scriptable gateway to the BlueSky social network, giving your AI the power to read, write, and interact as if it were a person.
+**autoreply** is a lightweight Model Context Protocol (MCP) server that plugs directly into your favorite AI assistant (like Google's Gemini in VSCode or any other MCP-compatible tool). It's your personal, scriptable gateway to the BlueSky social network, giving your AI the power to read, write, and interact as if it were a person.
 
 *   **Log in once, command forever:** Use your handle and an [app password](https://bsky.app/settings/app-passwords). It's saved to your system's secure storage and used automatically.
 *   **Fly under the radar:** Access a universe of public BlueSky data—feeds, profiles, threads—without ever logging in. Perfect for research, analysis, or just satisfying your curiosity.
