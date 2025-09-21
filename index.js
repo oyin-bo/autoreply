@@ -461,20 +461,45 @@ const { name, version } = require('./package.json');
       }
     };
 
-    async post({ text, handle, password, replyToURI }) {
-      if (!handle || !password) {
-        [{ handle, password }] = [await this.getCredentials(handle)];
-      }
+    /**
+     * @type {{ [handle: string]: string | Promise<string> }}
+     */
+    _resolvedHandleCache = {};
 
-      const agent = await this.clientLogin({ login: handle, password });
+    /**
+     * @param {string} handle
+     */
+    _resolveHandle(handle) {
+      if (likelyDID(handle)) return handle;
+
+      const existing = this._resolvedHandleCache[handle];
+      if (existing) return existing;
+
+      return this._resolvedHandleCache[handle] = (async () => {
+        const agent = this.clientIncognito();
+        /** @type {*} */
+        const resolved = await ok(agent.get('com.atproto.identity.resolveHandle', { params: { handle: handle.replace('@', '') } }));
+        return this._resolvedHandleCache[handle] = resolved.did;
+      })();
+
+    }
+
+    /**
+     * @param {{
+     *  text: string,
+     *  login?: string,
+     *  password?: string,
+     *  replyToURI?: string
+     * }} _
+     */
+    async post({ text, login, password, replyToURI }) {
+      const agent = await this.clientLoginRequired({ login, password });
       let reply;
       let replyTracking;
       const postRef = breakPostURL(replyToURI) || breakFeedURI(replyToURI);
       if (postRef) {
-        if (!likelyDID(postRef.shortDID)) {
-          const resolved = await ok(agent.get('com.atproto.identity.resolveHandle', { params: { handle: postRef.shortDID.replace('@', '') } }));
-          postRef.shortDID = resolved.did;
-        }
+        if (!likelyDID(postRef.shortDID))
+          postRef.shortDID = await this._resolveHandle(postRef.shortDID);
 
         const replyToPost = await ok(agent.get('com.atproto.repo.getRecord', {
           params: {
@@ -483,6 +508,7 @@ const { name, version } = require('./package.json');
             rkey: postRef.postID
           }
         }));
+
         reply = /** @type {const} */({
           root: replyToPost.value.reply?.root || {
             $type: 'com.atproto.repo.strongRef',
@@ -502,7 +528,7 @@ const { name, version } = require('./package.json');
       if (!myDid) throw new Error('No authenticated session found');
 
       const posted = await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
-        data: {
+        input: {
           repo: myDid,
           collection: 'app.bsky.feed.post',
           record: {
@@ -528,7 +554,6 @@ const { name, version } = require('./package.json');
         type: 'object',
         properties: {
           replyToURI: { type: 'string', description: 'The post URI (or BlueSky URL of the post) to which the reply is made (if any).' },
-          text: { type: 'string', description: 'The text to post.' },
           login: { type: 'string', description: '(Optional) BlueSky handle to post the message as.' },
           password: { type: 'string', description: '(Optional) BlueSky password to use.' }
         },
@@ -546,7 +571,7 @@ const { name, version } = require('./package.json');
     async like({ postURI, login, password }) {
       if (!postURI) throw new Error('postURI is required.');
 
-      const agent = await this.clientLogin({ login, password });
+      const agent = await this.clientLoginRequired({ login, password });
 
       const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
       if (!postRef) throw new Error('Invalid post URI or feed URI.');
@@ -555,6 +580,7 @@ const { name, version } = require('./package.json');
         postRef.shortDID = resolved.did;
       }
 
+      /** @type {*} */
       const likePost = await ok(agent.get('com.atproto.repo.getRecord', {
         params: {
           repo: unwrapShortDID(postRef.shortDID),
@@ -566,13 +592,16 @@ const { name, version } = require('./package.json');
       const myDid = agent.manager?.session?.did;
       if (!myDid) throw new Error('No authenticated session found');
 
-      await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
-        data: {
+      await ok(agent.post('com.atproto.repo.createRecord', {
+        input: {
           repo: myDid,
           collection: 'app.bsky.feed.like',
           record: {
             $type: 'app.bsky.feed.like',
-            subject: { uri: makeFeedUri(postRef.shortDID, postRef.postID) },
+            subject: {
+              uri: makeFeedUri(postRef.shortDID, postRef.postID),
+              cid: likePost.cid
+            },
             createdAt: new Date().toISOString()
           }
         }
@@ -600,7 +629,7 @@ const { name, version } = require('./package.json');
     async repost({ postURI, login, password }) {
       if (!postURI) throw new Error('postURI is required.');
 
-      const agent = await this.clientLogin({ login, password });
+      const agent = await this.clientLoginRequired({ login, password });
 
       const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
       if (!postRef) throw new Error('Invalid post URI or feed URI.');
@@ -621,7 +650,7 @@ const { name, version } = require('./package.json');
       if (!myDid) throw new Error('No authenticated session found');
 
       await ok(/** @type {any} */(agent).post('com.atproto.repo.createRecord', {
-        data: {
+        input: {
           repo: myDid,
           collection: 'app.bsky.feed.repost',
           record: {
@@ -651,10 +680,10 @@ const { name, version } = require('./package.json');
       }
     };
 
-    async delete({ postURI, handle, password }) {
+    async delete({ postURI, login, password }) {
       if (!postURI) throw new Error('postURI is required.');
 
-      const agent = await this.clientLogin({ login: handle, password });
+      const agent = await this.clientLoginRequired({ login, password });
 
       // Parse the URI to get repo and collection details
       const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
@@ -663,7 +692,7 @@ const { name, version } = require('./package.json');
         if (!myDid) throw new Error('No authenticated session found');
 
         await ok(/** @type {any} */(agent).post('com.atproto.repo.deleteRecord', {
-          data: {
+          input: {
             repo: myDid,
             collection: 'app.bsky.feed.post',
             rkey: postRef.postID
@@ -676,7 +705,7 @@ const { name, version } = require('./package.json');
 
         const [, repo, collection, rkey] = uriParts;
         await ok(/** @type {any} */(agent).post('com.atproto.repo.deleteRecord', {
-          data: {
+          input: {
             repo,
             collection,
             rkey
@@ -738,12 +767,32 @@ const { name, version } = require('./package.json');
           return await this.clientLogin({ login, password: /** @type {string} */(password) });
         } catch (e) {
           // If login fails for any reason, fall back to incognito rather than crashing the feed
-          console.error('Login failed for', login, password.slice(0, 2) + Array(password.length - 2).fill('*').join(''), '- falling back to incognito:', e?.message || e);
+          console.error('Login failed for', login, password.slice(0, 2) + '***', '- falling back to incognito:', e?.message || e);
           return this.clientIncognito();
         }
       }
 
       return this.clientIncognito();
+    }
+
+    /**
+     * @param {{ login?: string, password?: string }} _
+     * @returns {Promise<InstanceType<Client> & { authenticated?: boolean, manager?: InstanceType<CredentialManager> }>}
+     */
+    async clientLoginRequired({ login, password }) {
+      if (!login || !password) {
+        const creds = await this.getCredentials(login);
+        login = creds.handle;
+        password = creds.password;
+      }
+
+      try {
+        return await this.clientLogin({ login, password });
+      } catch (e) {
+        /** @type {Error} */(e).message = 'Authentication failed for ' + login + '/' + password.slice(0, 2) + '***' + '. ' + (/** @type {Error} */(e)?.message || e);
+        console.error('Authentication failed for', login, '- this operation requires login.');
+        throw e;
+      }
     }
 
     /**
