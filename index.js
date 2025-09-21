@@ -536,6 +536,13 @@ const { name, version } = require('./package.json');
       }
     };
 
+    /**
+     * @param {{
+     *  postURI: string,
+     *  login?: string,
+     *  password?: string
+     * }} _
+     */
     async like({ postURI, login, password }) {
       if (!postURI) throw new Error('postURI is required.');
 
@@ -570,7 +577,7 @@ const { name, version } = require('./package.json');
           }
         }
       }));
-    
+
       return (
         `Post liked: ${postRef.shortDID}/${postRef.postID} (${likePost.uri}): ${likePost.value.text}`
       );
@@ -624,7 +631,7 @@ const { name, version } = require('./package.json');
           }
         }
       }));
-    
+
       return (
         `Post reposted: ${postRef.shortDID}/${postRef.postID} (${repostPost.uri}): ${repostPost.value.text}`
       );
@@ -648,13 +655,13 @@ const { name, version } = require('./package.json');
       if (!postURI) throw new Error('postURI is required.');
 
       const agent = await this.clientLogin({ login: handle, password });
-    
+
       // Parse the URI to get repo and collection details
       const postRef = breakPostURL(postURI) || breakFeedURI(postURI);
       if (postRef) {
         const myDid = agent.manager?.session?.did;
         if (!myDid) throw new Error('No authenticated session found');
-      
+
         await ok(/** @type {any} */(agent).post('com.atproto.repo.deleteRecord', {
           data: {
             repo: myDid,
@@ -666,7 +673,7 @@ const { name, version } = require('./package.json');
         // If it's already a complete URI, try to extract repo and rkey
         const uriParts = postURI.match(/^at:\/\/([^\/]+)\/([^\/]+)\/(.+)$/);
         if (!uriParts) throw new Error('Invalid post URI format');
-      
+
         const [, repo, collection, rkey] = uriParts;
         await ok(/** @type {any} */(agent).post('com.atproto.repo.deleteRecord', {
           data: {
@@ -676,7 +683,7 @@ const { name, version } = require('./package.json');
           }
         }));
       }
-    
+
       return 'Post deleted';
     }
 
@@ -760,7 +767,7 @@ const { name, version } = require('./package.json');
 
       const manager = new CredentialManager({ service });
       const rpc = /** @type {InstanceType<Client> & { authenticated?: boolean, manager?: InstanceType<CredentialManager> }} */(new Client({ handler: manager }));
-    
+
       await manager.login({ identifier: login, password });
 
       // store credentials
@@ -985,7 +992,7 @@ const { name, version } = require('./package.json');
       ) +
       ' postURI: ' + post.uri +
       (replyToURI ? ' reply to: ' + replyToURI : '');
-  
+
     const text = /** @type {string} */(
       post.record.text || ''
     ).split('\n').map(line => '> ' + line).join('\n');
@@ -1002,7 +1009,7 @@ const { name, version } = require('./package.json');
         ')'
         : ''
       );
-  
+
     const textual = header + '\n' + text + stats;
 
     let links = extractEmbeds(post.author.did, postRecord.embed);
