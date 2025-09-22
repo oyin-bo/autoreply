@@ -596,7 +596,8 @@ const { name, version } = require('./package.json');
         properties: {
           replyToURI: { type: 'string', description: 'The post URI (or BlueSky URL of the post) to which the reply is made (if any).' },
           login: { type: 'string', description: '(Optional) BlueSky handle to post the message as.' },
-          password: { type: 'string', description: '(Optional) BlueSky password to use.' }
+          password: { type: 'string', description: '(Optional) BlueSky password to use.' },
+          text: { type: 'string', description: 'The text of the post to send.' }
         },
         required: ['text']
       }
@@ -800,7 +801,7 @@ const { name, version } = require('./package.json');
           return await this.clientLogin({ login, password: /** @type {string} */(password) });
         } catch (e) {
           // If login fails for any reason, fall back to incognito rather than crashing the feed
-          console.error('Login failed for', login, password.slice(0, 2) + '***', '- falling back to incognito:', e?.message || e);
+          console.error('Login failed for', login, (password || '').slice(0, 2) + '***', '- falling back to incognito:', e?.message || e);
           return this.clientIncognito();
         }
       }
@@ -822,7 +823,7 @@ const { name, version } = require('./package.json');
       try {
         return await this.clientLogin({ login, password });
       } catch (e) {
-        /** @type {Error} */(e).message = 'Authentication failed for ' + login + '/' + password.slice(0, 2) + '***' + '. ' + (/** @type {Error} */(e)?.message || e);
+        /** @type {Error} */(e).message = 'Authentication failed for ' + login + '/' + (password || '').slice(0, 2) + '***' + '. ' + (/** @type {Error} */(e)?.message || e);
         console.error('Authentication failed for', login, '- this operation requires login.');
         throw e;
       }
