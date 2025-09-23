@@ -8,8 +8,9 @@
 
 Summary of findings (quick facts)
 
-- The project already lists `@atcute/client` in `package.json` (version found on npm: 4.0.3). Prefer pinning to the exact published version you intend to use. The package on npm is MIT-licensed.
+- The project already lists `@atcute/client` in `package.json` (version found on npm: 4.0.3). The package on npm is MIT-licensed.
 - The atcute monorepo on GitHub is well-populated and licensed permissively (0BSD for the monorepo); key client functionality lives in `@atcute/client` and schema/definition packages such as `@atcute/bluesky` and `@atcute/atproto` provide the lexicons.
+- The atcute monorepo on GitHub is well-populated and licensed permissively (0BSD for the monorepo); key client functionality lives in `@atcute/client`. Schema/definition packages (for example `@atcute/bluesky` and `@atcute/atproto`) are transitive dependencies.
 - `@atcute/client` main primitives discovered from README and package dist:
   - Client class: used to perform RPC-style calls (rpc.get / rpc.post semantics).  
   - simpleFetchHandler({ service }) helper to create a fetch-based transport configured with the target service URL.  
@@ -24,7 +25,7 @@ Concrete examples and mapping patterns
 
 - Authenticated client (equivalent of AtpAgent + login):
   - Atcute pattern: const manager = new CredentialManager({ service: 'https://bsky.social' }); const rpc = new Client({ handler: manager }); await manager.login({ identifier, password }); manager.session contains tokens; rpc calls are authenticated.
-  - manager.session example from README: { refreshJwt: '...', ... }.
+  - CredentialManager exposes `manager.session` at runtime (contains tokens), login will always use stored credentials (username/password).
 
 - RPC patterns:
   - rpc.get('app.bsky.actor.getProfile', { params: { actor } }) returns { ok, data } or use await ok(rpc.get(...)) to get data directly.
@@ -39,7 +40,7 @@ Mapping of AtpAgent usages in index.js → atcute equivalents (what to change di
 - Authenticated login:
   - Old: rpc.login({ identifier, password })
   - New: const manager = new CredentialManager({ service: 'https://bsky.social' }); const rpc = new Client({ handler: manager }); await manager.login({ identifier, password });
-  - After this, use rpc for authenticated calls; persist credential tokens with existing keytar logic if desired (or continue to store raw password as before).
+  - After this, use rpc for authenticated calls.
 
 - getProfile / getFollowers / getFollows:
   - Old convenience methods: agent.getProfile({ actor }), agent.getFollowers({ actor, cursor }), agent.getFollows({ actor, cursor })
@@ -64,25 +65,23 @@ Mapping of AtpAgent usages in index.js → atcute equivalents (what to change di
 Practical verification steps performed by me (results)
 
 - Confirmed `@atcute/client` exists on npm (v4.0.3) and README contains example usage showing: import { Client, CredentialManager, ok, simpleFetchHandler } from '@atcute/client'; rpc.get(...) pattern; CredentialManager for authenticated handler.
-- Confirmed `@atcute/bluesky` and `@atcute/atproto` exist as definition packages and must be installed to obtain typed lexicon names; unpkg shows these packages available.
+  - Confirmed `@atcute/bluesky` and `@atcute/atproto` exist as definition packages.
 - Confirmed example endpoints: 'https://public.api.bsky.app' for public reads and 'https://bsky.social' for authenticated writes in examples.
 
 Immediate actions you must perform locally before editing code
 
-1. Install and pin the atcute packages used in the project (already present in package.json, but ensure installed):
-   - npm install @atcute/client @atcute/bluesky @atcute/atproto
-   - Verify versions in package-lock or pnpm lock match the intended release.
+1. Inspect the lexicon sources to get the exact RPC procedure names for write actions you need (post, like/repost, delete, getPost). Inspect them under `node_modules/@atcute/bluesky` or `node_modules/@atcute/atproto` if available, or consult the upstream lexicon files on unpkg or the atproto repo. Example: search for 'app.bsky.feed.post', 'app.bsky.feed.getFeed', 'app.bsky.repost' etc.
 
-2. Inspect the installed `@atcute/bluesky` and `@atcute/atproto` packages (in node_modules or via unpkg) to get the exact RPC procedure names for write actions you need (post, like/repost, delete, getPost). Example: search for 'app.bsky.feed.post', 'app.bsky.feed.getFeed', 'app.bsky.repost' etc.
+2. Verify login using the project's CLI entrypoint rather than ad-hoc REPL snippets:
+  - Run the repository-supported login command:
 
-3. Try a small REPL experiment to confirm login and a simple read call:
-   - Node REPL or small script:
-     - const { Client, CredentialManager, simpleFetchHandler, ok } = require('@atcute/client');
-     - const handler = simpleFetchHandler({ service: 'https://public.api.bsky.app' }); const rpc = new Client({ handler });
-     - const { ok, data } = await rpc.get('app.bsky.actor.getProfile', { params: { actor: 'bsky.app' } }); console.log(ok, data);
-   - For authenticated: const manager = new CredentialManager({ service: 'https://bsky.social' }); const rpcAuth = new Client({ handler: manager }); await manager.login({ identifier: handle, password }); then call rpcAuth.get('com.atproto.identity.resolveHandle', { params: { handle } }) and confirm `data.did`.
+```cmd
+node index.js login
+```
 
-4. Confirm what RPC method to call for posting and actions by grepping the installed definition files or reading the package `@atcute/bluesky` content.
+  - Follow the interactive prompts to provide the test account `handle` and `password`. The command should exercise `CredentialManager` and perform an authenticated read (for example, `com.atproto.identity.resolveHandle`) to validate the login; confirm it completes successfully and that credentials are stored by the project's credential persistence logic.
+
+3. Confirm what RPC method to call for posting and actions by grepping the lexicon files or by reading the lexicon JSON files online (unpkg or the atproto lexicons in the upstream repo).
 
 Potential gotchas you should be aware of
 
@@ -264,3 +263,111 @@ The lexicon files are the source of truth for whether a procedure requires an au
 Guidance
 
 - Canonical rule: server write procedures under `com.atproto.repo.*` are implemented by the PDS and are declared as requiring auth in the lexicon; prefer calling `com.atproto.repo.createRecord`/`deleteRecord` for writes when doing direct replacements. Query procedures (type: "query") are generally public unless the lexicon text explicitly references the "requesting account".
+
+# Further work outstanding
+
+## Quick summary
+
+This document already captured a comprehensive analysis and mapping from `AtpAgent`/`@atproto/api` to `@atcute/client`. The research, confirmed RPC names, and concrete code snippets for write/read procedures are done. What remains is the hands-on migration: updating `index.js` (starting with `clientLogin`), adapting storage/session persistence, and manually verifying each command in priority order.
+
+## What is done (in this repository / plan)
+
+- Preliminary checks and reconnaissance:
+  - Confirmed `@atcute/client` exists and provided the expected Client/CredentialManager/simpleFetchHandler/ok primitives.
+  - Mapped AtpAgent idioms to atcute equivalents for public/anonymous and authenticated usage.
+  - Documented RPC usage patterns (`rpc.get`, `rpc.post`) and the `ok(...)` unwrap helper.
+- Lexicon/procedure validation:
+  - Confirmed canonical procedure names and record NSIDs for reads and writes (e.g., `app.bsky.feed.post`, `com.atproto.repo.createRecord`, `com.atproto.repo.deleteRecord`, `app.bsky.feed.getFeed`, etc.).
+  - Provided concrete atcute snippets for create-post, create-like, create-repost, and delete using `com.atproto.repo.createRecord`/`deleteRecord`.
+- High-level migration workflow and priority order defined (login → feed → profile → search/thread → write actions).
+
+## What is partially done
+
+- Package presence: `@atcute/client` is listed in `package.json` (per the plan).
+- Exact parameter / return-shape verification: lexicon IDs are confirmed, but live verification against a running PDS (via REPL or test calls) has not been performed here.
+- Keytar persistence approach is described; no code changes were applied yet. This repository will continue to persist raw credentials (username/password) rather than tokens/manager.session.
+
+## What is still outstanding (hands-on migration tasks)
+
+1. Update `clientLogin` in `index.js` (REQUIRED first step)
+  - Replace `AtpAgent`/`agent.login(...)` with `CredentialManager` + `Client` per the plan:
+    - Create manager: `new CredentialManager({ service })`
+    - rpc: `new Client({ handler: manager })`
+    - `await manager.login({ identifier, password })`
+  - Decide contract returned by `clientLogin`: either return the `rpc` Client instance (preferred) or a small wrapper with the previous convenience methods. Update callers accordingly.
+  - Persist raw credentials (username/password) into keytar and update `clientLoginOrFallback` to load credentials and call `manager.login({ identifier, password })` each time; do NOT attempt to persist or reuse `manager.session` tokens.
+2. Run a smoke test for login + one authenticated read
+  - Use a disposable test account.
+  - Run the project's login command:
+
+```cmd
+node index.js login
+```
+
+  - Confirm `manager.login()` (used by the CLI) succeeds and that an authenticated read such as `com.atproto.identity.resolveHandle` returns a DID.
+
+4. Migrate public/read commands (low-risk)
+  - `feed`: replace feed/timeline retrieval with `rpc.get('app.bsky.feed.getFeed', { params: { feed, cursor, limit } })` (or `getTimeline` for authenticated home timeline).
+  - `profile`: `rpc.get('app.bsky.actor.getProfile', { params: { actor } })` and followers/follows via `app.bsky.graph.*`.
+  - `search` / `thread`: `rpc.get('app.bsky.feed.searchPosts', { params: ... })` and `app.bsky.feed.getPostThread` respectively.
+  - Run manual tests: `node index.js feed`, `node index.js profile` to verify output shapes. Adjust shaping/formatters as needed.
+
+5. Migrate write actions (requires auth; higher risk)
+  - Implement `post`, `like`, `repost` using `com.atproto.repo.createRecord` with `collection` set to `app.bsky.feed.post|like|repost` and `record` shaped as lexicon requires. Use `ok(rpc.post(...))` to unwrap or handle errors explicitly.
+  - Implement `delete` via `com.atproto.repo.deleteRecord`.
+  - Test these with a disposable account; verify returned `{ uri, cid }` and that operations are visible on the PDS.
+
+6. Update storage/persistence strategy
+  - Continue storing raw credentials (username/password) in keytar and use them to call `manager.login` when needed. Do NOT store or rely on `manager.session` tokens. If you change the storage format in future, provide fallback migration logic in `clientLoginOrFallback` to import older entries.
+
+7. Record versions, update lockfile, and add minimal checks
+  - Commit updated `package.json` and lockfile (ensure exact versions are recorded as needed).
+  - Add a brief note in `README.md` describing the atcute version and the migration steps.
+
+8. Quality gates and manual validation
+  - Lint/typecheck (if present), quick smoke tests for each migrated command, and at least one end-to-end manual verification run for write actions.
+  - If repository contains test harnesses (e.g., `test-*.js`), run any relevant quick tests after migration.
+
+## Risks and gotchas to watch while migrating
+
+- RPC parameter and return shapes: Atcute uses names and shapes from the lexicons; these differ from AtpAgent convenience methods. Use `ok(...)` or explicitly handle `{ ok, data }` tuples.
+- Auth/session representation: this migration will NOT switch to persisting `manager.session` or tokens. Continue to store raw credentials and call `manager.login` each time; keep a fallback path for legacy credential entries if formats change.
+- Write semantics: use `com.atproto.repo.createRecord` for posts/reactions/reposts — ensure `record` matches lexicon (fields like `$type`, `text`, `subject`, `createdAt`).
+- Timeline vs feed: `getTimeline` is authenticated and returns the requesting account's home timeline; `getFeed` may be public. Use the appropriate RPC per command.
+
+## Acceptance criteria / done definition
+
+Migration for a single command is considered complete when:
+
+1. `index.js` uses `@atcute/client` for that command (no remaining `AtpAgent` calls in that command's code path).
+2. Manual smoke test for the command runs successfully (for writes: verified visible effect on the PDS; for reads: expected output and no runtime errors).
+3. If the command requires auth, login flow via `clientLogin` works and stored credentials (username/password) can be loaded and used by `clientLoginOrFallback` to re-login.
+4. `package.json` lists the `@atcute` packages and lockfile committed.
+
+## Suggested immediate next actions (concrete)
+
+1. Implement `clientLogin` change in `index.js` and update `clientLoginOrFallback` to load/store `manager.session`.
+2. Run the project's login command to verify an authenticated read:
+
+```cmd
+node index.js login
+```
+
+3. Proceed to migrate `feed` (read) next and run `node index.js feed`.
+
+If you'd like, I can now:
+
+- edit `index.js` to implement `clientLogin` using `CredentialManager` and return a `Client` instance, and update `clientLoginOrFallback` to persist `manager.session` (I can implement this change and run quick local checks).  
+- or generate a small REPL script you can run to verify `@atcute/client` behaviour with your credentials.
+
+---
+
+Requirements coverage (mapping to the migration plan)
+
+- Preliminary research and mapping: Done.
+- clientLogin migration: Outstanding (highest-priority implementation task).
+- Feed/profile/search/thread migrations: Outstanding (next tasks after login).
+- Post/like/repost/delete migrations: Outstanding (requires auth verification).
+- Manual testing and persistence migration: Outstanding.
+
+"Further work outstanding" now lists clear, ordered tasks, acceptance criteria, and immediate commands. Follow the priority order above (login → feed → profile → search/thread → write actions) and ask me to perform the code edits and verifications you'd like done next.
