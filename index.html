@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>autoreply - Your AI's Gateway to BlueSky</title>
+	<style>
+		@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body {
+			font-family: 'Inter', sans-serif;
+			background-image: url('splash.jpg');
+			background-size: cover;
+			background-position: center;
+			background-attachment: fixed;
+			background-repeat: no-repeat;
+			color: white;
+			overflow-x: hidden;
+			min-height: 100vh;
+			position: relative;
+		}
+		body::before {
+			content: '';
+			position: fixed;
+			top: 0; left: 0; width: 100%; height: 100%;
+			background: rgba(15, 23, 42, 0.75);
+			backdrop-filter: blur(2px);
+			z-index: 1;
+		}
+		.container { position: relative; z-index: 10; min-height: 100vh; display: flex; flex-direction: column; }
+		.header { padding: 2rem; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255,255,255,0.1); }
+		.logo-section { display: flex; align-items: center; gap: 1rem; }
+		.logo { font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; color: #fff; }
+		.logo-emoji { font-size: 2.5rem; }
+		.nav-links { display: flex; gap: 2rem; align-items: center; }
+		.nav-link { color: rgba(255,255,255,0.8); text-decoration: none; font-weight: 500; font-size: 0.95rem; padding: 0.75rem 1.5rem; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; transition: all 0.3s ease; background: rgba(255,255,255,0.05); }
+		.nav-link:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); color: white; }
+		.main-content { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 4rem 2rem; text-align: center; }
+		.hero-section { max-width: 900px; margin: 0 auto; }
+		.title { font-size: clamp(3rem,8vw,6rem); font-weight: 300; line-height: 1.1; margin-bottom: 1.5rem; letter-spacing: -0.03em; }
+		.title .highlight { font-weight: 600; color: #3b82f6; }
+		.subtitle { font-size: clamp(1.2rem,3vw,1.8rem); font-weight: 400; color: rgba(255,255,255,0.8); margin-bottom: 3rem; line-height: 1.5; }
+		.description { font-size: 1.1rem; color: rgba(255,255,255,0.7); line-height: 1.6; margin-bottom: 4rem; max-width: 700px; }
+		.cta-section { display: flex; flex-direction: column; gap: 2rem; align-items: center; margin-bottom: 4rem; }
+		.install-box { background: rgba(0,0,0,0.6); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 2rem; max-width: 600px; width: 100%; }
+		.install-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 1rem; color: #3b82f6; }
+		.install-command { font-family: 'JetBrains Mono', monospace; background: #0f172a; border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 1rem 1.5rem; font-size: 1rem; color: #06b6d4; margin: 1rem 0; text-align: left; position: relative; user-select: all; cursor: pointer; }
+		.install-command::before { content: '$'; color: rgba(255,255,255,0.5); margin-right: 0.5rem; }
+		.cta-buttons { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
+		.cta-button { padding: 1rem 2rem; font-size: 1rem; font-weight: 600; text-decoration: none; color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; transition: all 0.3s ease; background: rgba(255,255,255,0.1); backdrop-filter: blur(20px); }
+		.cta-button.primary { background: rgba(59,130,246,0.8); border-color: #3b82f6; }
+		.cta-button:hover { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); transform: translateY(-2px); }
+		.cta-button.primary:hover { background: rgba(59,130,246,1); }
+		.features-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 2rem; max-width: 1200px; width: 100%; margin-top: 4rem; }
+		.feature-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 2rem; text-align: center; transition: all 0.3s ease; }
+		.feature-card:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); transform: translateY(-5px); }
+		.feature-icon { font-size: 2.5rem; margin-bottom: 1rem; display: block; }
+		.feature-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.75rem; color: white; }
+		.feature-description { font-size: 0.95rem; color: rgba(255,255,255,0.7); line-height: 1.5; }
+		.footer { padding: 2rem; text-align: center; background: rgba(0,0,0,0.3); backdrop-filter: blur(20px); border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.9rem; color: rgba(255,255,255,0.6); }
+		.footer-links { display: flex; gap: 2rem; justify-content: center; margin-bottom: 1rem; }
+		.footer-link { color: rgba(255,255,255,0.7); text-decoration: none; transition: color 0.3s ease; }
+		.footer-link:hover { color: #3b82f6; }
+		@media (max-width: 768px) {
+			.header { flex-direction: column; gap: 1rem; }
+			.nav-links { flex-wrap: wrap; justify-content: center; }
+			.main-content { padding: 2rem 1rem; }
+			.cta-buttons { flex-direction: column; align-items: center; }
+			.features-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+			.footer-links { flex-direction: column; gap: 1rem; }
+		}
+		.fade-in { animation: fadeIn 1s ease-out; }
+		@keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+		.slide-up { animation: slideUp 0.8s ease-out; }
+		@keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+		.copied { background: rgba(34,197,94,0.2) !important; border-color: #22c55e !important; color: #22c55e !important; }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<header class="header fade-in">
+			<div class="logo-section">
+				<span class="logo-emoji">✉️</span>
+				<span class="logo">autoreply</span>
+			</div>
+			<nav class="nav-links">
+				<a href="https://github.com/oyin-bo/autoreply" class="nav-link" target="_blank">GitHub</a>
+				<a href="https://bsky.app/profile/autoreply.ooo" class="nav-link" target="_blank">BlueSky Profile</a>
+				<a href="#install" class="nav-link">Install</a>
+			</nav>
+		</header>
+		<main class="main-content">
+			<div class="hero-section slide-up">
+				<h1 class="title">
+					Your AI's Gateway to <span class="highlight">BlueSky</span>
+				</h1>
+				<p class="subtitle">
+					Model Context Protocol for the Social Web
+				</p>
+				<p class="description">
+					A lightweight MCP server that plugs directly into your AI assistant, giving it the power to read, write, and interact on BlueSky as if it were a person. Stop scrolling—let your AI curate, analyze, and post for you.
+				</p>
+				<div class="cta-section" id="install">
+					<div class="install-box">
+						<h3 class="install-title">Ready to Launch?</h3>
+						<p style="margin-bottom: 1rem; color: rgba(255,255,255,0.8);">
+							Skip the configuration hassle. One command gets you started:
+						</p>
+						<div class="install-command" title="Click to copy">npx autoreply install</div>
+						<p style="font-size: 0.9rem; color: rgba(255,255,255,0.7);">
+							That's it! Your AI assistant is now ready to talk to BlueSky.
+						</p>
+					</div>
+					<div class="cta-buttons">
+						<a href="https://github.com/oyin-bo/autoreply" class="cta-button primary" target="_blank">View Documentation</a>
+						<a href="https://bsky.app/profile/autoreply.ooo" class="cta-button" target="_blank">Follow @autoreply.ooo</a>
+					</div>
+				</div>
+				<div class="features-grid">
+					<div class="feature-card">
+						<span class="feature-icon">🚀</span>
+						<h3 class="feature-title">Lightning Fast</h3>
+						<p class="feature-description">Minimal dependencies built on @atcute/client for maximum performance and reliability.</p>
+					</div>
+					<div class="feature-card">
+						<span class="feature-icon">🔐</span>
+						<h3 class="feature-title">Secure & Private</h3>
+						<p class="feature-description">Log in once with your BlueSky handle and app password. Credentials stored securely in your system.</p>
+					</div>
+					<div class="feature-card">
+						<span class="feature-icon">🤖</span>
+						<h3 class="feature-title">AI-Powered</h3>
+						<p class="feature-description">Your AI can read feeds, search posts, analyze trends, and post content automatically.</p>
+					</div>
+					<div class="feature-card">
+						<span class="feature-icon">🌐</span>
+						<h3 class="feature-title">Universal Access</h3>
+						<p class="feature-description">Access public BlueSky data without authentication. Perfect for research and analysis.</p>
+					</div>
+					<div class="feature-card">
+						<span class="feature-icon">⚡</span>
+						<h3 class="feature-title">Complete Toolkit</h3>
+						<p class="feature-description">Feed reading, search, profiles, threads, posting, liking, reposting, and content management.</p>
+					</div>
+					<div class="feature-card">
+						<span class="feature-icon">🎯</span>
+						<h3 class="feature-title">MCP Compatible</h3>
+						<p class="feature-description">Works with Gemini CLI, VSCode, and any MCP-compatible AI assistant or tool.</p>
+					</div>
+				</div>
+			</div>
+		</main>
+		<footer class="footer">
+			<div class="footer-links">
+				<a href="https://github.com/oyin-bo/autoreply" class="footer-link" target="_blank">GitHub Repository</a>
+				<a href="https://bsky.app/profile/autoreply.ooo" class="footer-link" target="_blank">BlueSky @autoreply.ooo</a>
+				<a href="https://modelcontextprotocol.io" class="footer-link" target="_blank">Model Context Protocol</a>
+			</div>
+			<p>Built with precision for the decentralized social web • Powered by BlueSky & MCP</p>
+		</footer>
+	</div>
+	<script>
+		document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+			anchor.addEventListener('click', function (e) {
+				e.preventDefault();
+				const target = document.querySelector(this.getAttribute('href'));
+				if (target) {
+					target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+				}
+			});
+		});
+		const installCommand = document.querySelector('.install-command');
+		installCommand.addEventListener('click', function() {
+			const command = 'npx autoreply install';
+			navigator.clipboard.writeText(command).then(function() {
+				installCommand.textContent = 'Copied to clipboard!';
+				installCommand.classList.add('copied');
+				setTimeout(() => {
+					installCommand.textContent = 'npx autoreply install';
+					installCommand.classList.remove('copied');
+				}, 1500);
+			}).catch(function() {
+				const textArea = document.createElement('textarea');
+				textArea.value = command;
+				document.body.appendChild(textArea);
+				textArea.select();
+				document.execCommand('copy');
+				document.body.removeChild(textArea);
+				installCommand.textContent = 'Copied to clipboard!';
+				installCommand.classList.add('copied');
+				setTimeout(() => {
+					installCommand.textContent = 'npx autoreply install';
+					installCommand.classList.remove('copied');
+				}, 1500);
+			});
+		});
+		const observerOptions = { threshold: 0.1, rootMargin: '0px 0px -50px 0px' };
+		const observer = new IntersectionObserver((entries) => {
+			entries.forEach(entry => {
+				if (entry.isIntersecting) {
+					entry.target.style.opacity = '1';
+					entry.target.style.transform = 'translateY(0)';
+				}
+			});
+		}, observerOptions);
+		document.querySelectorAll('.feature-card').forEach((card, index) => {
+			card.style.opacity = '0';
+			card.style.transform = 'translateY(30px)';
+			card.style.transition = `all 0.6s ease ${index * 0.1}s`;
+			observer.observe(card);
+		});
+	</script>
+</body>
+</html>
