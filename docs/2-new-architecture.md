@@ -45,4 +45,4 @@ Generally this sugar is either extra metrics per post, or sets of posts.
 
 For searching purpose it is useful to have RAG over this cache. We will consider implementation details of this, and see how it can be achieved.
 
-A promising option is to use Model2Vec to extract embeddings for posts and profiles, with 64 dimensions and 8-bit quantization. May need a toy project to explore/validate.
+A promising option is to use [Model2Vec](3-detour-model2vec.md) to extract embeddings for posts and profiles, with 64 dimensions and 8-bit quantization. May need a toy project to explore/validate. Another even more promising is to use [Sentence Piece algorithm](5-detour-tokenisation-stencepiece.md) with Gemini-exported vocabulary.
