@@ -9,9 +9,198 @@ const readlineSync = require('readline-sync');
 
 const { name, version } = require('./package.json');
 
+/**
+ * Detects OS proxy environment variables and returns appropriate fetch implementation
+ * @returns {Promise<typeof fetch>} Custom fetch function with proxy support or native fetch
+ */
+async function createProxyAwareFetch() {
+  // Check Node.js version
+  const nodeVersion = parseInt(process.version.slice(1).split('.')[0]);
+  
+  // Get proxy environment variables (case-insensitive)
+  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
+  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+  const noProxy = process.env.NO_PROXY || process.env.no_proxy;
+  const allProxy = process.env.ALL_PROXY || process.env.all_proxy;
+  
+  // If no proxy vars or Node.js 24+, use built-in fetch (which respects proxy env vars)
+  if ((!httpProxy && !httpsProxy && !allProxy) || nodeVersion >= 24) {
+    return globalThis.fetch;
+  }
+  
+  // For Node.js < 24 with proxy vars, implement custom fetch with proxy support
+  const http = require('http');
+  const https = require('https');
+  const { URL } = require('url');
+  
+  /**
+   * Custom fetch implementation with proxy support for Node.js < 24
+   * @param {string | URL} input - The resource to fetch
+   * @param {RequestInit} init - Request options
+   * @returns {Promise<Response>} Response object
+   */
+  return async function proxyFetch(input, init = {}) {
+    const url = new URL(input);
+    const isHttps = url.protocol === 'https:';
+    
+    // Parse proxy URL
+    const proxyUrl = isHttps ? (httpsProxy || allProxy) : (httpProxy || allProxy);
+    
+    // Check if URL should bypass proxy (NO_PROXY)
+    const shouldBypassProxy = noProxy && noProxy.split(',').some(pattern => {
+      const trimmed = pattern.trim();
+      return trimmed === '*' || 
+             url.hostname === trimmed ||
+             url.hostname.endsWith('.' + trimmed);
+    });
+    
+    if (!proxyUrl || shouldBypassProxy) {
+      // No proxy or bypassed, use direct connection
+      return makeDirectRequest(url, init, isHttps);
+    }
+    
+    const proxy = new URL(proxyUrl);
+    return makeProxyRequest(url, init, proxy, isHttps);
+  };
+  
+  /**
+   * Make direct HTTP/HTTPS request
+   */
+  function makeDirectRequest(url, init, isHttps) {
+    const module = isHttps ? https : http;
+    
+    return new Promise((resolve, reject) => {
+      const options = {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname + url.search,
+        method: init.method || 'GET',
+        headers: init.headers || {}
+      };
+      
+      const req = module.request(options, (res) => {
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks);
+          const response = createResponseObject(res, body);
+          resolve(response);
+        });
+      });
+      
+      req.on('error', reject);
+      
+      if (init.body) {
+        req.write(init.body);
+      }
+      req.end();
+    });
+  }
+  
+  /**
+   * Make HTTP/HTTPS request through proxy
+   */
+  function makeProxyRequest(url, init, proxy, isHttps) {
+    return new Promise((resolve, reject) => {
+      const proxyOptions = {
+        hostname: proxy.hostname,
+        port: proxy.port,
+        method: isHttps ? 'CONNECT' : (init.method || 'GET'),
+        headers: isHttps ? {} : (init.headers || {})
+      };
+      
+      if (isHttps) {
+        // HTTPS through HTTP proxy (CONNECT method)
+        proxyOptions.path = `${url.hostname}:${url.port || 443}`;
+        
+        const proxyReq = http.request(proxyOptions);
+        proxyReq.on('connect', (res, socket) => {
+          if (res.statusCode === 200) {
+            const httpsOptions = {
+              socket: socket,
+              servername: url.hostname,
+              method: init.method || 'GET',
+              path: url.pathname + url.search,
+              headers: init.headers || {}
+            };
+            
+            const req = https.request(httpsOptions, (res) => {
+              const chunks = [];
+              res.on('data', chunk => chunks.push(chunk));
+              res.on('end', () => {
+                const body = Buffer.concat(chunks);
+                const response = createResponseObject(res, body);
+                resolve(response);
+              });
+            });
+            
+            req.on('error', reject);
+            if (init.body) req.write(init.body);
+            req.end();
+          } else {
+            reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
+          }
+        });
+        proxyReq.on('error', reject);
+        proxyReq.end();
+      } else {
+        // HTTP through HTTP proxy
+        proxyOptions.path = url.href;
+        proxyOptions.headers = init.headers || {};
+        
+        const req = http.request(proxyOptions, (res) => {
+          const chunks = [];
+          res.on('data', chunk => chunks.push(chunk));
+          res.on('end', () => {
+            const body = Buffer.concat(chunks);
+            const response = createResponseObject(res, body);
+            resolve(response);
+          });
+        });
+        
+        req.on('error', reject);
+        if (init.body) req.write(init.body);
+        req.end();
+      }
+    });
+  }
+  
+  /**
+   * Create a fetch-like Response object
+   */
+  function createResponseObject(res, body) {
+    return {
+      ok: res.statusCode >= 200 && res.statusCode < 300,
+      status: res.statusCode,
+      statusText: res.statusMessage,
+      headers: new Map(Object.entries(res.headers)),
+      url: res.url,
+      async text() { return body.toString(); },
+      async json() { return JSON.parse(body.toString()); },
+      async arrayBuffer() { return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength); },
+      async blob() { return new Blob([body]); }
+    };
+  }
+}
+
 (async () => {
 
   const { Client, CredentialManager, simpleFetchHandler, ok } = await import('@atcute/client');
+
+  // Create proxy-aware fetch function
+  const proxyAwareFetch = await createProxyAwareFetch();
+  
+  // Log proxy status for debugging
+  const nodeVersion = parseInt(process.version.slice(1).split('.')[0]);
+  const hasProxyVars = !!(process.env.HTTP_PROXY || process.env.http_proxy || 
+                          process.env.HTTPS_PROXY || process.env.https_proxy || 
+                          process.env.ALL_PROXY || process.env.all_proxy);
+  
+  if (hasProxyVars && nodeVersion < 24) {
+    console.error(`[PROXY] Detected proxy environment variables, using custom proxy-aware fetch (Node.js ${process.version})`);
+  } else if (hasProxyVars && nodeVersion >= 24) {
+    console.error(`[PROXY] Detected proxy environment variables, using native fetch with proxy support (Node.js ${process.version})`);
+  }
 
   /**
    * @typedef {{
@@ -100,7 +289,12 @@ const { name, version } = require('./package.json');
 
       await this.clientLogin({ login, password });
 
-      return 'Credentials stored and default handle set to ' + login + '.';
+      return {
+        success: true,
+        message: 'Credentials stored and default handle set to ' + login + '.',
+        handle: login,
+        text: `Successfully logged in as @${login} and stored credentials.`
+      };
     }
 
     'login:tool' = {
@@ -115,8 +309,13 @@ const { name, version } = require('./package.json');
         required: ['login', 'password']
       },
       outputSchema: {
-        type: 'string',
-        description: 'Success message confirming credentials were stored and default handle was set.'
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', description: 'Whether the login was successful.' },
+          message: { type: 'string', description: 'Success message confirming credentials were stored.' },
+          handle: { type: 'string', description: 'The handle that was logged in.' }
+        },
+        required: ['success', 'message', 'handle']
       }
     };
 
@@ -163,9 +362,12 @@ const { name, version } = require('./package.json');
         !post.post ? undefined : formatPost(post.post)
       ).filter(Boolean));
 
+      const posts = formatted.map(post => post.structured);
+
       return {
         cursor: feedData.cursor,
-        posts: formatted.map(post => post.structured)
+        posts,
+        text: generateFeedPreviewText(posts, 'Feed')
       };
     }
 
@@ -256,7 +458,19 @@ const { name, version } = require('./package.json');
         cursor: JSON.stringify([followers.cursor, following.cursor])
       };
 
-      return structuredContent;
+      const profileText =
+        '@' + structuredContent.handle +
+      (structuredContent.displayName ? ' ' + structuredContent.displayName.replace(/\s+/g, ' ').trim() : '') +
+        (structuredContent.description ? '/ ' + structuredContent.description.replace(/\s+/g, ' ').trim() + ' ' : '') +
+        structuredContent.followersCount + ' followers, ' +
+        structuredContent.followingCount + ' following, ' +
+        structuredContent.postsCount + ' posts ' +
+        'Created: ' + new Date(structuredContent.createdAt);
+
+      return {
+        ...structuredContent,
+        text: profileText
+      };
     }
 
     'profile:tool' = {
@@ -374,7 +588,8 @@ const { name, version } = require('./package.json');
 
       return {
         cursor: combinedCursor,
-        posts: combinedPosts
+        posts: combinedPosts,
+        text: generateFeedPreviewText(combinedPosts, `Search results${from ? ' from @' + from : ''}${query && query !== '*' ? ' for "' + query + '"' : ''}`)
       };
     }
 
@@ -464,7 +679,7 @@ const { name, version } = require('./package.json');
       const posts = flattenThread(thread.thread);
 
       // restore the context
-      if (!posts.find(p => p.postURI === anchorRecord?.reply?.root?.uri)) {
+      if (!posts.find(p => p.structured.postURI === anchorRecord?.reply?.root?.uri)) {
         if (anchorRecord?.reply?.root?.uri) {
           const agentFallback = this.clientIncognito();
           const rootPost = await ok(agentFallback.get('app.bsky.feed.getPostThread', { params: { uri: anchorRecord?.reply?.root?.uri } }));
@@ -473,8 +688,11 @@ const { name, version } = require('./package.json');
         }
       }
 
+      const structuredPosts = posts.map(post => post.structured);
+
       return {
-        posts: posts.map(post => post.structured)
+        posts: structuredPosts,
+        text: generateFeedPreviewText(structuredPosts, 'Thread')
       };
     }
 
@@ -585,11 +803,22 @@ const { name, version } = require('./package.json');
         }
       }));
 
-      return (
-        replyTracking ? 'Replied to ' + replyTracking + ' with ' + /** @type {any} */(posted).uri + ':\n' + text :
-          replyToURI ? 'Could not split ' + JSON.stringify(replyToURI) + '/' + JSON.stringify(postRef) + ', posted alone ' + /** @type {any} */(posted).uri + ':\n' + text :
-            'Posted ' + /** @type {any} */(posted).uri + ':\n' + text
-      );
+      const messageText = replyTracking ? 'Replied to ' + replyTracking + ' with ' + /** @type {any} */(posted).uri + ':\n' + text :
+        replyToURI ? 'Could not split ' + JSON.stringify(replyToURI) + '/' + JSON.stringify(postRef) + ', posted alone ' + /** @type {any} */(posted).uri + ':\n' + text :
+          'Posted ' + /** @type {any} */(posted).uri + ':\n' + text;
+
+      const summaryText = replyToURI ? 
+        `Replied to post with: "${text}"` : 
+        `Posted: "${text}"`;
+
+      return {
+        success: true,
+        postURI: /** @type {any} */(posted).uri,
+        text: summaryText,
+        message: messageText,
+        isReply: !!replyToURI,
+        replyToURI: replyToURI || null
+      };
     }
 
     'post:tool' = {
@@ -606,8 +835,16 @@ const { name, version } = require('./package.json');
         required: ['text']
       },
       outputSchema: {
-        type: 'string',
-        description: 'Success message containing the URI of the posted message and the text content.'
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', description: 'Whether the post was successful.' },
+          postURI: { type: 'string', description: 'URI of the created post.' },
+          text: { type: 'string', description: 'The text content that was posted.' },
+          message: { type: 'string', description: 'Success message with details.' },
+          isReply: { type: 'boolean', description: 'Whether this was a reply to another post.' },
+          replyToURI: { type: 'string', nullable: true, description: 'URI of the post being replied to, if any.' }
+        },
+        required: ['success', 'postURI', 'text', 'message', 'isReply', 'replyToURI']
       }
     };
 
@@ -657,9 +894,14 @@ const { name, version } = require('./package.json');
         }
       }));
 
-      return (
-        `Post liked: ${postRef.shortDID}/${postRef.postID} (${likePost.uri}): ${likePost.value.text}`
-      );
+      return {
+        success: true,
+        postURI: makeFeedUri(postRef.shortDID, postRef.postID),
+        postText: likePost.value.text,
+        message: `Post liked: ${postRef.shortDID}/${postRef.postID} (${likePost.uri}): ${likePost.value.text}`,
+        author: postRef.shortDID,
+        text: `Liked post by @${postRef.shortDID}: "${likePost.value.text.substring(0, 50)}${likePost.value.text.length > 50 ? '...' : ''}"`
+      };
     }
 
     'like:tool' = {
@@ -675,8 +917,15 @@ const { name, version } = require('./package.json');
         required: ['postURI']
       },
       outputSchema: {
-        type: 'string',
-        description: 'Success message confirming the post was liked, including post details.'
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', description: 'Whether the like was successful.' },
+          postURI: { type: 'string', description: 'URI of the post that was liked.' },
+          postText: { type: 'string', description: 'Text content of the post that was liked.' },
+          message: { type: 'string', description: 'Success message with details.' },
+          author: { type: 'string', description: 'Author of the post that was liked.' }
+        },
+        required: ['success', 'postURI', 'postText', 'message', 'author']
       }
     };
 
@@ -715,9 +964,14 @@ const { name, version } = require('./package.json');
         }
       }));
 
-      return (
-        `Post reposted: ${postRef.shortDID}/${postRef.postID} (${repostPost.uri}): ${repostPost.value.text}`
-      );
+      return {
+        success: true,
+        postURI: makeFeedUri(postRef.shortDID, postRef.postID),
+        postText: repostPost.value.text,
+        message: `Post reposted: ${postRef.shortDID}/${postRef.postID} (${repostPost.uri}): ${repostPost.value.text}`,
+        author: postRef.shortDID,
+        text: `Reposted post by @${postRef.shortDID}: "${repostPost.value.text.substring(0, 50)}${repostPost.value.text.length > 50 ? '...' : ''}"`
+      };
     }
 
     'repost:tool' = {
@@ -733,8 +987,15 @@ const { name, version } = require('./package.json');
         required: ['postURI']
       },
       outputSchema: {
-        type: 'string',
-        description: 'Success message confirming the post was reposted, including post details.'
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', description: 'Whether the repost was successful.' },
+          postURI: { type: 'string', description: 'URI of the post that was reposted.' },
+          postText: { type: 'string', description: 'Text content of the post that was reposted.' },
+          message: { type: 'string', description: 'Success message with details.' },
+          author: { type: 'string', description: 'Author of the post that was reposted.' }
+        },
+        required: ['success', 'postURI', 'postText', 'message', 'author']
       }
     };
 
@@ -771,7 +1032,12 @@ const { name, version } = require('./package.json');
         }));
       }
 
-      return 'Post deleted';
+      return {
+        success: true,
+        postURI: postURI,
+        message: 'Post deleted',
+        text: `Successfully deleted post: ${postURI}`
+      };
     }
 
     'delete:tool' = {
@@ -787,8 +1053,13 @@ const { name, version } = require('./package.json');
         required: ['postURI']
       },
       outputSchema: {
-        type: 'string',
-        description: 'Success message confirming the post was deleted.'
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', description: 'Whether the deletion was successful.' },
+          postURI: { type: 'string', description: 'URI of the post that was deleted.' },
+          message: { type: 'string', description: 'Success message confirming the deletion.' }
+        },
+        required: ['success', 'postURI', 'message']
       }
     };
 
@@ -860,7 +1131,7 @@ const { name, version } = require('./package.json');
       let service = 'https://bsky.social';
       // TODO: resolve user's PDS from their handle/DID when possible
 
-      const manager = new CredentialManager({ service });
+      const manager = new CredentialManager({ service, fetch: proxyAwareFetch });
       const rpc = /** @type {InstanceType<Client> & { authenticated?: boolean, manager?: InstanceType<CredentialManager> }} */(new Client({ handler: manager }));
 
       await manager.login({ identifier: login, password });
@@ -886,7 +1157,7 @@ const { name, version } = require('./package.json');
       if (this._clientIncognito) return this._clientIncognito;
       // Use the project's public read endpoint (not environment-overridable).
       const service = 'https://public.api.bsky.app';
-      const handler = simpleFetchHandler({ service });
+      const handler = simpleFetchHandler({ service, fetch: proxyAwareFetch });
       this._clientIncognito = new Client({ handler });
       return this._clientIncognito;
     }
@@ -974,14 +1245,17 @@ const { name, version } = require('./package.json');
         throw new McpError(`Tool '${name}' not found`, -32601, `The tool '${name}' is not recognized by this server.`);
 
       const structuredContent = await /** @type {*} */(this).tools[name](args);
+      const text = structuredContent?.text;
+      if (text || typeof text === 'string')
+        delete structuredContent.text;
 
-      console.error('Tool ' + name + ': ', args, structuredContent);
+      console.error('Tool ' + name + ': ', args, text);
 
       return {
         content: [
           {
             type: 'text',
-            text: typeof structuredContent === 'string' ? structuredContent : JSON.stringify(structuredContent),
+            text
           }
         ],
         structuredContent
@@ -1390,17 +1664,23 @@ const { name, version } = require('./package.json');
     }
   }
 
-  async function printFeedPreview(params) {
-    console.log();
+  /**
+   * Generate a formatted text preview of posts (used for feed and search results)
+   * @param {any[]} posts Array of post objects
+   * @param {string} [title] Optional title for the preview
+   * @param {number} [maxPosts] Maximum number of posts to show (default 20)
+   * @returns {string} Formatted text preview
+   */
+  function generateFeedPreviewText(posts, title = 'Feed', maxPosts = 20) {
+    if (!posts || !posts.length) {
+      return `${title}: No posts found.`;
+    }
 
-    const mcp = new McpServer();
-    const feed = await mcp.tools.feed({ limit: 100, ...params });
-    const posts = feed.posts;
-    console.log('Current feed:');
     const now = new Date();
     let output = [];
-    posts.sort((a, b) => new Date(b.indexedAt).getTime() - new Date(a.indexedAt).getTime());
-    for (const post of posts) {
+    const sortedPosts = [...posts].sort((a, b) => new Date(b.indexedAt).getTime() - new Date(a.indexedAt).getTime());
+    
+    for (const post of sortedPosts) {
       const dtPost = new Date(post.indexedAt);
       const dtStr =
         dtPost.toISOString().split('T')[0] === now.toISOString().split('T')[0] ?
@@ -1414,10 +1694,19 @@ const { name, version } = require('./package.json');
         '  ' + dtStr.padStart(10) + ' ' + ('@' + post.author).padStart(31, output.length % 2 ? ' ' : '\u00B7 ') + '  ' + (text.length > 60 ? text.slice(0, 65) + '...' : text)
       );
 
-      if (output.length > 20) break;
+      if (output.length >= maxPosts) break;
     }
 
-    console.log(output.length ? output.join('\n') : 'No posts found in the feed.');
+    return `${title}:\n` + (output.length ? output.join('\n') : 'No posts found.');
+  }
+
+  async function printFeedPreview(params) {
+    console.log();
+
+    const mcp = new McpServer();
+    const feed = await mcp.tools.feed({ limit: 100, ...params });
+    const previewText = generateFeedPreviewText(feed.posts, 'Current feed');
+    console.log(previewText);
   }
 
   async function localInstall() {
