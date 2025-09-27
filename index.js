@@ -839,7 +839,6 @@ async function createProxyAwareFetch() {
         properties: {
           success: { type: 'boolean', description: 'Whether the post was successful.' },
           postURI: { type: 'string', description: 'URI of the created post.' },
-          text: { type: 'string', description: 'The text content that was posted.' },
           message: { type: 'string', description: 'Success message with details.' },
           isReply: { type: 'boolean', description: 'Whether this was a reply to another post.' },
           replyToURI: { type: 'string', nullable: true, description: 'URI of the post being replied to, if any.' }
