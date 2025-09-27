@@ -65,26 +65,26 @@ const { name, version } = require('./package.json');
   const PostSchema = {
     type: 'object',
     properties: {
-      indexedAt: { type: 'string', description: 'ISO timestamp when the post was indexed.' },
-      author: { type: 'string', description: 'BlueSky handle of the author.' },
-      authorName: { type: 'string', description: 'Name of the author, if available.' },
-      postURI: { type: 'string', description: 'URI of the post.' },
-      replyToURI: { type: 'string', description: 'URI of the post being replied to, if any.' },
+      indexedAt: { type: 'string', description: 'ISO timestamp when the post was indexed by BlueSky.' },
+      author: { type: 'string', description: 'BlueSky handle of the post author (e.g., user.bsky.social).' },
+      authorName: { type: 'string', description: 'Display name of the author, if available.' },
+      postURI: { type: 'string', description: 'Unique AT Protocol URI of the post (at://did:plc:.../app.bsky.feed.post/...).' },
+      replyToURI: { type: 'string', description: 'URI of the post being replied to, if this is a reply.' },
       text: { type: 'string', description: 'Text content of the post.' },
-      likeCount: { type: 'number', description: 'Number of likes.', nullable: true },
-      replyCount: { type: 'number', description: 'Number of replies.', nullable: true },
-      repostCount: { type: 'number', description: 'Number of reposts.', nullable: true },
-      quoteCount: { type: 'number', description: 'Number of quotes.', nullable: true },
+      likeCount: { type: 'number', description: 'Number of likes this post has received.', nullable: true },
+      replyCount: { type: 'number', description: 'Number of replies this post has received.', nullable: true },
+      repostCount: { type: 'number', description: 'Number of times this post has been reposted.', nullable: true },
+      quoteCount: { type: 'number', description: 'Number of times this post has been quoted.', nullable: true },
       links: {
         type: 'array',
         items: {
           type: 'object',
           properties: {
-            url: { type: 'string', description: 'URL of the link.' },
-            title: { type: 'string', description: 'Title of the link, if available.' }
+            url: { type: 'string', description: 'URL of the embedded link.' },
+            title: { type: 'string', description: 'Title or description of the linked content, if available.' }
           }
         },
-        description: 'List of links included in the post, which could be images, URL links, videos or other posts.'
+        description: 'List of embedded media and links in the post (images, videos, external URLs, quoted posts, etc.).'
       }
     }
   };
@@ -113,6 +113,10 @@ const { name, version } = require('./package.json');
           password: { type: 'string', description: 'Your BlueSky app password (better not share it).' }
         },
         required: ['login', 'password']
+      },
+      outputSchema: {
+        type: 'string',
+        description: 'Success message confirming credentials were stored and default handle was set.'
       }
     };
 
@@ -146,7 +150,7 @@ const { name, version } = require('./package.json');
           params: {
             feed: feed || 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot',
             cursor,
-            limit: Math.min(limit || 20, 100)
+            limit
           }
         }));
       } else {
@@ -270,16 +274,16 @@ const { name, version } = require('./package.json');
         type: 'object',
         properties: {
           createdAt: { type: 'string', format: 'date-time', description: 'The date and time when the profile was created.' },
-          handle: { type: 'string' },
+          handle: { type: 'string', description: 'The user\'s BlueSky handle (e.g., user.bsky.social).' },
           displayName: { type: 'string', description: 'The display name of the account, tends to be short one line name, but longer than handle.' },
           description: { type: 'string', description: 'The description or bio of the account, tends to have some general info about the account, bragging rights and other info.' },
           avatar: { type: 'string', format: 'uri', description: 'URL to the profile icon (avatar).' },
           banner: { type: 'string', format: 'uri', description: 'URL to the profile banner image, usually a broad rectangle.' },
-          followersCount: { type: 'number' },
-          followingCount: { type: 'number' },
-          postsCount: { type: 'number' },
-          followers: { type: 'array', items: { type: 'string' } },
-          following: { type: 'array', items: { type: 'string' } },
+          followersCount: { type: 'number', description: 'Total number of users following this account.' },
+          followingCount: { type: 'number', description: 'Total number of users this account is following.' },
+          postsCount: { type: 'number', description: 'Total number of posts made by this account.' },
+          followers: { type: 'array', items: { type: 'string' }, description: 'List of handles of users following this account (paginated).' },
+          following: { type: 'array', items: { type: 'string' }, description: 'List of handles of users this account is following (paginated).' },
           cursor: { type: 'string', description: 'Cursor for pagination of followers/following.' }
         }
       }
@@ -352,7 +356,7 @@ const { name, version } = require('./package.json');
       const params = {
         q: (query || '') + (from ? ' from:' + from : ''),
         cursor: searchCursor,
-        limit: Math.min(limit || 20, 100)
+        limit
       };
 
       // Make the search request  
@@ -594,12 +598,16 @@ const { name, version } = require('./package.json');
       inputSchema: {
         type: 'object',
         properties: {
+          text: { type: 'string', description: 'The text of the post to send.' },
           replyToURI: { type: 'string', description: 'The post URI (or BlueSky URL of the post) to which the reply is made (if any).' },
           login: { type: 'string', description: '(Optional) BlueSky handle to post the message as.' },
-          password: { type: 'string', description: '(Optional) BlueSky password to use.' },
-          text: { type: 'string', description: 'The text of the post to send.' }
+          password: { type: 'string', description: '(Optional) BlueSky password to use.' }
         },
         required: ['text']
+      },
+      outputSchema: {
+        type: 'string',
+        description: 'Success message containing the URI of the posted message and the text content.'
       }
     };
 
@@ -665,6 +673,10 @@ const { name, version } = require('./package.json');
           password: { type: 'string', description: '(Optional) BlueSky password to use. Leave empty for already logged in user.' }
         },
         required: ['postURI']
+      },
+      outputSchema: {
+        type: 'string',
+        description: 'Success message confirming the post was liked, including post details.'
       }
     };
 
@@ -719,6 +731,10 @@ const { name, version } = require('./package.json');
           password: { type: 'string', description: '(Optional) BlueSky password to use. Leave empty for already logged in user.' }
         },
         required: ['postURI']
+      },
+      outputSchema: {
+        type: 'string',
+        description: 'Success message confirming the post was reposted, including post details.'
       }
     };
 
@@ -771,12 +787,8 @@ const { name, version } = require('./package.json');
         required: ['postURI']
       },
       outputSchema: {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean' },
-          message: { type: 'string' }
-        },
-        required: ['success', 'message']
+        type: 'string',
+        description: 'Success message confirming the post was deleted.'
       }
     };
 
