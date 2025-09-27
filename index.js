@@ -1201,12 +1201,16 @@ async function createProxyAwareFetch() {
   class McpServer {
 
     tools = new Tools();
+    passJsonAsText = false;
 
     /**
      * First call to MCP.
      * @param {{ protocolVersion?: string, capabilities?: any, clientInfo?: any }} [_]
      */
     initialize({ protocolVersion, capabilities, clientInfo } = {}) {
+      if (typeof clientInfo?.name === 'string' && clientInfo.name.toLowerCase().includes('gemini'))
+        this.passJsonAsText = true;
+
       return {
         protocolVersion: '2025-06-18',
         capabilities: {
@@ -1245,11 +1249,14 @@ async function createProxyAwareFetch() {
         throw new McpError(`Tool '${name}' not found`, -32601, `The tool '${name}' is not recognized by this server.`);
 
       const structuredContent = await /** @type {*} */(this).tools[name](args);
-      const text = structuredContent?.text;
+      let text = structuredContent?.text;
       if (text || typeof text === 'string')
         delete structuredContent.text;
 
       console.error('Tool ' + name + ': ', args, text);
+      if (this.passJsonAsText && structuredContent) {
+        text = JSON.stringify(structuredContent);
+      }
 
       return {
         content: [
