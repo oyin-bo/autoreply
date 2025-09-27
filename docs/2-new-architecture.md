@@ -40,3 +40,9 @@ Generally this sugar is either extra metrics per post, or sets of posts.
 * threads - sets of posts: let's keep URI only and propagate post into "partial" CARs
 * likes/reposts - metrics per post from thread/feed post views
 * feeds - sequence of posts: let's keep URI only
+
+### Semantic metrics
+
+For searching purpose it is useful to have RAG over this cache. We will consider implementation details of this, and see how it can be achieved.
+
+A promising option is to use Model2Vec to extract embeddings for posts and profiles, with 64 dimensions and 8-bit quantization. May need a toy project to explore/validate.
