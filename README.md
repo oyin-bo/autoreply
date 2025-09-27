@@ -42,4 +42,6 @@ It's lightweigt all right now, with almost no dependencies: the core is [@atcute
 
 I do recognise the implementation is pretty dull and verbose, no unit tests. One of these weekends I will get it better, for now the key is ease of use and stability. It works well, that's the big thing.
 
+We consider using Gemma's tokenize vocabulary, which is licensed under [the Gemma license attached](src/gemma/license.md). Users of the included Gemma file must comply with [the Gemma Prohibited Use Policy attached](src/gemma/license-prohibited-use.md).
+
 *Allons-y!*
