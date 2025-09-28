@@ -529,13 +529,15 @@ class Tools {
         postRef.shortDID = await this._resolveHandle(postRef.shortDID);
 
       /** @type {*} */
-      const replyToPost = await ok(agent.get('com.atproto.repo.getRecord', {
-        params: {
-          repo: unwrapShortDID(postRef.shortDID),
-          collection: 'app.bsky.feed.post',
-          rkey: postRef.postID
-        }
-      }));
+      const replyToPost = await ok(agent.get(
+        /** @type {*} */('com.atproto.repo.getRecord'),
+        {
+          params: {
+            repo: unwrapShortDID(postRef.shortDID),
+            collection: 'app.bsky.feed.post',
+            rkey: postRef.postID
+          }
+        }));
 
       reply = /** @type {const} */({
         root: replyToPost.value.reply?.root || {
@@ -631,31 +633,35 @@ class Tools {
     }
 
     /** @type {*} */
-    const likePost = await ok(agent.get('com.atproto.repo.getRecord', {
-      params: {
-        repo: unwrapShortDID(postRef.shortDID),
-        collection: 'app.bsky.feed.post',
-        rkey: postRef.postID
-      }
-    }));
+    const likePost = await ok(agent.get(
+      /** @type {*} */('com.atproto.repo.getRecord'),
+      {
+        params: {
+          repo: unwrapShortDID(postRef.shortDID),
+          collection: 'app.bsky.feed.post',
+          rkey: postRef.postID
+        }
+      }));
 
     const myDid = agent.manager?.session?.did;
     if (!myDid) throw new Error('No authenticated session found');
 
-    await ok(agent.post('com.atproto.repo.createRecord', {
-      input: {
-        repo: myDid,
-        collection: 'app.bsky.feed.like',
-        record: {
-          $type: 'app.bsky.feed.like',
-          subject: {
-            uri: makeFeedUri(postRef.shortDID, postRef.postID),
-            cid: likePost.cid
-          },
-          createdAt: new Date().toISOString()
+    await ok(agent.post(
+      /** @type {*} */('com.atproto.repo.createRecord'),
+      {
+        input: {
+          repo: myDid,
+          collection: 'app.bsky.feed.like',
+          record: {
+            $type: 'app.bsky.feed.like',
+            subject: {
+              uri: makeFeedUri(postRef.shortDID, postRef.postID),
+              cid: likePost.cid
+            },
+            createdAt: new Date().toISOString()
+          }
         }
-      }
-    }));
+      }));
 
     return {
       success: true,
@@ -711,13 +717,15 @@ class Tools {
     }
 
     /** @type {*} */
-    const repostPost = await ok(agent.get('com.atproto.repo.getRecord', {
-      params: {
-        repo: unwrapShortDID(postRef.shortDID),
-        collection: 'app.bsky.feed.post',
-        rkey: postRef.postID
-      }
-    }));
+    const repostPost = await ok(agent.get(
+      /** @type {*} */('com.atproto.repo.getRecord'),
+      {
+        params: {
+          repo: unwrapShortDID(postRef.shortDID),
+          collection: 'app.bsky.feed.post',
+          rkey: postRef.postID
+        }
+      }));
 
     const myDid = agent.manager?.session?.did;
     if (!myDid) throw new Error('No authenticated session found');
@@ -862,7 +870,12 @@ class Tools {
         return await this.clientLogin({ login, password: /** @type {string} */(password) });
       } catch (e) {
         // If login fails for any reason, fall back to incognito rather than crashing the feed
-        console.error('Login failed for', login, (password || '').slice(0, 2) + '***', '- falling back to incognito:', e?.message || e);
+        console.error(
+          'Login failed for ' +
+          login + ' ' + (password || '').slice(0, 2) + '***',
+          ' - falling back to incognito: ',
+          e
+        );
         return this.clientIncognito();
       }
     }
