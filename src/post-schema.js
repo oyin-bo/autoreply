@@ -1,6 +1,6 @@
 // @ts-check
 
-const PostSchema = {
+export const PostSchema = {
   type: 'object',
   properties: {
     indexedAt: { type: 'string', description: 'ISO timestamp when the post was indexed by BlueSky.' },
@@ -26,5 +26,3 @@ const PostSchema = {
     }
   }
 };
-
-export default PostSchema;
