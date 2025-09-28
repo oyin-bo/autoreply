@@ -7,24 +7,25 @@ const os = require('os');
 const readline = require('readline');
 const readlineSync = require('readline-sync');
 
-const {
-  getFeedBlobUrl,
-  getFeedVideoBlobUrl,
-  breakPostURL,
-  likelyDID,
-  shortenDID,
-  unwrapShortDID,
-  unwrapShortHandle,
-  cheapNormalizeHandle,
-  breakFeedURI,
-  makeFeedUri
-} = require('./src/core');
-const createProxyAwareFetch = require('./src/fetch-proxied');
-
 const { name, version } = require('./package.json');
 
 
 (async () => {
+
+  const {
+    getFeedBlobUrl,
+    getFeedVideoBlobUrl,
+    breakPostURL,
+    likelyDID,
+    shortenDID,
+    unwrapShortDID,
+    unwrapShortHandle,
+    cheapNormalizeHandle,
+    breakFeedURI,
+    makeFeedUri
+  } = require('./src/core');
+  const createProxyAwareFetch = require('./src/fetch-proxied');
+  const keytarOrPromise = require('./src/keytar');
 
   const { Client, CredentialManager, simpleFetchHandler, ok } = await import('@atcute/client');
 
@@ -50,47 +51,6 @@ const { name, version } = require('./package.json');
    * }} KeytarLike
    */
   /** @type {KeytarLike | Promise<KeytarLike>} */
-  let keytarOrPromise = requireOrMockKeytar();
-
-  function requireOrMockKeytar() {
-
-    const CRED_FILE = path.join(__dirname, '.bluesky_creds.json');
-    const fallbackKeytar = {
-      async setPassword(service, account, password) {
-        let creds = {};
-        if (fs.existsSync(CRED_FILE)) {
-          try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
-        }
-        creds[account] = password;
-        fs.writeFileSync(CRED_FILE, JSON.stringify(creds, null, 2));
-      },
-      async getPassword(service, account) {
-        let creds = {};
-        if (fs.existsSync(CRED_FILE)) {
-          try { creds = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')); } catch { }
-        }
-        return creds[account] || null;
-      }
-    };
-
-    try {
-      const keytarMod = require('keytar');
-      const tryPromise = keytarMod.getPassword(name, 'default_handle');
-      return (
-        tryPromise
-          .then(() => keytarMod)
-          .catch(() => {
-            return fallbackKeytar;
-          })
-          .then((successKeytar) => {
-            keytarOrPromise = successKeytar;
-            return keytarOrPromise;
-          })
-      );
-    } catch (e) {
-      return fallbackKeytar;
-    }
-  }
 
   const PostSchema = {
     type: 'object',
