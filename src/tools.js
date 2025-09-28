@@ -19,14 +19,14 @@ import createProxyAwareFetch from './fetch-proxied.js';
 import keytarOrPromise from './keytar.js';
 import PostSchema from './post-schema.js';
 
-import package_json from '../package.json';
+import package_json from '../package.json' with { type: 'json' };
 
 
 // Create proxy-aware fetch function
 const proxyAwareFetch = createProxyAwareFetch();
 
 
-class Tools {
+export class Tools {
 
   /**
  * @param {{ login?: string, password?: string }} args
@@ -1138,4 +1138,3 @@ function addEmbedRecordMedia(shortDID, embedRecordMedia, embeds) {
 
   return embeds;
 }
-export default Tools;

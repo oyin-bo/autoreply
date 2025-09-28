@@ -10,28 +10,7 @@ const readlineSync = require('readline-sync');
 const { name, version } = require('./package.json');
 
 (async () => {
-
-  const {
-    addToArray,
-    getFeedBlobUrl,
-    getFeedVideoBlobUrl,
-    breakPostURL,
-    likelyDID,
-    shortenDID,
-    unwrapShortDID,
-    unwrapShortHandle,
-    cheapNormalizeHandle,
-    breakFeedURI,
-    makeFeedUri
-  } = require('./src/core');
-  const createProxyAwareFetch = require('./src/fetch-proxied.js');
-  const keytarOrPromise = require('./src/keytar.js');
-
-  const { Client, CredentialManager, simpleFetchHandler, ok } = await import('@atcute/client');
-
-  // Create proxy-aware fetch function
-  const proxyAwareFetch = createProxyAwareFetch();
-
+  const { Tools } = await import('./src/tools.js');
   // Log proxy status for debugging
   const nodeVersion = parseInt(process.version.slice(1).split('.')[0]);
   const hasProxyVars = !!(process.env.HTTP_PROXY || process.env.http_proxy ||
