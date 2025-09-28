@@ -194,36 +194,6 @@ const { name, version } = require('./package.json');
       .map(name => [name, obj[name + ':tool']]);
   }
 
-
-  async function localLogin() {
-    try {
-      const mcp = new McpServer();
-
-      process.stdout.write('BlueSky login for ' + name + ' v' + version + ' MCP');
-      const keytar = await keytarOrPromise;
-      console.log();
-      const login = readlineSync.question('   account: ');
-      const password = readlineSync.question('  password: ', { hideEchoBack: true, mask: '*' });
-      process.stdout.write('    access..');
-      const feed = await mcp.tools.feed({ login, password });
-      process.stdout.write('.');
-      const profile = await mcp.tools.profile({ user: login });
-      process.stdout.write('\n\nLogged in as @' + profile.handle + ' ' + profile.displayName);
-      await keytar.setPassword(name, login, password);
-      await keytar.setPassword(name, 'default_handle', login);
-      console.log();
-      if (feed.posts.length) {
-        for (let i = 0; i < feed.posts.length && i < 4; i++) {
-          const post = feed.posts[i];
-          console.log('  ' + post.indexedAt + ' @' + post.author + ' ' + post.text.trim().split('\n')[0]);
-        }
-      }
-      console.log('\nCredentials stored.');
-    } catch (e) {
-      console.error('Login failed:', e.message);
-    }
-  }
-
   /**
    * Generate a formatted text preview of posts (used for feed and search results)
    * @param {any[]} posts Array of post objects

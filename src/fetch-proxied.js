@@ -2,6 +2,7 @@
 
 import * as http from 'http';
 import * as https from 'https';
+import * as tls from 'tls';
 import { URL } from 'url';
 
 /**
@@ -119,16 +120,20 @@ export default function createProxyAwareFetch() {
         const proxyReq = http.request(proxyOptions);
         proxyReq.on('connect', (res, socket) => {
           if (res.statusCode === 200) {
-            /** @type {import('https').RequestOptions} */
-            const httpsOptions = {
-              socket: socket,
-              servername: url.hostname,
+            const requestOptions = {
+              hostname: url.hostname,
+              port: url.port || 443,
               method: init.method || 'GET',
               path: url.pathname + url.search,
-              headers: /** @type {import('http').OutgoingHttpHeaders} */(init.headers || {})
+              headers: /** @type {import('http').OutgoingHttpHeaders} */(init.headers || {}),
+              agent: false,
+              createConnection: () => tls.connect({
+                socket,
+                servername: url.hostname
+              })
             };
 
-            const req = https.request(/** @type {any} */(httpsOptions), (res) => {
+            const req = https.request(requestOptions, (res) => {
               /** @type {Buffer[]} */
               const chunks = [];
               res.on('data', chunk => chunks.push(chunk));
@@ -144,14 +149,15 @@ export default function createProxyAwareFetch() {
             req.end();
           } else {
             reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
+            socket.destroy();
           }
         });
         proxyReq.on('error', reject);
         proxyReq.end();
       } else {
         // HTTP through HTTP proxy
-  proxyOptions.path = url.href;
-  proxyOptions.headers = /** @type {import('http').OutgoingHttpHeaders} */(init.headers || {});
+        proxyOptions.path = url.href;
+        proxyOptions.headers = /** @type {import('http').OutgoingHttpHeaders} */(init.headers || {});
 
         const req = http.request(proxyOptions, (res) => {
           /** @type {Buffer[]} */
