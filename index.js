@@ -7,181 +7,22 @@ const os = require('os');
 const readline = require('readline');
 const readlineSync = require('readline-sync');
 
+const {
+  getFeedBlobUrl,
+  getFeedVideoBlobUrl,
+  breakPostURL,
+  likelyDID,
+  shortenDID,
+  unwrapShortDID,
+  unwrapShortHandle,
+  cheapNormalizeHandle,
+  breakFeedURI,
+  makeFeedUri
+} = require('./src/core');
+const createProxyAwareFetch = require('./src/fetch-proxied');
+
 const { name, version } = require('./package.json');
 
-/**
- * Detects OS proxy environment variables and returns appropriate fetch implementation
- * @returns {Promise<typeof fetch>} Custom fetch function with proxy support or native fetch
- */
-async function createProxyAwareFetch() {
-  // Check Node.js version
-  const nodeVersion = parseInt(process.version.slice(1).split('.')[0]);
-  
-  // Get proxy environment variables (case-insensitive)
-  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
-  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
-  const noProxy = process.env.NO_PROXY || process.env.no_proxy;
-  const allProxy = process.env.ALL_PROXY || process.env.all_proxy;
-  
-  // If no proxy vars or Node.js 24+, use built-in fetch (which respects proxy env vars)
-  if ((!httpProxy && !httpsProxy && !allProxy) || nodeVersion >= 24) {
-    return globalThis.fetch;
-  }
-  
-  // For Node.js < 24 with proxy vars, implement custom fetch with proxy support
-  const http = require('http');
-  const https = require('https');
-  const { URL } = require('url');
-  
-  /**
-   * Custom fetch implementation with proxy support for Node.js < 24
-   * @param {string | URL} input - The resource to fetch
-   * @param {RequestInit} init - Request options
-   * @returns {Promise<Response>} Response object
-   */
-  return async function proxyFetch(input, init = {}) {
-    const url = new URL(input);
-    const isHttps = url.protocol === 'https:';
-    
-    // Parse proxy URL
-    const proxyUrl = isHttps ? (httpsProxy || allProxy) : (httpProxy || allProxy);
-    
-    // Check if URL should bypass proxy (NO_PROXY)
-    const shouldBypassProxy = noProxy && noProxy.split(',').some(pattern => {
-      const trimmed = pattern.trim();
-      return trimmed === '*' || 
-             url.hostname === trimmed ||
-             url.hostname.endsWith('.' + trimmed);
-    });
-    
-    if (!proxyUrl || shouldBypassProxy) {
-      // No proxy or bypassed, use direct connection
-      return makeDirectRequest(url, init, isHttps);
-    }
-    
-    const proxy = new URL(proxyUrl);
-    return makeProxyRequest(url, init, proxy, isHttps);
-  };
-  
-  /**
-   * Make direct HTTP/HTTPS request
-   */
-  function makeDirectRequest(url, init, isHttps) {
-    const module = isHttps ? https : http;
-    
-    return new Promise((resolve, reject) => {
-      const options = {
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname + url.search,
-        method: init.method || 'GET',
-        headers: init.headers || {}
-      };
-      
-      const req = module.request(options, (res) => {
-        const chunks = [];
-        res.on('data', chunk => chunks.push(chunk));
-        res.on('end', () => {
-          const body = Buffer.concat(chunks);
-          const response = createResponseObject(res, body);
-          resolve(response);
-        });
-      });
-      
-      req.on('error', reject);
-      
-      if (init.body) {
-        req.write(init.body);
-      }
-      req.end();
-    });
-  }
-  
-  /**
-   * Make HTTP/HTTPS request through proxy
-   */
-  function makeProxyRequest(url, init, proxy, isHttps) {
-    return new Promise((resolve, reject) => {
-      const proxyOptions = {
-        hostname: proxy.hostname,
-        port: proxy.port,
-        method: isHttps ? 'CONNECT' : (init.method || 'GET'),
-        headers: isHttps ? {} : (init.headers || {})
-      };
-      
-      if (isHttps) {
-        // HTTPS through HTTP proxy (CONNECT method)
-        proxyOptions.path = `${url.hostname}:${url.port || 443}`;
-        
-        const proxyReq = http.request(proxyOptions);
-        proxyReq.on('connect', (res, socket) => {
-          if (res.statusCode === 200) {
-            const httpsOptions = {
-              socket: socket,
-              servername: url.hostname,
-              method: init.method || 'GET',
-              path: url.pathname + url.search,
-              headers: init.headers || {}
-            };
-            
-            const req = https.request(httpsOptions, (res) => {
-              const chunks = [];
-              res.on('data', chunk => chunks.push(chunk));
-              res.on('end', () => {
-                const body = Buffer.concat(chunks);
-                const response = createResponseObject(res, body);
-                resolve(response);
-              });
-            });
-            
-            req.on('error', reject);
-            if (init.body) req.write(init.body);
-            req.end();
-          } else {
-            reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`));
-          }
-        });
-        proxyReq.on('error', reject);
-        proxyReq.end();
-      } else {
-        // HTTP through HTTP proxy
-        proxyOptions.path = url.href;
-        proxyOptions.headers = init.headers || {};
-        
-        const req = http.request(proxyOptions, (res) => {
-          const chunks = [];
-          res.on('data', chunk => chunks.push(chunk));
-          res.on('end', () => {
-            const body = Buffer.concat(chunks);
-            const response = createResponseObject(res, body);
-            resolve(response);
-          });
-        });
-        
-        req.on('error', reject);
-        if (init.body) req.write(init.body);
-        req.end();
-      }
-    });
-  }
-  
-  /**
-   * Create a fetch-like Response object
-   */
-  function createResponseObject(res, body) {
-    return {
-      ok: res.statusCode >= 200 && res.statusCode < 300,
-      status: res.statusCode,
-      statusText: res.statusMessage,
-      headers: new Map(Object.entries(res.headers)),
-      url: res.url,
-      async text() { return body.toString(); },
-      async json() { return JSON.parse(body.toString()); },
-      async arrayBuffer() { return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength); },
-      async blob() { return new Blob([body]); }
-    };
-  }
-}
 
 (async () => {
 
@@ -189,13 +30,13 @@ async function createProxyAwareFetch() {
 
   // Create proxy-aware fetch function
   const proxyAwareFetch = await createProxyAwareFetch();
-  
+
   // Log proxy status for debugging
   const nodeVersion = parseInt(process.version.slice(1).split('.')[0]);
-  const hasProxyVars = !!(process.env.HTTP_PROXY || process.env.http_proxy || 
-                          process.env.HTTPS_PROXY || process.env.https_proxy || 
-                          process.env.ALL_PROXY || process.env.all_proxy);
-  
+  const hasProxyVars = !!(process.env.HTTP_PROXY || process.env.http_proxy ||
+    process.env.HTTPS_PROXY || process.env.https_proxy ||
+    process.env.ALL_PROXY || process.env.all_proxy);
+
   if (hasProxyVars && nodeVersion < 24) {
     console.error(`[PROXY] Detected proxy environment variables, using custom proxy-aware fetch (Node.js ${process.version})`);
   } else if (hasProxyVars && nodeVersion >= 24) {
@@ -460,7 +301,7 @@ async function createProxyAwareFetch() {
 
       const profileText =
         '@' + structuredContent.handle +
-      (structuredContent.displayName ? ' ' + structuredContent.displayName.replace(/\s+/g, ' ').trim() : '') +
+        (structuredContent.displayName ? ' ' + structuredContent.displayName.replace(/\s+/g, ' ').trim() : '') +
         (structuredContent.description ? '/ ' + structuredContent.description.replace(/\s+/g, ' ').trim() + ' ' : '') +
         structuredContent.followersCount + ' followers, ' +
         structuredContent.followingCount + ' following, ' +
@@ -807,8 +648,8 @@ async function createProxyAwareFetch() {
         replyToURI ? 'Could not split ' + JSON.stringify(replyToURI) + '/' + JSON.stringify(postRef) + ', posted alone ' + /** @type {any} */(posted).uri + ':\n' + text :
           'Posted ' + /** @type {any} */(posted).uri + ':\n' + text;
 
-      const summaryText = replyToURI ? 
-        `Replied to post with: "${text}"` : 
+      const summaryText = replyToURI ?
+        `Replied to post with: "${text}"` :
         `Posted: "${text}"`;
 
       return {
@@ -1529,116 +1370,9 @@ async function createProxyAwareFetch() {
     array.push(element);
     return array;
   }
-
-  function getFeedBlobUrl(did, cid) {
-    if (!did || !cid) return undefined;
-    return `https://cdn.bsky.app/img/feed_thumbnail/plain/${unwrapShortDID(did)}/${cid}@jpeg`;
-  }
-
-  function getFeedVideoBlobUrl(did, cid) {
-    if (!did || !cid) return undefined;
-    return `https://video.bsky.app/watch/${unwrapShortDID(did)}/${cid}/thumbnail.jpg`;
-  }
-
-  /**
-  * @param {string | null | undefined} url
-  */
-  function breakPostURL(url) {
-    if (!url) return;
-    const matchBsky = _breakBskyPostURL_Regex.exec(url);
-    if (matchBsky) return { shortDID: shortenDID(matchBsky[1]), postID: matchBsky[2]?.toString().toLowerCase() };
-    const matchGisting = _breakGistingPostURL_Regex.exec(url);
-    if (matchGisting) return { shortDID: shortenDID(matchGisting[2]), postID: matchGisting[3]?.toString().toLowerCase() };
-    const matchBskyStyle = _breakBskyStylePostURL_Regex.exec(url);
-    if (matchBskyStyle) return { shortDID: shortenDID(matchBskyStyle[2]), postID: matchBskyStyle[3]?.toString().toLowerCase() };
-  }
-  const _breakBskyPostURL_Regex = /^http[s]?\:\/\/bsky\.app\/profile\/([a-z0-9\.\:\-]+)\/post\/([a-z0-9]+)(\/|$)/i;
-  const _breakBskyStylePostURL_Regex = /^http[s]?\:\/\/(bsky\.app|6sky\.app|gist\.ing|gisti\.ng|gist\.ink)\/profile\/([a-z0-9\.\:\-]+)\/post\/([a-z0-9]+)(\/|$)/i;
-  const _breakGistingPostURL_Regex = /^http[s]?\:\/\/(6sky\.app|gist\.ing|gisti\.ng|gist\.ink)\/([a-z0-9\.\:\-]+)\/([a-z0-9]+)(\/|$)/i;
-
-  /** @param {string | null | undefined} text */
-  function likelyDID(text) {
-    return !!text && (
-      !text.trim().indexOf('did:') ||
-      text.trim().length === 24 && !/[^\sa-z0-9]/i.test(text)
-    );
-  }
-
-  /**
-   * @param {T} did
-   * @returns {T}
-   * @template {string | undefined | null} T
-   */
-  function shortenDID(did) {
-    return did && /** @type {T} */(did.replace(_shortenDID_Regex, '').toLowerCase() || undefined);
-  }
-
-  const _shortenDID_Regex = /^did\:plc\:/;
-
-  /**
-   * @param {T} shortDID
-   * @returns {T}
-   * @template {string | undefined | null} T
-   */
-  function unwrapShortDID(shortDID) {
-    return /** @type {T} */(
-      !shortDID ? undefined : shortDID.indexOf(':') < 0 ? 'did:plc:' + shortDID.toLowerCase() : shortDID.toLowerCase()
-    );
-  }
-
-  /**
-   * @param {T} shortHandle
-   * @returns {T}
-   * @template {string | undefined | null} T
-   */
-  function unwrapShortHandle(shortHandle) {
-    if (likelyDID(shortHandle)) return unwrapShortDID(shortHandle);
-    shortHandle = cheapNormalizeHandle(shortHandle);
-    return /** @type {T} */(
-      !shortHandle ? undefined : shortHandle.indexOf('.') < 0 ? shortHandle.toLowerCase() + '.bsky.social' : shortHandle.toLowerCase()
-    );
-  }
-
-  function cheapNormalizeHandle(handle) {
-    handle = handle && handle.trim().toLowerCase();
-
-    if (handle && handle.charCodeAt(0) === 64)
-      handle = handle.slice(1);
-
-    const urlprefix = 'https://bsky.app/';
-    if (handle && handle.lastIndexOf(urlprefix, 0) === 0) {
-      const postURL = breakPostURL(handle);
-      if (postURL && postURL.shortDID)
-        return postURL.shortDID;
-    }
-
-    if (handle && handle.lastIndexOf('at:', 0) === 0) {
-      const feedUri = breakFeedURI(handle);
-      if (feedUri && feedUri.shortDID)
-        return feedUri.shortDID;
-
-      if (handle && handle.lastIndexOf('at://', 0) === 0) handle = handle.slice(5);
-      else handle = handle.slice(3);
-    }
-
-    return handle || undefined;
-  }
-
-  /**
-  * @param {string | null | undefined} uri
-  */
-  function breakFeedURI(uri) {
-    if (!uri) return;
-    const match = _breakFeedUri_Regex.exec(uri);
-    if (!match || !match[4]) return;
-    if (match[3] === 'app.bsky.feed.post') return { shortDID: shortenDID(match[2]), postID: match[4] };
-    return { shortDID: match[2], postID: match[4], feedType: match[3] };
-  }
-  const _breakFeedUri_Regex = /^at\:\/\/(did:plc:)?([a-z0-9]+)\/([a-z\.]+)\/?(.*)?$/;
-
-  function makeFeedUri(shortDID, postID) {
-    return 'at://' + unwrapShortDID(shortDID) + '/app.bsky.feed.post/' + postID;
-  }
+  // DID/handle utilities have been moved to src/core.js and are imported near the top as
+  // getFeedBlobUrl, getFeedVideoBlobUrl, breakPostURL, likelyDID, shortenDID, unwrapShortDID,
+  // unwrapShortHandle, cheapNormalizeHandle, breakFeedURI and makeFeedUri
 
 
   async function localLogin() {
@@ -1685,7 +1419,7 @@ async function createProxyAwareFetch() {
     const now = new Date();
     let output = [];
     const sortedPosts = [...posts].sort((a, b) => new Date(b.indexedAt).getTime() - new Date(a.indexedAt).getTime());
-    
+
     for (const post of sortedPosts) {
       const dtPost = new Date(post.indexedAt);
       const dtStr =
