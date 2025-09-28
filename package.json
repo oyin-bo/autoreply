@@ -1,6 +1,10 @@
 {
   "name": "autoreply",
-  "version": "1.1.7",
+  "version": "1.2.0",
+  "description": "BlueSky MCP stdio",
+  "author": "Oleg Mihailik",
+  "license": "MIT",
+  "homepage": "https://github.com/oyin-bo/autoreply#readme",
   "main": "index.js",
   "bin": {
     "autoreply": "index.js"
@@ -18,21 +22,17 @@
     "atproto",
     "ai",
     "agent",
-    "autoreply"
+    "autoreply",
+    "ooo",
+    "out-of-office",
+    "stdio"
   ],
-  "author": "Oleg Mihailik",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/oyin-bo/autoreply/issues"
-  },
-  "homepage": "https://github.com/oyin-bo/autoreply#readme",
-  "description": "",
   "dependencies": {
     "@atcute/client": "^4.0.3",
     "readline-sync": "^1.4.10"
   },
   "optionalDependencies": {
-    "keytar": "^7.9.0",
-    "@atcute/bluesky": "^3.2.3"
+    "@atcute/bluesky": "^3.2.3",
+    "keytar": "^7.9.0"
   }
 }
