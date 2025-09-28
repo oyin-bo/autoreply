@@ -1,7 +1,17 @@
 // @ts-check
+
 /**
- * Utilities for handling DIDs, handles and feed/post URIs used across the project.
+ * @template T
+ * @param {T[] | undefined} array
+ * @param {T | undefined} element
+ * @returns T[] | undefined
  */
+function addToArray(array, element) {
+  if (!element) return array;
+  if (!array) return [element];
+  array.push(element);
+  return array;
+}
 
 /** @type {RegExp} */
 const _breakBskyPostURL_Regex = /^http[s]?\:\/\/bsky\.app\/profile\/([a-z0-9\.\:\-]+)\/post\/([a-z0-9]+)(\/|$)/i;
@@ -60,11 +70,6 @@ function likelyDID(text) {
   );
 }
 
-/**
- * @template {string | undefined | null} T
- * @param {T} did
- * @returns {T}
- */
 /**
  * @template {string | undefined | null} T
  * @param {T} did
@@ -159,6 +164,7 @@ function makeFeedUri(shortDID, postID) {
 }
 
 module.exports = {
+  addToArray,
   getFeedBlobUrl,
   getFeedVideoBlobUrl,
   breakPostURL,

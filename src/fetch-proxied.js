@@ -2,9 +2,9 @@
 
 /**
  * Detects OS proxy environment variables and returns appropriate fetch implementation
- * @returns {Promise<typeof fetch>} Custom fetch function with proxy support or native fetch
+ * @returns {typeof fetch} Custom fetch function with proxy support or native fetch
  */
-async function createProxyAwareFetch() {
+function createProxyAwareFetch() {
   // Check Node.js version
   const nodeVersion = parseInt(process.version.slice(1).split('.')[0]);
 
