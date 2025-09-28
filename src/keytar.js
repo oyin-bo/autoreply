@@ -1,9 +1,13 @@
 // @ts-check
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const { name } = require('../package.json');
+import package_json from '../package.json';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const CRED_FILE = path.join(__dirname, '..', '.bluesky_creds.json');
 
@@ -33,10 +37,11 @@ const fallbackKeytar = {
  * Always returns a Promise resolving to a Keytar-like API.
  * @returns {Promise<Pick<import('keytar'), 'getPassword' | 'setPassword'>>} Promise resolving to keytar-like module
  */
-function initKeytar() {
+async function initKeytar() {
   try {
-    const keytarMod = require('keytar');
-    const tryPromise = keytarMod.getPassword(name, 'default_handle');
+    // dynamic import to avoid failing on platforms without keytar
+    const keytarMod = await import('keytar');
+    const tryPromise = keytarMod.getPassword(package_json.name, 'default_handle');
     return tryPromise
       .then(() => keytarMod)
       .catch(() => fallbackKeytar);
@@ -46,5 +51,5 @@ function initKeytar() {
 }
 
 // Export the promise only
-module.exports = initKeytar();
+export default initKeytar();
 

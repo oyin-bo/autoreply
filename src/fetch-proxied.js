@@ -1,10 +1,14 @@
 // @ts-check
 
+import * as http from 'http';
+import * as https from 'https';
+import { URL } from 'url';
+
 /**
  * Detects OS proxy environment variables and returns appropriate fetch implementation
  * @returns {typeof fetch} Custom fetch function with proxy support or native fetch
  */
-function createProxyAwareFetch() {
+export default function createProxyAwareFetch() {
   // Check Node.js version
   const nodeVersion = parseInt(process.version.slice(1).split('.')[0]);
 
@@ -20,10 +24,6 @@ function createProxyAwareFetch() {
   }
 
   // For Node.js < 24 with proxy vars, implement custom fetch with proxy support
-  const http = require('http');
-  const https = require('https');
-  const { URL } = require('url');
-
   return /** @type {typeof fetch} */(proxyFetch);
 
   /**
@@ -72,7 +72,7 @@ function createProxyAwareFetch() {
         port: url.port,
         path: url.pathname + url.search,
         method: init.method || 'GET',
-        headers: init.headers || {}
+  headers: /** @type {import('http').OutgoingHttpHeaders} */(init.headers || {})
       };
 
       const req = module.request(options, (res) => {
@@ -109,7 +109,7 @@ function createProxyAwareFetch() {
         hostname: proxy.hostname,
         port: proxy.port,
         method: isHttps ? 'CONNECT' : (init.method || 'GET'),
-        headers: isHttps ? {} : (init.headers || {})
+        headers: /** @type {import('http').OutgoingHttpHeaders} */(isHttps ? {} : (init.headers || {}))
       };
 
       if (isHttps) {
@@ -125,10 +125,10 @@ function createProxyAwareFetch() {
               servername: url.hostname,
               method: init.method || 'GET',
               path: url.pathname + url.search,
-              headers: init.headers || {}
+              headers: /** @type {import('http').OutgoingHttpHeaders} */(init.headers || {})
             };
 
-            const req = https.request(httpsOptions, (res) => {
+            const req = https.request(/** @type {any} */(httpsOptions), (res) => {
               /** @type {Buffer[]} */
               const chunks = [];
               res.on('data', chunk => chunks.push(chunk));
@@ -150,8 +150,8 @@ function createProxyAwareFetch() {
         proxyReq.end();
       } else {
         // HTTP through HTTP proxy
-        proxyOptions.path = url.href;
-        proxyOptions.headers = init.headers || {};
+  proxyOptions.path = url.href;
+  proxyOptions.headers = /** @type {import('http').OutgoingHttpHeaders} */(init.headers || {});
 
         const req = http.request(proxyOptions, (res) => {
           /** @type {Buffer[]} */
@@ -186,9 +186,7 @@ function createProxyAwareFetch() {
       async text() { return body.toString(); },
       async json() { return JSON.parse(body.toString()); },
       async arrayBuffer() { return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength); },
-      async blob() { return new Blob([body]); }
+  async blob() { return new Blob([new Uint8Array(body)]); }
     };
   }
 }
-
-module.exports = createProxyAwareFetch;
