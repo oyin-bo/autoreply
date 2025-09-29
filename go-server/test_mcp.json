@@ -1,0 +1,3 @@
+{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "profile", "arguments": {"account": "jay.bsky.social"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search", "arguments": {"account": "jay.bsky.social", "query": "hello"}}}
