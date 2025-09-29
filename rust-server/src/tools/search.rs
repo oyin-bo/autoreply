@@ -18,6 +18,8 @@ use tracing::{debug, info, warn};
 struct SearchArgs {
     account: String,
     query: String,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 /// Handle search tool call
@@ -72,13 +74,20 @@ async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
 
     debug!("Fetched CAR data: {} bytes", car_data.len());
 
-    // Extract post records
+    // Extract post records (parse-only)
     let posts = car_processor.extract_posts(&car_data).await?;
 
     debug!("Extracted {} post records", posts.len());
 
     // Search posts
-    let matching_posts = search_posts(&posts, &normalized_query);
+    let mut matching_posts = search_posts(&posts, &normalized_query);
+
+    // Sort by created_at descending (ISO8601 lexicographic)
+    matching_posts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    // Apply limit (default 50, max 200)
+    let limit = search_args.limit.unwrap_or(50).clamp(1, 200);
+    if matching_posts.len() > limit { matching_posts.truncate(limit); }
 
     if matching_posts.is_empty() {
         return Err(AppError::NotFound(format!(
@@ -93,8 +102,32 @@ async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
         search_args.query
     );
 
+    // Resolve URIs only for matched posts
+    use std::collections::HashSet;
+    let needed: HashSet<String> = matching_posts
+        .iter()
+        .filter(|p| !p.cid.is_empty())
+        .map(|p| p.cid.clone())
+        .collect();
+    let cid_to_uri = car_processor.resolve_uris_for_cids(&did, &needed).await?;
+
+    // Enrich matched posts with URIs
+    let mut enriched: Vec<PostRecord> = matching_posts
+        .into_iter()
+        .map(|p| {
+            let mut pr = p.clone();
+            if pr.uri.is_empty() {
+                if let Some(u) = cid_to_uri.get(&pr.cid) {
+                    pr.uri = u.clone();
+                }
+            }
+            pr
+        })
+        .collect();
+    let enriched_refs: Vec<&PostRecord> = enriched.iter().collect();
+
     // Format results as markdown
-    let markdown = format_search_results(&matching_posts, &display_handle, &search_args.query);
+    let markdown = format_search_results(&enriched_refs, &display_handle, &search_args.query);
 
     Ok(ToolResult::text(markdown))
 }

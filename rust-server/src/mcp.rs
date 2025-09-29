@@ -106,7 +106,7 @@ pub fn serialize_response(response: &McpResponse) -> Result<String> {
 
 /// Handle stdio MCP communication
 pub async fn handle_stdio() -> Result<()> {
-    info!("Starting MCP server on stdio");
+    info!("Starting autoreply MCP server on stdio");
     
     let stdin = tokio::io::stdin();
     let mut reader = AsyncBufReader::new(stdin).lines();
@@ -137,6 +137,7 @@ pub async fn handle_stdio() -> Result<()> {
 /// Handle a single MCP request
 async fn handle_request(request: McpRequest) -> McpResponse {
     match request.method.as_str() {
+        "initialize" => handle_initialize(request).await,
         "tools/call" => handle_tool_call(request).await,
         "tools/list" => handle_tools_list(request).await,
         _ => McpResponse::error(
@@ -173,7 +174,30 @@ async fn handle_tool_call(request: McpRequest) -> McpResponse {
 
 /// Handle tools/list method
 async fn handle_tools_list(request: McpRequest) -> McpResponse {
-    let tools = serde_json::json!([
+    let tools = build_tools_array();
+
+    McpResponse::success(request.id, serde_json::json!({ "tools": tools }))
+}
+
+/// Handle initialize method
+async fn handle_initialize(request: McpRequest) -> McpResponse {
+    let tools = build_tools_array();
+    let result = serde_json::json!({
+        "serverInfo": {
+            "name": "autoreply",
+            "version": env!("CARGO_PKG_VERSION"),
+        },
+        "capabilities": {
+            "tools": { "list": true, "call": true }
+        },
+        "tools": tools
+    });
+    McpResponse::success(request.id, result)
+}
+
+/// Build the tools array returned from tools/list and initialize
+fn build_tools_array() -> serde_json::Value {
+    serde_json::json!([
         {
             "name": "profile",
             "description": "Retrieve user profile information",
@@ -201,12 +225,53 @@ async fn handle_tools_list(request: McpRequest) -> McpResponse {
                     "query": {
                         "type": "string",
                         "description": "Search terms (case-insensitive)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default 50, max 200)"
                     }
                 },
                 "required": ["account", "query"]
             }
         }
-    ]);
+    ])
+}
 
-    McpResponse::success(request.id, serde_json::json!({ "tools": tools }))
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn test_initialize_response_contains_fields() {
+        let req = McpRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(json!(1)),
+            method: "initialize".into(),
+            params: None,
+        };
+        let resp = handle_request(req).await;
+        assert!(resp.error.is_none());
+        let result = resp.result.expect("result present");
+        assert_eq!(result.get("serverInfo").and_then(|v| v.get("name")).and_then(|v| v.as_str()), Some("autoreply"));
+        assert_eq!(result.get("capabilities").and_then(|v| v.get("tools")).and_then(|v| v.get("list")).and_then(|v| v.as_bool()), Some(true));
+        assert!(result.get("tools").and_then(|v| v.as_array()).is_some());
+    }
+
+    #[tokio::test]
+    async fn test_tools_list_contains_profile_and_search() {
+        let req = McpRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(json!(2)),
+            method: "tools/list".into(),
+            params: None,
+        };
+        let resp = handle_request(req).await;
+        assert!(resp.error.is_none());
+        let result = resp.result.expect("result present");
+        let tools = result.get("tools").and_then(|v| v.as_array()).expect("tools array");
+        let names: Vec<String> = tools.iter().filter_map(|t| t.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())).collect();
+        assert!(names.contains(&"profile".to_string()));
+        assert!(names.contains(&"search".to_string()));
+    }
 }

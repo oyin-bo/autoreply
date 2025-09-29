@@ -2,7 +2,7 @@
 //!
 //! Handles downloading and processing CAR files from Bluesky
 
-use crate::bluesky::records::{ProfileRecord, PostRecord};
+use crate::bluesky::records::{ProfileRecord, PostRecord, Embed, ExternalEmbed, ImageEmbed, BlobRef, Facet, FacetFeature, FacetIndex};
 use crate::cache::{CacheManager, CacheMetadata};
 use crate::error::AppError;
 use anyhow::Result;
@@ -11,6 +11,13 @@ use std::time::Duration;
 use tokio_stream::StreamExt;
 use tracing::{debug, info, warn};
 use crate::bluesky::did::DidResolver;
+use serde_cbor::Value as CborValue;
+use std::collections::BTreeMap;
+use libipld::cid::Cid;
+use libipld::multihash::Multihash;
+use serde::Deserialize;
+use serde_json::Value as JsonValue;
+use std::collections::{HashMap, HashSet};
 
 /// Repository fetcher and CAR processor
 pub struct CarProcessor {
@@ -19,19 +26,199 @@ pub struct CarProcessor {
     did_resolver: DidResolver,
 }
 
+/// Read CID at the current index in block and return string, advancing idx
+fn read_cid_string(block: &[u8], idx: &mut usize) -> Option<String> {
+    let mut i = *idx;
+    let ver = read_uvarint(block, &mut i)?;
+    let codec = read_uvarint(block, &mut i)?;
+    let mh_code = read_uvarint(block, &mut i)?;
+    let dlen = read_uvarint(block, &mut i)? as usize;
+    if i + dlen > block.len() { return None; }
+    let digest = &block[i..i + dlen];
+    i += dlen;
+    *idx = i;
+    let mh = Multihash::wrap(mh_code as u64, digest).ok()?;
+    let cid = Cid::new_v1(codec as u64, mh);
+    Some(cid.to_string())
+}
+
+/// Helpers to parse nested CBOR
+fn cbor_get_map<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a BTreeMap<CborValue, CborValue>> {
+    map.get(&CborValue::Text(key.to_string())).and_then(|v| match v {
+        CborValue::Map(m) => Some(m),
+        _ => None,
+    })
+}
+
+fn cbor_get_array<'a>(map: &'a BTreeMap<CborValue, CborValue>, key: &str) -> Option<&'a Vec<CborValue>> {
+    map.get(&CborValue::Text(key.to_string())).and_then(|v| match v {
+        CborValue::Array(a) => Some(a),
+        _ => None,
+    })
+}
+
+fn cbor_get_u64(map: &BTreeMap<CborValue, CborValue>, key: &str) -> Option<u64> {
+    map.get(&CborValue::Text(key.to_string())).and_then(|v| match v {
+        CborValue::Integer(i) => (*i).try_into().ok(),
+        _ => None,
+    })
+}
+
+fn parse_embeds(map: &BTreeMap<CborValue, CborValue>) -> Vec<Embed> {
+    let mut embeds = Vec::new();
+    if let Some(emb_val) = map.get(&CborValue::Text("embed".to_string())) {
+        match emb_val {
+            CborValue::Map(emb_map) => {
+                if let Some(etype) = cbor_get_text(emb_map, "$type") {
+                    match etype.as_str() {
+                        "app.bsky.embed.external" => {
+                            if let Some(ext) = cbor_get_map(emb_map, "external") {
+                                let uri = cbor_get_text(ext, "uri").unwrap_or_default();
+                                let title = cbor_get_text(ext, "title").unwrap_or_default();
+                                let description = cbor_get_text(ext, "description").unwrap_or_default();
+                                embeds.push(Embed::External { external: ExternalEmbed { uri, title, description, thumb: None } });
+                            }
+                        }
+                        "app.bsky.embed.images" => {
+                            if let Some(images) = cbor_get_array(emb_map, "images") {
+                                let mut imgs = Vec::new();
+                                for img_val in images {
+                                    if let CborValue::Map(img_map) = img_val {
+                                        let alt = cbor_get_text(img_map, "alt");
+                                        let image = cbor_get_map(img_map, "image");
+                                        let (mime_type, size) = if let Some(im) = image { (cbor_get_text(im, "mimeType").unwrap_or_default(), cbor_get_u64(im, "size").unwrap_or(0)) } else { (String::new(), 0) };
+                                        let blob = BlobRef { type_: "blob".to_string(), ref_: String::new(), mime_type, size };
+                                        imgs.push(ImageEmbed { alt, image: blob });
+                                    }
+                                }
+                                embeds.push(Embed::Images { images: imgs });
+                            }
+                        }
+                        "app.bsky.embed.recordWithMedia" => {
+                            // Parse media part if present
+                            if let Some(media) = cbor_get_map(emb_map, "media") {
+                                let mut tmp_root = BTreeMap::new();
+                                tmp_root.insert(CborValue::Text("embed".to_string()), CborValue::Map(media.clone()));
+                                embeds.extend(parse_embeds(&tmp_root));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    embeds
+}
+
+fn parse_facets(map: &BTreeMap<CborValue, CborValue>) -> Vec<Facet> {
+    let mut facets_vec = Vec::new();
+    if let Some(arr) = cbor_get_array(map, "facets") {
+        for item in arr {
+            if let CborValue::Map(fm) = item {
+                // index
+                let index = if let Some(idx_map) = cbor_get_map(fm, "index") {
+                    let bs = cbor_get_u64(idx_map, "byteStart").unwrap_or(0) as u32;
+                    let be = cbor_get_u64(idx_map, "byteEnd").unwrap_or(0) as u32;
+                    FacetIndex { byte_start: bs, byte_end: be }
+                } else { FacetIndex { byte_start: 0, byte_end: 0 } };
+                // features
+                let mut feats = Vec::new();
+                if let Some(features) = cbor_get_array(fm, "features") {
+                    for feat in features {
+                        if let CborValue::Map(ff) = feat {
+                            if let Some(ftype) = cbor_get_text(ff, "$type") {
+                                if ftype == "app.bsky.richtext.facet#link" {
+                                    if let Some(uri) = cbor_get_text(ff, "uri") {
+                                        feats.push(FacetFeature::Link { uri });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                facets_vec.push(Facet { index, features: feats });
+            }
+        }
+    }
+    facets_vec
+}
+
+/// Helper: get string value for a key from CBOR Map
+fn cbor_get_text(map: &BTreeMap<CborValue, CborValue>, key: &str) -> Option<String> {
+    map.get(&CborValue::Text(key.to_string())).and_then(|v| match v {
+        CborValue::Text(s) => Some(s.clone()),
+        _ => None,
+    })
+}
+
 impl CarProcessor {
     /// Create new CAR processor
     pub fn new() -> Result<Self, AppError> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(60)) // As specified in docs
-            .build()
-            .map_err(|e| AppError::Internal(format!("Failed to create HTTP client: {}", e)))?;
+        let client = crate::http::client_with_timeout(Duration::from_secs(60));
 
         let cache = CacheManager::new()?;
 
         let did_resolver = DidResolver::new();
 
         Ok(Self { client, cache, did_resolver })
+    }
+
+    /// Parse CAR v1 and collect app.bsky.feed.post records
+    fn find_posts_in_car(&self, car_data: &[u8]) -> Result<Vec<PostRecord>, AppError> {
+        let mut idx = 0usize;
+        // Header: varint length, followed by that many bytes of header CBOR
+        let Some(hlen) = read_uvarint(car_data, &mut idx) else {
+            return Err(AppError::RepoParseFailed("Invalid CAR header length".to_string()));
+        };
+        let hlen = hlen as usize;
+        if idx + hlen > car_data.len() { return Err(AppError::RepoParseFailed("Truncated CAR header".to_string())); }
+        idx += hlen;
+
+        let mut posts: Vec<PostRecord> = Vec::with_capacity(1024);
+
+        while idx < car_data.len() {
+            let start = idx;
+            let Some(blen) = read_uvarint(car_data, &mut idx) else { break };
+            let blen = blen as usize;
+            if idx + blen > car_data.len() { break; }
+            let block = &car_data[idx .. idx + blen];
+            idx += blen;
+
+            // Split CID and data, capture CID string
+            let mut bidx = 0usize;
+            let cid_str = read_cid_string(block, &mut bidx).unwrap_or_default();
+            if bidx >= block.len() { continue; }
+            let data = &block[bidx..];
+
+            if let Ok(val) = serde_cbor::from_slice::<CborValue>(data) {
+                if let CborValue::Map(map) = val {
+                    if let Some(ctype) = cbor_get_text(&map, "$type") {
+                        if ctype == "app.bsky.feed.post" {
+                            let text = cbor_get_text(&map, "text").unwrap_or_default();
+                            let created_at = cbor_get_text(&map, "createdAt").unwrap_or_default();
+                            let embeds = parse_embeds(&map);
+                            let facets = parse_facets(&map);
+                            posts.push(PostRecord {
+                                uri: String::new(),
+                                cid: cid_str.clone(),
+                                text,
+                                created_at,
+                                embeds,
+                                facets,
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Safety: avoid infinite loop
+            if idx <= start { break; }
+            if posts.len() >= 100_000 { break; }
+        }
+
+        Ok(posts)
     }
 
     /// Fetch repository for DID, using cache if valid
@@ -44,17 +231,33 @@ impl CarProcessor {
 
         info!("Fetching CAR file for DID: {}", did);
 
-        // Discover PDS endpoint for this DID. Prefer discovered endpoint; fall back to bsky.social
+        // Discover PDS endpoint for this DID.
+        // - For did:web: use did:web document serviceEndpoint if available
+        // - For did:plc: inspect PLC audit log
+        // - Fallback: bsky.social
         let mut base = "https://bsky.social".to_string();
-        match self.did_resolver.discover_pds(did).await {
-            Ok(Some(pds)) => {
+        if did.starts_with("did:web:") {
+            // try cached value first
+            if let Some(pds) = self.did_resolver.get_pds_for(did).await {
                 base = pds;
+            } else {
+                match self.did_resolver.ensure_did_web_pds(did).await {
+                    Ok(Some(pds)) => base = pds,
+                    Ok(None) => warn!("No PDS in did:web document for {}, using fallback", did),
+                    Err(e) => warn!("Error reading did:web document for {}: {}. Using fallback.", did, e),
+                }
             }
-            Ok(None) => {
-                warn!("No PDS discovered for {}, falling back to bsky.social", did);
-            }
-            Err(e) => {
-                warn!("Error discovering PDS for {}: {}. Falling back to bsky.social", did, e);
+        } else {
+            match self.did_resolver.discover_pds(did).await {
+                Ok(Some(pds)) => {
+                    base = pds;
+                }
+                Ok(None) => {
+                    warn!("No PDS discovered for {}, falling back to bsky.social", did);
+                }
+                Err(e) => {
+                    warn!("Error discovering PDS for {}: {}. Falling back to bsky.social", did, e);
+                }
             }
         }
 
@@ -129,85 +332,166 @@ impl CarProcessor {
 
     /// Extract profile records from CAR data
     pub async fn extract_profile(&self, car_data: &[u8]) -> Result<Option<ProfileRecord>, AppError> {
-        // For now, we'll implement a basic CAR parsing approach
-        // This is a minimal implementation - in a production system you'd want proper CAR parsing
-        
-        // Try to extract CBOR blocks and look for profile records
+        // Scan CAR blocks for app.bsky.actor.profile record
         let profile = self.find_profile_in_car(car_data)?;
         Ok(profile)
     }
 
-    /// Simple CAR parsing to find profile records
-    fn find_profile_in_car(&self, _car_data: &[u8]) -> Result<Option<ProfileRecord>, AppError> {
-        // For the initial implementation, we'll create a mock profile
-        // In a real implementation, you'd parse the CAR format and extract CBOR blocks
-        
-        warn!("CAR parsing not fully implemented - returning mock profile");
-        
-        // Return a basic mock profile for now
-        let mock_profile = ProfileRecord {
-            display_name: Some("Mock User".to_string()),
-            description: Some("This is a mock profile - CAR parsing not yet fully implemented".to_string()),
-            avatar: None,
-            banner: None,
-            created_at: "2024-01-01T00:00:00Z".to_string(),
+    /// Parse CAR v1 and find the latest app.bsky.actor.profile record
+    fn find_profile_in_car(&self, car_data: &[u8]) -> Result<Option<ProfileRecord>, AppError> {
+        let mut idx = 0usize;
+        let Some(hlen) = read_uvarint(car_data, &mut idx) else {
+            return Err(AppError::RepoParseFailed("Invalid CAR header length".to_string()));
         };
-        
-        Ok(Some(mock_profile))
+        let hlen = hlen as usize;
+        if idx + hlen > car_data.len() { return Err(AppError::RepoParseFailed("Truncated CAR header".to_string())); }
+        idx += hlen;
+
+        let mut found: Option<ProfileRecord> = None;
+        // Iterate blocks
+        while idx < car_data.len() {
+            let start = idx;
+            let Some(blen) = read_uvarint(car_data, &mut idx) else { break };
+            let blen = blen as usize;
+            if idx + blen > car_data.len() { break; }
+            let block = &car_data[idx .. idx + blen];
+            idx += blen;
+
+            // Inside block: CID (varint-coded fields) + DAG-CBOR data
+            let mut bidx = 0usize;
+            if skip_cid(block, &mut bidx).is_none() { continue; }
+            if bidx >= block.len() { continue; }
+            let data = &block[bidx..];
+
+            // Try decode DAG-CBOR map
+            if let Ok(val) = serde_cbor::from_slice::<CborValue>(data) {
+                if let CborValue::Map(map) = val {
+                    if let Some(ctype) = cbor_get_text(&map, "$type") {
+                        if ctype == "app.bsky.actor.profile" {
+                            // Build ProfileRecord from known fields
+                            let display_name = cbor_get_text(&map, "displayName");
+                            let description = cbor_get_text(&map, "description");
+                            let avatar = cbor_get_text(&map, "avatar");
+                            let banner = cbor_get_text(&map, "banner");
+                            let created_at = cbor_get_text(&map, "createdAt").unwrap_or_default();
+                            found = Some(ProfileRecord { display_name, description, avatar, banner, created_at });
+                        }
+                    }
+                }
+            }
+            // Safety: avoid infinite loop
+            if idx <= start { break; }
+        }
+
+        Ok(found)
     }
 
-    /// Extract post records from CAR data
+    /// Extract post records from CAR data (parse-only)
     pub async fn extract_posts(&self, car_data: &[u8]) -> Result<Vec<PostRecord>, AppError> {
-        // For now, we'll implement a basic CAR parsing approach
-        // This is a minimal implementation - in a production system you'd want proper CAR parsing
-        
         let posts = self.find_posts_in_car(car_data)?;
-        info!("Extracted {} post records", posts.len());
         Ok(posts)
     }
 
-    /// Simple CAR parsing to find post records
-    fn find_posts_in_car(&self, _car_data: &[u8]) -> Result<Vec<PostRecord>, AppError> {
-        // For the initial implementation, we'll create mock posts
-        // In a real implementation, you'd parse the CAR format and extract CBOR blocks
-        
-        warn!("CAR parsing not fully implemented - returning mock posts");
-        
-        // Return some mock posts for testing
-        let mock_posts = vec![
-            PostRecord {
-                uri: "at://did:plc:mock/app.bsky.feed.post/1".to_string(),
-                cid: "mock_cid_1".to_string(),
-                text: "This is a sample post to test the search functionality. Hello world!".to_string(),
-                created_at: "2024-01-01T00:00:00Z".to_string(),
-                embeds: vec![],
-                facets: vec![],
-            },
-            PostRecord {
-                uri: "at://did:plc:mock/app.bsky.feed.post/2".to_string(),
-                cid: "mock_cid_2".to_string(),
-                text: "Another test post about Rust programming and development.".to_string(),
-                created_at: "2024-01-02T00:00:00Z".to_string(),
-                embeds: vec![],
-                facets: vec![],
-            },
-            PostRecord {
-                uri: "at://did:plc:mock/app.bsky.feed.post/3".to_string(),
-                cid: "mock_cid_3".to_string(),
-                text: "Hello everyone! This is a third sample post for testing search.".to_string(),
-                created_at: "2024-01-03T00:00:00Z".to_string(),
-                embeds: vec![],
-                facets: vec![],
-            },
-        ];
-        
-        Ok(mock_posts)
+    /// Resolve URIs for a set of CIDs by calling listRecords and returning a cid->uri map
+    pub async fn resolve_uris_for_cids(&self, did: &str, needed: &HashSet<String>) -> Result<HashMap<String, String>, AppError> {
+        let mut needed = needed.clone();
+        if needed.is_empty() { return Ok(HashMap::new()); }
+
+        // Discover PDS base (reuse same logic as fetch_repo)
+        let mut base = "https://bsky.social".to_string();
+        if did.starts_with("did:web:") {
+            if let Some(pds) = self.did_resolver.get_pds_for(did).await { base = pds; }
+            else if let Ok(Some(pds)) = self.did_resolver.ensure_did_web_pds(did).await { base = pds; }
+        } else if let Ok(Some(pds)) = self.did_resolver.discover_pds(did).await { base = pds; }
+
+        #[derive(Debug, Deserialize)]
+        struct RecordItem { uri: String, cid: String }
+        #[derive(Debug, Deserialize)]
+        struct ListResp { cursor: Option<String>, records: Vec<RecordItem> }
+
+        let mut cursor: Option<String> = None;
+        let mut map: HashMap<String, String> = HashMap::new(); // cid -> uri
+        let mut pages = 0usize;
+
+        while !needed.is_empty() && pages < 25 {
+            let mut url = format!(
+                "{}/xrpc/com.atproto.repo.listRecords?repo={}&collection=app.bsky.feed.post&limit=100",
+                base.trim_end_matches('/'), did
+            );
+            if let Some(c) = &cursor { url.push_str(&format!("&cursor={}", c)); }
+
+            let resp = self.client.get(&url).send().await?;
+            if !resp.status().is_success() { break; }
+            let parsed: ListResp = resp.json().await.unwrap_or(ListResp { cursor: None, records: Vec::new() });
+            for item in parsed.records.into_iter() {
+                if needed.contains(&item.cid) {
+                    map.insert(item.cid.clone(), item.uri.clone());
+                    needed.remove(&item.cid);
+                }
+            }
+            cursor = parsed.cursor;
+            if cursor.is_none() { break; }
+            pages += 1;
+        }
+
+        Ok(map)
     }
 
     /// Clean up expired cache
     pub async fn cleanup_cache(&self) -> Result<(), AppError> {
         self.cache.cleanup_expired()
     }
+}
+
+/// Read unsigned varint from data starting at idx, advancing idx
+fn read_uvarint(data: &[u8], idx: &mut usize) -> Option<u64> {
+    let mut x: u64 = 0;
+    let mut s: u32 = 0;
+    let mut i = *idx;
+    while i < data.len() {
+        let b = data[i];
+        if b < 0x80 {
+            if s >= 64 { return None; }
+            x |= ((b & 0x7F) as u64) << s;
+            i += 1;
+            *idx = i;
+            return Some(x);
+        }
+        x |= ((b & 0x7F) as u64) << s;
+        s += 7;
+        i += 1;
+        if s > 63 { return None; }
+    }
+    None
+}
+
+/// Compute length of first varint (helper for header handling)
+fn last_read_uvarint_len(data: &[u8], start: usize) -> Option<usize> {
+    let mut i = start;
+    while i < data.len() {
+        let b = data[i];
+        i += 1;
+        if b < 0x80 { return Some(i); }
+    }
+    None
+}
+
+/// Skip CID in block bytes by parsing CIDv1 structure; advances idx to start of block data
+fn skip_cid(block: &[u8], idx: &mut usize) -> Option<()> {
+    let mut i = *idx;
+    // version
+    let Some(_ver) = read_uvarint(block, &mut i) else { return None };
+    // codec
+    let Some(_codec) = read_uvarint(block, &mut i) else { return None };
+    // multihash code
+    let Some(_mh_code) = read_uvarint(block, &mut i) else { return None };
+    // digest length
+    let Some(dlen) = read_uvarint(block, &mut i) else { return None };
+    let dlen = dlen as usize;
+    if i + dlen > block.len() { return None; }
+    i += dlen;
+    *idx = i;
+    Some(())
 }
 
 impl Default for CarProcessor {

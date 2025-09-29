@@ -43,21 +43,38 @@ impl CacheManager {
 
     /// Get the cache path for a DID using two-tier structure
     pub fn get_cache_path(&self, did: &str) -> Result<PathBuf, AppError> {
-        if !did.starts_with("did:plc:") || did.len() < 10 {
-            return Err(AppError::InvalidInput("Invalid DID format".to_string()));
-        }
+        let prefix = if did.starts_with("did:plc:") && did.len() >= 10 {
+            did[8..10].to_string()
+        } else if did.starts_with("did:web:") {
+            let rest = &did[8..];
+            let sanitized: String = rest.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+            if sanitized.len() >= 2 {
+                sanitized[0..2].to_string()
+            } else {
+                "xx".to_string()
+            }
+        } else {
+            // Fallback for any other identifiers: derive from first two alnum chars
+            let sanitized: String = did.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+            if sanitized.len() >= 2 { sanitized[0..2].to_string() } else { "xx".to_string() }
+        };
 
-        // Extract 2-letter prefix from DID (first two chars after "did:plc:")
-        let prefix = &did[8..10];
-        
-        // Two-tier structure: {cache_dir}/{2-letter-prefix}/{full-did}/
-        let cache_path = self.cache_dir.join(prefix).join(did);
-        
+        // Two-tier structure: {cache_dir}/{2-letter-prefix}/{id-without-scheme}/
+        let dir_key = if did.starts_with("did:plc:") {
+            &did[8..]
+        } else if did.starts_with("did:web:") {
+            &did[8..]
+        } else {
+            did
+        };
+
+        let cache_path = self.cache_dir.join(prefix).join(dir_key);
         Ok(cache_path)
     }
 
     /// Get paths for CAR file and metadata
     pub fn get_file_paths(&self, did: &str) -> Result<(PathBuf, PathBuf), AppError> {
+        // Compute scheme-less cache path
         let cache_path = self.get_cache_path(did)?;
         let car_path = cache_path.join("repo.car");
         let metadata_path = cache_path.join("metadata.json");
@@ -207,22 +224,33 @@ impl CacheManager {
 
 /// Get platform-specific cache directory
 fn get_cache_dir() -> Result<PathBuf> {
-    if let Some(xdg_cache) = std::env::var_os("XDG_CACHE_HOME") {
-        Ok(PathBuf::from(xdg_cache).join("bluesky-mcp"))
-    } else if let Some(home) = dirs::home_dir() {
-        if cfg!(target_os = "windows") {
-            if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA") {
-                Ok(PathBuf::from(local_appdata).join("bluesky-mcp"))
-            } else {
-                Ok(home.join("AppData").join("Local").join("bluesky-mcp"))
-            }
-        } else {
-            Ok(home.join(".cache").join("bluesky-mcp"))
+    // macOS: ~/Library/Caches/autoreply/did
+    if cfg!(target_os = "macos") {
+        if let Some(home) = dirs::home_dir() {
+            return Ok(home.join("Library").join("Caches").join("autoreply").join("did"));
         }
-    } else {
-        // Fallback to current directory
-        Ok(PathBuf::from(".cache").join("bluesky-mcp"))
     }
+
+    // Windows: %LOCALAPPDATA%\autoreply\did (fallback to ~/AppData/Local)
+    if cfg!(target_os = "windows") {
+        if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA") {
+            return Ok(PathBuf::from(local_appdata).join("autoreply").join("did"));
+        }
+        if let Some(home) = dirs::home_dir() {
+            return Ok(home.join("AppData").join("Local").join("autoreply").join("did"));
+        }
+    }
+
+    // Linux/Unix: $XDG_CACHE_HOME/autoreply/did or ~/.cache/autoreply/did
+    if let Some(xdg_cache) = std::env::var_os("XDG_CACHE_HOME") {
+        return Ok(PathBuf::from(xdg_cache).join("autoreply").join("did"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        return Ok(home.join(".cache").join("autoreply").join("did"));
+    }
+
+    // Fallback to relative .cache/autoreply/did
+    Ok(PathBuf::from(".cache").join("autoreply").join("did"))
 }
 
 impl CacheMetadata {
