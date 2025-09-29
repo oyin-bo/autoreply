@@ -4,7 +4,7 @@
 
 use crate::error::AppError;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -302,8 +302,9 @@ impl DidResolver {
                             Err(e) => { last_err = Some(AppError::DidResolveFailed(e.to_string())); }
                         }
                     } else {
+                        let status = resp.status();
                         let body = resp.text().await.unwrap_or_default();
-                        last_err = Some(AppError::DidResolveFailed(format!("HTTP {} from {}: {}", resp.status(), base, body)));
+                        last_err = Some(AppError::DidResolveFailed(format!("HTTP {} from {}: {}", status, base, body)));
                     }
                 }
                 Err(e) => { last_err = Some(AppError::DidResolveFailed(e.to_string())); }

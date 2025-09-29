@@ -8,7 +8,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
 /// Cache metadata stored alongside CAR files
@@ -147,7 +147,7 @@ impl CacheManager {
         fs::rename(&metadata_tmp_path, &metadata_path)?;
 
         // Release lock
-        lock_file.unlock()?;
+        fs2::FileExt::unlock(&lock_file)?;
         let _ = fs::remove_file(lock_path); // Best effort cleanup
 
         info!("Cached CAR file for DID: {}", did);
