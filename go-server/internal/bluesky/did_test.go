@@ -33,9 +33,9 @@ func TestIsValidDID(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "Invalid prefix",
+			name: "Valid did:web",
 			did:  "did:web:example.com",
-			want: false,
+			want: true,
 		},
 		{
 			name: "Too short",

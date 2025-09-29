@@ -229,7 +229,6 @@ func (t *SearchTool) highlightMatches(text, query string) string {
 	// you would want more sophisticated matching
 	if strings.Contains(normalizedText, normalizedQuery) {
 		// Find all matches and wrap them with **bold**
-		// This is a simplified implementation
 		return strings.ReplaceAll(text, query, fmt.Sprintf("**%s**", query))
 	}
 
