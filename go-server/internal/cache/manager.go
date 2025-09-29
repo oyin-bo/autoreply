@@ -63,13 +63,36 @@ func getCacheDir() (string, error) {
 //   did:plc:abc...      -> abc...)
 // For unknown methods, returns the input unchanged.
 func sanitizeDID(did string) string {
+    // Strip known method prefixes
+    var s string
     if strings.HasPrefix(did, "did:web:") {
-        return strings.TrimPrefix(did, "did:web:")
+        s = strings.TrimPrefix(did, "did:web:")
+    } else if strings.HasPrefix(did, "did:plc:") {
+        s = strings.TrimPrefix(did, "did:plc:")
+    } else {
+        s = did
     }
-    if strings.HasPrefix(did, "did:plc:") {
-        return strings.TrimPrefix(did, "did:plc:")
+
+    // Replace colon separators (common in did:web path form) with double underscores
+    s = strings.ReplaceAll(s, ":", "__")
+
+    // Map any remaining characters outside [A-Za-z0-9._-] to underscore
+    out := make([]rune, 0, len(s))
+    for _, r := range s {
+        switch {
+        case r >= 'a' && r <= 'z':
+            out = append(out, r)
+        case r >= 'A' && r <= 'Z':
+            out = append(out, r)
+        case r >= '0' && r <= '9':
+            out = append(out, r)
+        case r == '.' || r == '-' || r == '_':
+            out = append(out, r)
+        default:
+            out = append(out, '_')
+        }
     }
-    return did
+    return string(out)
 }
 
 // GetCachePath returns the cache path for a DID using two-tier structure
@@ -90,6 +113,7 @@ func (m *Manager) GetCachePath(did string) (string, error) {
         prefix = sanitized[:2]
     }
 
+    // Final directory uses sanitized DID for cross-platform safety
     return filepath.Join(m.cacheDir, prefix, sanitized), nil
 }
 

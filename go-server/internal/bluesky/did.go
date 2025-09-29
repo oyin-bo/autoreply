@@ -261,6 +261,7 @@ func (r *DIDResolver) resolveViaXRPC(ctx context.Context, handle string) (string
 
 // IsValidDID validates DID format
 func IsValidDID(did string) bool {
+    // Accept common DID methods we support: did:plc and did:web
     return didPLCRegex.MatchString(did) || didWebRegex.MatchString(did)
 }
 

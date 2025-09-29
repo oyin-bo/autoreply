@@ -61,15 +61,15 @@ func TestGetCachePath(t *testing.T) {
 				t.Errorf("Unexpected error: %v", err)
 				return
 			}
-			
 			if path == "" {
 				t.Error("Cache path is empty")
 			}
 			
-			// Should contain two-letter prefix and full DID
-			if tt.did != "" && filepath.Base(path) != tt.did {
-				t.Errorf("Cache path should end with DID %s, got %s", tt.did, path)
-			}
+			// Should end with the sanitized DID (cross-platform safe)
+            expectedBase := sanitizeDID(tt.did)
+            if tt.did != "" && filepath.Base(path) != expectedBase {
+                t.Errorf("Cache path should end with sanitized DID %s, got %s", expectedBase, path)
+            }
 		})
 	}
 }
