@@ -10,11 +10,13 @@ use reqwest::Client;
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use tracing::{debug, info, warn};
+use crate::bluesky::did::DidResolver;
 
 /// Repository fetcher and CAR processor
 pub struct CarProcessor {
     client: Client,
     cache: CacheManager,
+    did_resolver: DidResolver,
 }
 
 impl CarProcessor {
@@ -27,7 +29,9 @@ impl CarProcessor {
 
         let cache = CacheManager::new()?;
 
-        Ok(Self { client, cache })
+        let did_resolver = DidResolver::new();
+
+        Ok(Self { client, cache, did_resolver })
     }
 
     /// Fetch repository for DID, using cache if valid
@@ -39,10 +43,26 @@ impl CarProcessor {
         }
 
         info!("Fetching CAR file for DID: {}", did);
-        
-        // Download from primary endpoint as specified
-        let url = format!("https://bsky.social/xrpc/com.atproto.sync.getRepo?did={}", did);
-        
+
+        // Discover PDS endpoint for this DID. Prefer discovered endpoint; fall back to bsky.social
+        let mut base = "https://bsky.social".to_string();
+        match self.did_resolver.discover_pds(did).await {
+            Ok(Some(pds)) => {
+                base = pds;
+            }
+            Ok(None) => {
+                warn!("No PDS discovered for {}, falling back to bsky.social", did);
+            }
+            Err(e) => {
+                warn!("Error discovering PDS for {}: {}. Falling back to bsky.social", did, e);
+            }
+        }
+
+        // Compose CAR fetch URL using discovered or fallback base
+        let url = format!("{}/xrpc/com.atproto.sync.getRepo?did={}", base.trim_end_matches('/'), did);
+
+        debug!("Fetching repo from URL: {}", url);
+
         let response = self.client.get(&url).send().await?;
         
         if !response.status().is_success() {

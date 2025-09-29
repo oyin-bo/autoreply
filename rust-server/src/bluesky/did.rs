@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
+use serde_json::Value;
 
 /// DID resolution response from XRPC
 #[derive(Debug, Deserialize)]
@@ -37,6 +38,54 @@ impl DidResolver {
             cache: Mutex::new(HashMap::new()),
             cache_ttl: Duration::from_secs(3600), // 1 hour cache
         }
+    }
+
+    /// Discover the PDS endpoint for a DID by inspecting the PLC audit log
+    /// Returns Ok(Some(pds_base_url)) on success, Ok(None) if not found, or Err on network/parse errors
+    pub async fn discover_pds(&self, did: &str) -> Result<Option<String>, AppError> {
+        // Simple validation
+        if !did.starts_with("did:plc:") {
+            return Ok(None);
+        }
+
+        // PLC audit log URL (public directory)
+        let url = format!("https://plc.directory/{}/log/audit", did);
+        debug!("Querying PLC audit log for DID {}: {}", did, url);
+
+        let resp = self.client.get(&url).send().await?;
+        if !resp.status().is_success() {
+            warn!("PLC audit log HTTP {} for {}", resp.status(), did);
+            return Ok(None);
+        }
+
+        let text = resp.text().await?;
+        let v: Value = serde_json::from_str(&text)?;
+
+        // The audit log is typically an array of entries; iterate in reverse to find the most recent PDS endpoint
+        if let Some(entries) = v.as_array() {
+            for entry in entries.iter().rev() {
+                if let Some(op) = entry.get("operation") {
+                    if let Some(services) = op.get("services") {
+                        if let Some(atp) = services.get("atproto_pds") {
+                            if let Some(endpoint) = atp.get("endpoint") {
+                                if let Some(endpoint_str) = endpoint.as_str() {
+                                    // Ensure scheme
+                                    let pds = if endpoint_str.starts_with("http") {
+                                        endpoint_str.to_string()
+                                    } else {
+                                        format!("https://{}", endpoint_str)
+                                    };
+                                    debug!("Discovered PDS for {}: {}", did, pds);
+                                    return Ok(Some(pds));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Resolve handle to DID
