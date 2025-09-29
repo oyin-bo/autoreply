@@ -5,6 +5,15 @@ edition = "2021"
 description = "autoreply: Model Context Protocol server for Bluesky profile and post search functionality"
 authors = ["Oleg Mihailik"]
 license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/yourusername/autoreply"
+repository = "https://github.com/yourusername/autoreply"
+keywords = ["mcp", "bluesky", "atproto", "server"]
+categories = ["command-line-utilities", "web-programming"]
+
+[[bin]]
+name = "autoreply"
+path = "src/main.rs"
 
 [dependencies]
 # Required Crates as specified in docs/7.1-rust.md

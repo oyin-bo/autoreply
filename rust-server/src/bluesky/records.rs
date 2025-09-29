@@ -275,3 +275,319 @@ fn highlight_text(text: &str, query: &str) -> String {
     
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_profile() -> ProfileRecord {
+        ProfileRecord {
+            display_name: Some("Test User".to_string()),
+            description: Some("A test user profile\nwith multiline description".to_string()),
+            avatar: Some("https://example.com/avatar.jpg".to_string()),
+            banner: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    fn create_test_post() -> PostRecord {
+        PostRecord {
+            uri: "at://did:plc:test/app.bsky.feed.post/123".to_string(),
+            cid: "bafy123test".to_string(),
+            text: "Hello world! Check out this link: https://example.com".to_string(),
+            created_at: "2024-01-01T12:00:00Z".to_string(),
+            embeds: vec![],
+            facets: vec![],
+        }
+    }
+
+    #[test]
+    fn test_profile_record_to_markdown() {
+        let profile = create_test_profile();
+        let markdown = profile.to_markdown("alice.bsky.social", "did:plc:test123");
+        
+        assert!(markdown.contains("# @alice.bsky.social (did:plc:test123)"));
+        assert!(markdown.contains("**Display Name:** Test User"));
+        assert!(markdown.contains("**Description:**"));
+        assert!(markdown.contains("A test user profile"));
+        assert!(markdown.contains("**Avatar:** ![Avatar](https://example.com/avatar.jpg)"));
+        assert!(markdown.contains("**Stats:**"));
+        assert!(markdown.contains("- Created: 2024-01-01T00:00:00Z"));
+        assert!(markdown.contains("Raw Profile Data"));
+    }
+
+    #[test]
+    fn test_profile_record_to_markdown_minimal() {
+        let minimal_profile = ProfileRecord {
+            display_name: None,
+            description: None,
+            avatar: None,
+            banner: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        
+        let markdown = minimal_profile.to_markdown("minimal.bsky.social", "did:plc:minimal");
+        
+        assert!(markdown.contains("# @minimal.bsky.social (did:plc:minimal)"));
+        assert!(!markdown.contains("**Display Name:**"));
+        assert!(!markdown.contains("**Description:**"));
+        assert!(!markdown.contains("**Avatar:**"));
+        assert!(markdown.contains("**Stats:**"));
+        assert!(markdown.contains("- Created: 2024-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_post_record_get_searchable_text_basic() {
+        let post = create_test_post();
+        let searchable = post.get_searchable_text();
+        
+        assert_eq!(searchable.len(), 1);
+        assert_eq!(searchable[0], "Hello world! Check out this link: https://example.com");
+    }
+
+    #[test]
+    fn test_post_record_get_searchable_text_with_embeds() {
+        let mut post = create_test_post();
+        
+        // Add external embed
+        post.embeds.push(Embed::External {
+            external: ExternalEmbed {
+                uri: "https://example.com/article".to_string(),
+                title: "Amazing Article".to_string(),
+                description: "This is a great article about Rust".to_string(),
+                thumb: None,
+            },
+        });
+        
+        // Add images embed
+        post.embeds.push(Embed::Images {
+            images: vec![
+                ImageEmbed {
+                    alt: Some("A beautiful sunset".to_string()),
+                    image: BlobRef {
+                        type_: "blob".to_string(),
+                        ref_: "bafy123".to_string(),
+                        mime_type: "image/jpeg".to_string(),
+                        size: 1024,
+                    },
+                },
+                ImageEmbed {
+                    alt: None,
+                    image: BlobRef {
+                        type_: "blob".to_string(),
+                        ref_: "bafy456".to_string(),
+                        mime_type: "image/png".to_string(),
+                        size: 2048,
+                    },
+                },
+            ],
+        });
+        
+        let searchable = post.get_searchable_text();
+        
+        assert_eq!(searchable.len(), 4);
+        assert!(searchable.contains(&"Hello world! Check out this link: https://example.com".to_string()));
+        assert!(searchable.contains(&"Amazing Article".to_string()));
+        assert!(searchable.contains(&"This is a great article about Rust".to_string()));
+        assert!(searchable.contains(&"A beautiful sunset".to_string()));
+    }
+
+    #[test]
+    fn test_post_record_get_searchable_text_with_facets() {
+        let mut post = create_test_post();
+        
+        // Add facets with links
+        post.facets.push(Facet {
+            index: FacetIndex {
+                byte_start: 35,
+                byte_end: 55,
+            },
+            features: vec![
+                FacetFeature::Link {
+                    uri: "https://example.com".to_string(),
+                },
+                FacetFeature::Tag {
+                    tag: "rust".to_string(),
+                },
+            ],
+        });
+        
+        let searchable = post.get_searchable_text();
+        
+        assert_eq!(searchable.len(), 2);
+        assert!(searchable.contains(&"Hello world! Check out this link: https://example.com".to_string()));
+        assert!(searchable.contains(&"https://example.com".to_string()));
+    }
+
+    #[test]
+    fn test_post_record_to_markdown() {
+        let post = create_test_post();
+        let markdown = post.to_markdown("alice.bsky.social", "hello");
+        
+        assert!(markdown.contains("**URI:** [at://did:plc:test/app.bsky.feed.post/123](https://bsky.app/profile/alice.bsky.social/post/123)"));
+        assert!(markdown.contains("**Created:** 2024-01-01T12:00:00Z"));
+        assert!(markdown.contains("**Hello** world!"));
+    }
+
+    #[test]
+    fn test_post_record_to_markdown_with_links() {
+        let mut post = create_test_post();
+        
+        // Add external embed
+        post.embeds.push(Embed::External {
+            external: ExternalEmbed {
+                uri: "https://example.com/article".to_string(),
+                title: "Great Article".to_string(),
+                description: "Amazing content".to_string(),
+                thumb: None,
+            },
+        });
+        
+        // Add facet link
+        post.facets.push(Facet {
+            index: FacetIndex { byte_start: 0, byte_end: 5 },
+            features: vec![FacetFeature::Link {
+                uri: "https://facet-link.com".to_string(),
+            }],
+        });
+        
+        let markdown = post.to_markdown("alice.bsky.social", "hello");
+        
+        assert!(markdown.contains("**Links:**"));
+        assert!(markdown.contains("- [Great Article](https://example.com/article)"));
+        assert!(markdown.contains("- https://facet-link.com"));
+    }
+
+    #[test]
+    fn test_post_record_to_markdown_with_images() {
+        let mut post = create_test_post();
+        
+        post.embeds.push(Embed::Images {
+            images: vec![
+                ImageEmbed {
+                    alt: Some("Sunset photo".to_string()),
+                    image: BlobRef {
+                        type_: "blob".to_string(),
+                        ref_: "bafy123".to_string(),
+                        mime_type: "image/jpeg".to_string(),
+                        size: 1024,
+                    },
+                },
+                ImageEmbed {
+                    alt: None,
+                    image: BlobRef {
+                        type_: "blob".to_string(),
+                        ref_: "bafy456".to_string(),
+                        mime_type: "image/png".to_string(),
+                        size: 2048,
+                    },
+                },
+            ],
+        });
+        
+        let markdown = post.to_markdown("alice.bsky.social", "hello");
+        
+        assert!(markdown.contains("**Images:**"));
+        assert!(markdown.contains("- Sunset photo"));
+        assert!(markdown.contains("- Image 2"));
+    }
+
+    #[test]
+    fn test_highlight_text_basic() {
+        let text = "Hello world, this is a test";
+        let result = highlight_text(text, "world");
+        assert_eq!(result, "Hello **world**, this is a test");
+    }
+
+    #[test]
+    fn test_highlight_text_case_insensitive() {
+        let text = "Hello World, this is a TEST";
+        let result = highlight_text(text, "world");
+        assert_eq!(result, "Hello **World**, this is a TEST");
+        
+        let result = highlight_text(text, "test");
+        assert_eq!(result, "Hello World, this is a **TEST**");
+    }
+
+    #[test]
+    fn test_highlight_text_multiple_matches() {
+        let text = "test test test";
+        let result = highlight_text(text, "test");
+        assert_eq!(result, "**test** **test** **test**");
+    }
+
+    #[test]
+    fn test_highlight_text_no_match() {
+        let text = "Hello world";
+        let result = highlight_text(text, "xyz");
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn test_highlight_text_empty_query() {
+        let text = "Hello world";
+        let result = highlight_text(text, "");
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn test_highlight_text_partial_word() {
+        let text = "programming";
+        let result = highlight_text(text, "gram");
+        assert_eq!(result, "pro**gram**ming");
+    }
+
+    #[test]
+    fn test_blob_ref_serialization() {
+        let blob = BlobRef {
+            type_: "blob".to_string(),
+            ref_: "bafy123456789".to_string(),
+            mime_type: "image/jpeg".to_string(),
+            size: 1024,
+        };
+        
+        let json = serde_json::to_string(&blob).unwrap();
+        assert!(json.contains("\"$type\":\"blob\""));
+        assert!(json.contains("\"ref\":\"bafy123456789\""));
+        assert!(json.contains("\"mimeType\":\"image/jpeg\""));
+        assert!(json.contains("\"size\":1024"));
+    }
+
+    #[test]
+    fn test_facet_feature_serialization() {
+        let link = FacetFeature::Link {
+            uri: "https://example.com".to_string(),
+        };
+        let mention = FacetFeature::Mention {
+            did: "did:plc:test123".to_string(),
+        };
+        let tag = FacetFeature::Tag {
+            tag: "rust".to_string(),
+        };
+        
+        let link_json = serde_json::to_string(&link).unwrap();
+        assert!(link_json.contains("\"$type\":\"app.bsky.richtext.facet#link\""));
+        
+        let mention_json = serde_json::to_string(&mention).unwrap();
+        assert!(mention_json.contains("\"$type\":\"app.bsky.richtext.facet#mention\""));
+        
+        let tag_json = serde_json::to_string(&tag).unwrap();
+        assert!(tag_json.contains("\"$type\":\"app.bsky.richtext.facet#tag\""));
+    }
+
+    #[test]
+    fn test_embed_serialization() {
+        let external = Embed::External {
+            external: ExternalEmbed {
+                uri: "https://example.com".to_string(),
+                title: "Test".to_string(),
+                description: "Test desc".to_string(),
+                thumb: None,
+            },
+        };
+        
+        let json = serde_json::to_string(&external).unwrap();
+        assert!(json.contains("\"$type\":\"app.bsky.embed.external\""));
+        assert!(json.contains("\"uri\":\"https://example.com\""));
+    }
+}
