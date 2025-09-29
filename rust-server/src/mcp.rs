@@ -5,13 +5,14 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tracing::{error, info, debug};
 
 /// MCP JSON-RPC 2.0 request structure
 #[derive(Debug, Deserialize)]
 pub struct McpRequest {
+    /// JSON-RPC version field - required by spec but not accessed in code
+    #[allow(dead_code)]
     pub jsonrpc: String,
     pub id: Option<Value>,
     pub method: String,

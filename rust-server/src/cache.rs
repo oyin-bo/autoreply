@@ -7,7 +7,7 @@ use anyhow::Result;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
@@ -168,7 +168,9 @@ impl CacheManager {
         Ok(car_data)
     }
 
-    /// Clean up expired cache entries
+    /// Remove CAR cache directories where (current_time - cached_at) > ttl_hours
+    /// In future to be called periodically by maintenance tasks or CLI commands to prevent disk bloat
+    #[allow(dead_code)]
     pub fn cleanup_expired(&self) -> Result<(), AppError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

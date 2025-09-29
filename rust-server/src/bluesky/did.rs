@@ -327,7 +327,9 @@ impl DidResolver {
         Ok(did)
     }
 
-    /// Clear expired cache entries
+    /// Remove in-memory DID resolution cache entries older than cache_ttl
+    /// In future to be called periodically to prevent memory bloat from long-running processes
+    #[allow(dead_code)]
     pub async fn cleanup_cache(&self) {
         let mut cache = self.cache.lock().await;
         let now = Instant::now();
@@ -340,35 +342,4 @@ impl Default for DidResolver {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Validate DID format
-pub fn is_valid_did(did: &str) -> bool {
-    did.starts_with("did:plc:") 
-        && did.len() == 32 
-        && did[8..].chars().all(|c| c.is_ascii_alphanumeric())
-}
-
-/// Validate handle format
-pub fn is_valid_handle(handle: &str) -> bool {
-    let clean_handle = handle.strip_prefix('@').unwrap_or(handle);
-    
-    // Must contain at least one dot
-    if !clean_handle.contains('.') {
-        return false;
-    }
-
-    // Split into parts and validate
-    let parts: Vec<&str> = clean_handle.split('.').collect();
-    if parts.len() < 2 {
-        return false;
-    }
-
-    // Each part must not be empty and contain valid characters
-    parts.iter().all(|part| {
-        !part.is_empty() 
-            && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-            && !part.starts_with('-')
-            && !part.ends_with('-')
-    })
 }

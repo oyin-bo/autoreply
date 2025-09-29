@@ -16,7 +16,6 @@ use std::collections::BTreeMap;
 use libipld::cid::Cid;
 use libipld::multihash::Multihash;
 use serde::Deserialize;
-use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 
 /// Repository fetcher and CAR processor
@@ -29,7 +28,7 @@ pub struct CarProcessor {
 /// Read CID at the current index in block and return string, advancing idx
 fn read_cid_string(block: &[u8], idx: &mut usize) -> Option<String> {
     let mut i = *idx;
-    let ver = read_uvarint(block, &mut i)?;
+    let _ver = read_uvarint(block, &mut i)?;
     let codec = read_uvarint(block, &mut i)?;
     let mh_code = read_uvarint(block, &mut i)?;
     let dlen = read_uvarint(block, &mut i)? as usize;
@@ -437,10 +436,6 @@ impl CarProcessor {
         Ok(map)
     }
 
-    /// Clean up expired cache
-    pub async fn cleanup_cache(&self) -> Result<(), AppError> {
-        self.cache.cleanup_expired()
-    }
 }
 
 /// Read unsigned varint from data starting at idx, advancing idx
@@ -465,16 +460,6 @@ fn read_uvarint(data: &[u8], idx: &mut usize) -> Option<u64> {
     None
 }
 
-/// Compute length of first varint (helper for header handling)
-fn last_read_uvarint_len(data: &[u8], start: usize) -> Option<usize> {
-    let mut i = start;
-    while i < data.len() {
-        let b = data[i];
-        i += 1;
-        if b < 0x80 { return Some(i); }
-    }
-    None
-}
 
 /// Skip CID in block bytes by parsing CIDv1 structure; advances idx to start of block data
 fn skip_cid(block: &[u8], idx: &mut usize) -> Option<()> {
