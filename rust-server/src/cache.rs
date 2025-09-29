@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
 /// Cache metadata stored alongside CAR files
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheMetadata {
     pub did: String,
     pub etag: Option<String>,
@@ -279,5 +279,274 @@ impl CacheMetadata {
         self.last_modified = last_modified;
         self.content_length = content_length;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::SystemTime;
+    use tempfile::{tempdir, TempDir};
+
+    /// Helper to create a cache manager in a temporary directory
+    fn create_test_cache_manager() -> (CacheManager, TempDir) {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let cache_manager = CacheManager {
+            cache_dir: temp_dir.path().to_path_buf(),
+        };
+        (cache_manager, temp_dir)
+    }
+
+    #[test]
+    fn test_cache_metadata_new() {
+        let did = "did:plc:abc123def456".to_string();
+        let ttl_hours = 24;
+        
+        let metadata = CacheMetadata::new(did.clone(), ttl_hours);
+        
+        assert_eq!(metadata.did, did);
+        assert_eq!(metadata.ttl_hours, ttl_hours);
+        assert!(metadata.etag.is_none());
+        assert!(metadata.last_modified.is_none());
+        assert!(metadata.content_length.is_none());
+        assert!(metadata.cached_at > 0);
+    }
+
+    #[test]
+    fn test_cache_metadata_with_headers() {
+        let metadata = CacheMetadata::new("did:plc:test".to_string(), 24)
+            .with_headers(
+                Some("etag123".to_string()),
+                Some("Mon, 01 Jan 2024 00:00:00 GMT".to_string()),
+                Some(1024),
+            );
+        
+        assert_eq!(metadata.etag, Some("etag123".to_string()));
+        assert_eq!(metadata.last_modified, Some("Mon, 01 Jan 2024 00:00:00 GMT".to_string()));
+        assert_eq!(metadata.content_length, Some(1024));
+    }
+
+    #[test]
+    fn test_get_cache_path_plc() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:abc123def456789012345";
+        let path = cache_manager.get_cache_path(did).unwrap();
+        
+        // Should use first 2 characters after "did:plc:" for prefix, then full id for directory
+        let expected = cache_manager.cache_dir.join("ab").join("abc123def456789012345");
+        assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn test_get_cache_path_web() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:web:example.com:user:alice";
+        let path = cache_manager.get_cache_path(did).unwrap();
+        
+        // Should use first 2 alphanumeric characters from domain
+        let expected = cache_manager.cache_dir.join("ex").join("example.com:user:alice");
+        assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn test_get_cache_path_fallback() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        // Test with identifier that has fewer than 2 alphanumeric chars
+        let did = "x";
+        let path = cache_manager.get_cache_path(did).unwrap();
+        
+        let expected = cache_manager.cache_dir.join("xx").join("x");
+        assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn test_get_file_paths() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:abc123def456789012345";
+        let (car_path, metadata_path) = cache_manager.get_file_paths(did).unwrap();
+        
+        let cache_path = cache_manager.get_cache_path(did).unwrap();
+        assert_eq!(car_path, cache_path.join("repo.car"));
+        assert_eq!(metadata_path, cache_path.join("metadata.json"));
+    }
+
+    #[test]
+    fn test_store_and_read_car() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:abc123def456789012345";
+        let car_data = b"test_car_data";
+        let metadata = CacheMetadata::new(did.to_string(), 24)
+            .with_headers(Some("etag123".to_string()), None, Some(car_data.len() as u64));
+        
+        // Store the CAR file
+        cache_manager.store_car(did, car_data, metadata.clone()).unwrap();
+        
+        // Read it back
+        let read_data = cache_manager.read_car(did).unwrap();
+        assert_eq!(read_data, car_data);
+        
+        // Check metadata
+        let read_metadata = cache_manager.get_metadata(did).unwrap();
+        assert_eq!(read_metadata.did, metadata.did);
+        assert_eq!(read_metadata.etag, metadata.etag);
+        assert_eq!(read_metadata.ttl_hours, metadata.ttl_hours);
+    }
+
+    #[test]
+    fn test_read_nonexistent_car() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:nonexistent";
+        let result = cache_manager.read_car(did);
+        
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AppError::NotFound(_) => {} // Expected
+            _ => panic!("Expected NotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_get_nonexistent_metadata() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:nonexistent";
+        let result = cache_manager.get_metadata(did);
+        
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AppError::NotFound(_) => {} // Expected
+            _ => panic!("Expected NotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_is_cache_valid_fresh() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:abc123def456789012345";
+        let car_data = b"test_data";
+        let metadata = CacheMetadata::new(did.to_string(), 24);
+        
+        cache_manager.store_car(did, car_data, metadata).unwrap();
+        
+        // Should be valid with 24 hour TTL
+        assert!(cache_manager.is_cache_valid(did, 24));
+    }
+
+    #[test]
+    fn test_is_cache_valid_expired() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:abc123def456789012345";
+        let car_data = b"test_data";
+        
+        // Create metadata with old timestamp
+        let old_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() - 25 * 3600; // 25 hours ago
+            
+        let mut metadata = CacheMetadata::new(did.to_string(), 24);
+        metadata.cached_at = old_timestamp;
+        
+        cache_manager.store_car(did, car_data, metadata).unwrap();
+        
+        // Should be expired with 24 hour TTL
+        assert!(!cache_manager.is_cache_valid(did, 24));
+    }
+
+    #[test]
+    fn test_is_cache_valid_nonexistent() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:nonexistent";
+        
+        // Should be false for non-existent cache
+        assert!(!cache_manager.is_cache_valid(did, 24));
+    }
+
+    #[test]
+    fn test_atomic_write_behavior() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        let did = "did:plc:abc123def456789012345";
+        let car_data = b"test_data";
+        let metadata = CacheMetadata::new(did.to_string(), 24);
+        
+        let (car_path, metadata_path) = cache_manager.get_file_paths(did).unwrap();
+        let car_tmp_path = car_path.with_extension("car.tmp");
+        let metadata_tmp_path = metadata_path.with_extension("json.tmp");
+        
+        // Ensure temp files don't exist initially
+        assert!(!car_tmp_path.exists());
+        assert!(!metadata_tmp_path.exists());
+        
+        // Store the file
+        cache_manager.store_car(did, car_data, metadata).unwrap();
+        
+        // Final files should exist
+        assert!(car_path.exists());
+        assert!(metadata_path.exists());
+        
+        // Temp files should be cleaned up
+        assert!(!car_tmp_path.exists());
+        assert!(!metadata_tmp_path.exists());
+    }
+
+    #[test]
+    fn test_cleanup_expired() {
+        let (cache_manager, _temp_dir) = create_test_cache_manager();
+        
+        // Create a fresh cache entry
+        let fresh_did = "did:plc:fresh12345678901234567";
+        let fresh_metadata = CacheMetadata::new(fresh_did.to_string(), 24);
+        cache_manager.store_car(fresh_did, b"fresh_data", fresh_metadata).unwrap();
+        
+        // Create an expired cache entry
+        let expired_did = "did:plc:expired123456789012345";
+        let old_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() - 25 * 3600; // 25 hours ago
+            
+        let mut expired_metadata = CacheMetadata::new(expired_did.to_string(), 24);
+        expired_metadata.cached_at = old_timestamp;
+        cache_manager.store_car(expired_did, b"expired_data", expired_metadata).unwrap();
+        
+        // Verify both exist initially
+        assert!(cache_manager.read_car(fresh_did).is_ok());
+        assert!(cache_manager.read_car(expired_did).is_ok());
+        
+        // Run cleanup
+        cache_manager.cleanup_expired().unwrap();
+        
+        // Fresh should still exist, expired should be gone
+        assert!(cache_manager.read_car(fresh_did).is_ok());
+        assert!(cache_manager.read_car(expired_did).is_err());
+    }
+
+    #[test]
+    fn test_platform_specific_cache_dir() {
+        // Test that get_cache_dir returns a reasonable path
+        let cache_dir = get_cache_dir().unwrap();
+        assert!(!cache_dir.as_os_str().is_empty());
+        
+        // Should contain "autoreply" and "did" in the path
+        let path_str = cache_dir.to_string_lossy();
+        assert!(path_str.contains("autoreply"));
+        assert!(path_str.contains("did"));
+    }
+
+    #[test]
+    fn test_cache_manager_new() {
+        // This will create the cache manager using platform-specific directory
+        let result = CacheManager::new();
+        assert!(result.is_ok());
     }
 }

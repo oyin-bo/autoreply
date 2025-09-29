@@ -484,3 +484,275 @@ impl Default for CarProcessor {
         Self::new().expect("Failed to create CarProcessor")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use serde_cbor::Value as CborValue;
+
+    /// Create a minimal CAR file with header and one or more blocks for testing
+    fn create_test_car_data(blocks: Vec<(&str, &[u8])>) -> Vec<u8> {
+        let mut car_data = Vec::new();
+        
+        // CAR header: {"version": 1, "roots": ["bafy..."]} encoded as DAG-CBOR
+        let header = b"\x81\xa2gversion\x01erootsx\x81xIbafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+        
+        // Write header length as varint and header bytes
+        write_varint(&mut car_data, header.len() as u64);
+        car_data.extend_from_slice(header);
+        
+        // Write blocks
+        for (cid_hex, data) in blocks {
+            // Build a valid CIDv1 prefix: ver=1, codec=0x70 (dag-cbor), mh_code=0x12 (sha2-256), dlen=32
+            let mut cid_bytes = Vec::new();
+            write_varint(&mut cid_bytes, 1);
+            write_varint(&mut cid_bytes, 0x70);
+            write_varint(&mut cid_bytes, 0x12);
+            write_varint(&mut cid_bytes, 32);
+
+            // Use provided hex as digest when at least 32 bytes, otherwise zero-fill
+            let decoded = hex::decode(cid_hex).unwrap_or_default();
+            if decoded.len() >= 32 {
+                cid_bytes.extend_from_slice(&decoded[..32]);
+            } else {
+                let mut digest = [0u8; 32];
+                if !decoded.is_empty() {
+                    let n = decoded.len().min(32);
+                    digest[..n].copy_from_slice(&decoded[..n]);
+                }
+                cid_bytes.extend_from_slice(&digest);
+            }
+
+            // Assemble block: CID bytes + CBOR payload
+            let mut block_data = Vec::new();
+            block_data.extend_from_slice(&cid_bytes);
+            block_data.extend_from_slice(data);
+
+            // Write block length and block bytes
+            write_varint(&mut car_data, block_data.len() as u64);
+            car_data.extend_from_slice(&block_data);
+        }
+        
+        car_data
+    }
+    
+    fn write_varint(buf: &mut Vec<u8>, mut x: u64) {
+        while x >= 0x80 {
+            buf.push((x as u8) | 0x80);
+            x >>= 7;
+        }
+        buf.push(x as u8);
+    }
+
+    #[test]
+    fn test_read_uvarint() {
+        let data = [0x08, 0x96, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F];
+        let mut idx = 0;
+        
+        assert_eq!(read_uvarint(&data, &mut idx), Some(8));
+        assert_eq!(idx, 1);
+        
+        assert_eq!(read_uvarint(&data, &mut idx), Some(150));
+        assert_eq!(idx, 3);
+        
+        assert_eq!(read_uvarint(&data, &mut idx), Some(0xFFFFFFFF));
+        assert_eq!(idx, 8);
+        
+        // Test overflow - this should be rejected due to too many continuation bytes
+        let overflow_data = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let mut idx = 0;
+        assert_eq!(read_uvarint(&overflow_data, &mut idx), None);
+    }
+
+    #[test]
+    fn test_skip_cid() {
+        // Create a test CID: version(1) + codec(0x70) + multihash_code(0x12) + digest_len(32) + digest(32 bytes)
+        let mut test_data = Vec::new();
+        write_varint(&mut test_data, 1); // version
+        write_varint(&mut test_data, 0x70); // codec
+        write_varint(&mut test_data, 0x12); // multihash code
+        write_varint(&mut test_data, 32); // digest length
+        test_data.extend_from_slice(&[0u8; 32]); // 32-byte digest
+        test_data.extend_from_slice(b"payload_data");
+        
+        let mut idx = 0;
+        assert!(skip_cid(&test_data, &mut idx).is_some());
+        assert_eq!(&test_data[idx..], b"payload_data");
+    }
+
+    #[test]
+    fn test_cbor_get_text() {
+        let mut map = BTreeMap::new();
+        map.insert(CborValue::Text("key".to_string()), CborValue::Text("value".to_string()));
+        map.insert(CborValue::Text("number".to_string()), CborValue::Integer(42));
+        
+        assert_eq!(cbor_get_text(&map, "key"), Some("value".to_string()));
+        assert_eq!(cbor_get_text(&map, "number"), None);
+        assert_eq!(cbor_get_text(&map, "missing"), None);
+    }
+
+    #[test]
+    fn test_cbor_get_u64() {
+        let mut map = BTreeMap::new();
+        map.insert(CborValue::Text("positive".to_string()), CborValue::Integer(42));
+        map.insert(CborValue::Text("zero".to_string()), CborValue::Integer(0));
+        map.insert(CborValue::Text("negative".to_string()), CborValue::Integer(-1));
+        map.insert(CborValue::Text("text".to_string()), CborValue::Text("not_number".to_string()));
+        
+        assert_eq!(cbor_get_u64(&map, "positive"), Some(42));
+        assert_eq!(cbor_get_u64(&map, "zero"), Some(0));
+        assert_eq!(cbor_get_u64(&map, "negative"), None); // negative not convertible to u64
+        assert_eq!(cbor_get_u64(&map, "text"), None);
+        assert_eq!(cbor_get_u64(&map, "missing"), None);
+    }
+
+    #[test]
+    fn test_parse_embeds_external() {
+        let mut embed_map = BTreeMap::new();
+        embed_map.insert(CborValue::Text("$type".to_string()), CborValue::Text("app.bsky.embed.external".to_string()));
+        
+        let mut external_map = BTreeMap::new();
+        external_map.insert(CborValue::Text("uri".to_string()), CborValue::Text("https://example.com".to_string()));
+        external_map.insert(CborValue::Text("title".to_string()), CborValue::Text("Test Title".to_string()));
+        external_map.insert(CborValue::Text("description".to_string()), CborValue::Text("Test Description".to_string()));
+        embed_map.insert(CborValue::Text("external".to_string()), CborValue::Map(external_map));
+        
+        let mut root_map = BTreeMap::new();
+        root_map.insert(CborValue::Text("embed".to_string()), CborValue::Map(embed_map));
+        
+        let embeds = parse_embeds(&root_map);
+        assert_eq!(embeds.len(), 1);
+        
+        match &embeds[0] {
+            Embed::External { external } => {
+                assert_eq!(external.uri, "https://example.com");
+                assert_eq!(external.title, "Test Title");
+                assert_eq!(external.description, "Test Description");
+            }
+            _ => panic!("Expected External embed"),
+        }
+    }
+
+    #[test]
+    fn test_parse_facets_with_links() {
+        let mut facet_map = BTreeMap::new();
+        
+        // Create index
+        let mut index_map = BTreeMap::new();
+        index_map.insert(CborValue::Text("byteStart".to_string()), CborValue::Integer(0));
+        index_map.insert(CborValue::Text("byteEnd".to_string()), CborValue::Integer(10));
+        facet_map.insert(CborValue::Text("index".to_string()), CborValue::Map(index_map));
+        
+        // Create features with link
+        let mut feature_map = BTreeMap::new();
+        feature_map.insert(CborValue::Text("$type".to_string()), CborValue::Text("app.bsky.richtext.facet#link".to_string()));
+        feature_map.insert(CborValue::Text("uri".to_string()), CborValue::Text("https://example.com".to_string()));
+        
+        let features = vec![CborValue::Map(feature_map)];
+        facet_map.insert(CborValue::Text("features".to_string()), CborValue::Array(features));
+        
+        let facets_array = vec![CborValue::Map(facet_map)];
+        
+        let mut root_map = BTreeMap::new();
+        root_map.insert(CborValue::Text("facets".to_string()), CborValue::Array(facets_array));
+        
+        let facets = parse_facets(&root_map);
+        assert_eq!(facets.len(), 1);
+        
+        let facet = &facets[0];
+        assert_eq!(facet.index.byte_start, 0);
+        assert_eq!(facet.index.byte_end, 10);
+        assert_eq!(facet.features.len(), 1);
+        
+        match &facet.features[0] {
+            FacetFeature::Link { uri } => {
+                assert_eq!(uri, "https://example.com");
+            }
+            _ => panic!("Expected Link feature"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_car_processor_creation() {
+        let processor = CarProcessor::new();
+        assert!(processor.is_ok());
+    }
+
+    #[test]
+    fn test_find_posts_in_car_empty() {
+        let processor = CarProcessor::new().unwrap();
+        
+        // Create minimal CAR with just header, no blocks
+        let car_data = create_test_car_data(vec![]);
+        
+        let posts = processor.find_posts_in_car(&car_data).unwrap();
+        assert_eq!(posts.len(), 0);
+    }
+
+    #[test]
+    fn test_find_posts_in_car_with_post() {
+        let processor = CarProcessor::new().unwrap();
+        
+        // Create CBOR for a post record
+        let mut post_map = BTreeMap::new();
+        post_map.insert(CborValue::Text("$type".to_string()), CborValue::Text("app.bsky.feed.post".to_string()));
+        post_map.insert(CborValue::Text("text".to_string()), CborValue::Text("Hello world!".to_string()));
+        post_map.insert(CborValue::Text("createdAt".to_string()), CborValue::Text("2024-01-01T00:00:00Z".to_string()));
+        
+        let cbor_data = serde_cbor::to_vec(&CborValue::Map(post_map)).unwrap();
+        
+        // Create CAR with this block
+        let car_data = create_test_car_data(vec![
+            ("0170122012345678901234567890123456789012345678901234567890123456", &cbor_data)
+        ]);
+        
+        let posts = processor.find_posts_in_car(&car_data).unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].text, "Hello world!");
+        assert_eq!(posts[0].created_at, "2024-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_find_profile_in_car_with_profile() {
+        let processor = CarProcessor::new().unwrap();
+        
+        // Create CBOR for a profile record
+        let mut profile_map = BTreeMap::new();
+        profile_map.insert(CborValue::Text("$type".to_string()), CborValue::Text("app.bsky.actor.profile".to_string()));
+        profile_map.insert(CborValue::Text("displayName".to_string()), CborValue::Text("Test User".to_string()));
+        profile_map.insert(CborValue::Text("description".to_string()), CborValue::Text("Test bio".to_string()));
+        profile_map.insert(CborValue::Text("createdAt".to_string()), CborValue::Text("2024-01-01T00:00:00Z".to_string()));
+        
+        let cbor_data = serde_cbor::to_vec(&CborValue::Map(profile_map)).unwrap();
+        
+        let car_data = create_test_car_data(vec![
+            ("0170122012345678901234567890123456789012345678901234567890123456", &cbor_data)
+        ]);
+        
+        let profile = processor.find_profile_in_car(&car_data).unwrap();
+        assert!(profile.is_some());
+        
+        let profile = profile.unwrap();
+        assert_eq!(profile.display_name, Some("Test User".to_string()));
+        assert_eq!(profile.description, Some("Test bio".to_string()));
+        assert_eq!(profile.created_at, "2024-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn test_car_parse_malformed_data() {
+        let processor = CarProcessor::new().unwrap();
+        
+        // Test with completely invalid data
+        let result = processor.find_posts_in_car(&[0xFF, 0xFF, 0xFF]);
+        assert!(result.is_err());
+        
+        // Test with truncated header
+        let result = processor.find_posts_in_car(&[0x10]); // header length 16 but no data
+        assert!(result.is_err());
+        
+        // Test with empty data
+        let result = processor.find_posts_in_car(&[]);
+        assert!(result.is_err());
+    }
+}
