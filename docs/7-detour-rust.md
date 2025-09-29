@@ -104,6 +104,19 @@ This section lists concrete crates/repos, the OAuth primitives they implement fo
 - Go: **ipld/go-car (v2)** — production-ready, index support, blockstore API, examples. Strong choice for large CAR files and random access.
 - Rust: **rust-car /** related crates exist but less centralised; crates.io shows multiple 'atproto' and 'car' crates. Expect more polishing work than Go.
 
+PDS discovery note:
+The CAR file for a user's repository is served from that user's Personal Data Server (PDS). Any implementation must discover the PDS endpoint from the handle/DID before attempting to download CARs — do not assume a generic host. A concise pseudo-code example (inspecting the PLC audit log) is useful guidance:
+
+```js
+const plcLog = JSON.parse(await fetchRetryText(`https://plc.directory/${did}/log/audit`));
+const pds = plcLog
+	.slice()
+	.reverse()
+	.map(entry => entry.operation?.services?.atproto_pds?.endpoint)
+	.find(Boolean);
+// If `pds` is present, use it as the base for CAR fetches: `${pds}/xrpc/com.atproto.sync.getRepo?did=${did}`
+```
+
 ### Cap'n Proto
 - Rust: **capnproto-rust** — mature, codegen (capnpc), capnp-futures, capnp-rpc. Supports no_std and no-alloc, good for WASM targets.
 - Go: **go-capnp / go-capnp v3** — maintained, codegen + runtime, supports RPC level1. Good tooling and stable.
