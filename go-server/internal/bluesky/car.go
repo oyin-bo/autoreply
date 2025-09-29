@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 type CARProcessor struct {
 	client      *http.Client
 	cacheManager *cache.Manager
+	didResolver *DIDResolver
 }
 
 // NewCARProcessor creates a new CAR processor
@@ -28,6 +30,7 @@ func NewCARProcessor(cacheManager *cache.Manager) *CARProcessor {
 			Timeout: 60 * time.Second,
 		},
 		cacheManager: cacheManager,
+		didResolver:  NewDIDResolver(),
 	}
 }
 
@@ -38,8 +41,17 @@ func (p *CARProcessor) FetchRepository(ctx context.Context, did string) error {
 		return nil
 	}
 
-	// Build repository URL
-	repoURL := fmt.Sprintf("https://bsky.social/xrpc/com.atproto.sync.getRepo?did=%s", did)
+	// Resolve PDS endpoint for this DID
+	pdsEndpoint, err := p.didResolver.ResolvePDSEndpoint(ctx, did)
+	if err != nil {
+		return errors.Wrap(err, errors.DIDResolveFailed, "Failed to resolve PDS endpoint")
+	}
+
+	// Build repository URL using the PDS endpoint
+	repoURL := fmt.Sprintf("%s/xrpc/com.atproto.sync.getRepo?did=%s", pdsEndpoint, did)
+	
+	// Log the URL before fetching as requested
+	log.Printf("Fetching repository from PDS endpoint: %s", repoURL)
 
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "GET", repoURL, nil)

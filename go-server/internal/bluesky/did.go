@@ -33,6 +33,30 @@ type ResolveHandleResponse struct {
 	DID string `json:"did"`
 }
 
+// DIDDocumentResponse represents a DID document with service endpoints
+type DIDDocumentResponse struct {
+	Context            []string                 `json:"@context"`
+	ID                 string                   `json:"id"`
+	AlsoKnownAs        []string                 `json:"alsoKnownAs,omitempty"`
+	VerificationMethod []VerificationMethod     `json:"verificationMethod,omitempty"`
+	Service            []ServiceEndpoint        `json:"service,omitempty"`
+}
+
+// ServiceEndpoint represents a service endpoint in a DID document
+type ServiceEndpoint struct {
+	ID              string `json:"id"`
+	Type            string `json:"type"`
+	ServiceEndpoint string `json:"serviceEndpoint"`
+}
+
+// VerificationMethod represents a verification method in a DID document
+type VerificationMethod struct {
+	ID                 string `json:"id"`
+	Type               string `json:"type"`
+	Controller         string `json:"controller"`
+	PublicKeyMultibase string `json:"publicKeyMultibase"`
+}
+
 // DID format validation regex - DIDs are 32 characters total with did:plc: prefix (8 chars) + 24 base32 chars
 var didRegex = regexp.MustCompile(`^did:plc:[a-z2-7]{24}$`)
 
@@ -147,6 +171,61 @@ func (r *DIDResolver) resolveViaXRPC(ctx context.Context, handle, hostname strin
 // IsValidDID validates DID format
 func IsValidDID(did string) bool {
 	return didRegex.MatchString(did)
+}
+
+// ResolvePDSEndpoint resolves a DID to find its PDS endpoint
+func (r *DIDResolver) ResolvePDSEndpoint(ctx context.Context, did string) (string, error) {
+	// For did:plc DIDs, resolve via the directory service
+	if strings.HasPrefix(did, "did:plc:") {
+		return r.resolvePLCDID(ctx, did)
+	}
+	
+	// For other DID methods, try generic DID resolution
+	return "", errors.NewMCPError(errors.DIDResolveFailed, 
+		fmt.Sprintf("Unsupported DID method for PDS resolution: %s", did))
+}
+
+// resolvePLCDID resolves a did:plc DID to find its PDS endpoint
+func (r *DIDResolver) resolvePLCDID(ctx context.Context, did string) (string, error) {
+	// PLC directory service endpoint
+	plcURL := fmt.Sprintf("https://plc.directory/%s", did)
+	
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, "GET", plcURL, nil)
+	if err != nil {
+		return "", errors.Wrap(err, errors.InternalError, "Failed to create DID document request")
+	}
+
+	req.Header.Set("User-Agent", "bluesky-mcp-server/1.0")
+	req.Header.Set("Accept", "application/json")
+
+	// Make the request
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return "", errors.Wrap(err, errors.DIDResolveFailed, "Failed to resolve DID document")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.NewMCPError(errors.DIDResolveFailed, 
+			fmt.Sprintf("DID document resolution failed with status %d", resp.StatusCode))
+	}
+
+	// Parse response
+	var didDoc DIDDocumentResponse
+	if err := json.NewDecoder(resp.Body).Decode(&didDoc); err != nil {
+		return "", errors.Wrap(err, errors.DIDResolveFailed, "Failed to parse DID document")
+	}
+
+	// Find PDS endpoint from service endpoints
+	for _, service := range didDoc.Service {
+		if service.Type == "AtprotoPersonalDataServer" || service.ID == "#atproto_pds" {
+			return service.ServiceEndpoint, nil
+		}
+	}
+
+	return "", errors.NewMCPError(errors.DIDResolveFailed, 
+		"No PDS endpoint found in DID document")
 }
 
 // CleanupCache removes expired entries from the cache
