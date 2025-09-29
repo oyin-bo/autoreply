@@ -167,6 +167,15 @@ impl PostRecord {
             }
         }
 
+        // Add facet link URIs
+        for facet in &self.facets {
+            for feat in &facet.features {
+                if let FacetFeature::Link { uri } = feat {
+                    texts.push(uri.clone());
+                }
+            }
+        }
+
         texts
     }
 
@@ -190,26 +199,37 @@ impl PostRecord {
         markdown.push_str(&highlighted_text);
         markdown.push_str("\n\n");
 
-        // Add embeds
+        // Collect links from external embeds and facet link features
+        let mut link_lines: Vec<String> = Vec::new();
+        for embed in &self.embeds {
+            if let Embed::External { external } = embed {
+                link_lines.push(format!("- [{}]({})\n", external.title, external.uri));
+            }
+        }
+        for facet in &self.facets {
+            for feat in &facet.features {
+                if let FacetFeature::Link { uri } = feat {
+                    link_lines.push(format!("- {}\n", uri));
+                }
+            }
+        }
+        if !link_lines.is_empty() {
+            markdown.push_str("**Links:**\n");
+            for line in link_lines { markdown.push_str(&line); }
+            markdown.push_str("\n");
+        }
+
+        // Add images alt text (no URLs in scope)
         if !self.embeds.is_empty() {
             for embed in &self.embeds {
-                match embed {
-                    Embed::External { external } => {
-                        markdown.push_str("**Links:**\n");
-                        markdown.push_str(&format!("- [{}]({})\n", external.title, external.uri));
-                        markdown.push_str("\n");
+                if let Embed::Images { images } = embed {
+                    markdown.push_str("**Images:**\n");
+                    for (i, img) in images.iter().enumerate() {
+                        let default_alt = format!("Image {}", i + 1);
+                        let alt_text = img.alt.as_deref().unwrap_or(&default_alt);
+                        markdown.push_str(&format!("- {}\n", alt_text));
                     }
-                    Embed::Images { images } => {
-                        markdown.push_str("**Images:**\n");
-                        for (i, img) in images.iter().enumerate() {
-                            let default_alt = format!("Image {}", i + 1);
-                            let alt_text = img.alt.as_deref().unwrap_or(&default_alt);
-                            // For now, we can't resolve blob refs to URLs easily
-                            markdown.push_str(&format!("- {}\n", alt_text));
-                        }
-                        markdown.push_str("\n");
-                    }
-                    _ => {}
+                    markdown.push_str("\n");
                 }
             }
         }

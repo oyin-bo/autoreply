@@ -1,4 +1,4 @@
-# Rust Bluesky MCP Server
+# autoreply MCP Server (Rust)
 
 A Model Context Protocol (MCP) server implementation for Bluesky profile and post search functionality, written in Rust.
 
@@ -25,8 +25,8 @@ This server implements two MCP tools:
 - Text search with highlighting
 - Unicode normalization (NFKC)
 - Comprehensive input validation  
-- Cache management with TTL
 - Atomic file operations with locking
+ - System proxy support via environment variables (HTTP(S)_PROXY, NO_PROXY)
 
 ## Building
 
@@ -40,8 +40,35 @@ cargo build --release
 The server communicates via stdio using the MCP protocol:
 
 ```bash
-./target/release/bluesky-mcp-server
+./target/release/autoreply
 ```
+
+### Proxy support
+
+This server honors system proxy environment variables via reqwest’s system proxy detection:
+
+- HTTP_PROXY / http_proxy
+- HTTPS_PROXY / https_proxy
+- ALL_PROXY / all_proxy
+- NO_PROXY / no_proxy
+
+Examples:
+
+```bash
+# HTTPS over an HTTP proxy (CONNECT):
+export HTTPS_PROXY=http://application-proxy.blackrock.com:9443
+
+# Exclude local addresses or specific hosts:
+export NO_PROXY=localhost,127.0.0.1,::1
+
+# Run the server
+./target/release/autoreply
+```
+
+Notes:
+
+- Credentials (if required) may be provided in the proxy URL, e.g. http://user:pass@proxy.example.com:8080
+- TLS uses the OS trust store (native TLS). If your proxy performs TLS interception, ensure your corporate root CA is installed in the OS trust store.
 
 ### Example MCP Requests
 
@@ -58,44 +85,3 @@ The server communicates via stdio using the MCP protocol:
 **Search user's posts:**
 ```json
 {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search", "arguments": {"account": "alice.bsky.social", "query": "hello world"}}}
-```
-
-## Architecture
-
-The implementation follows the exact specifications in `docs/7.1-rust.md`:
-
-- **Two-tier cache structure**: `{cache_dir}/{2-letter-prefix}/{full-did}/`
-- **Timeout configuration**: 10s DID resolution, 60s CAR download, 120s total
-- **Error codes**: `invalid_input`, `did_resolve_failed`, `repo_fetch_failed`, etc.
-- **Platform-specific cache locations**: `~/.cache/bluesky-mcp` (Linux/macOS), `%LOCALAPPDATA%\bluesky-mcp` (Windows)
-
-## Testing
-
-Run the test script to verify functionality:
-
-```bash
-./test_mcp.sh
-```
-
-## Implementation Status
-
-This is a complete implementation of the Rust Bluesky MCP Server specification with working:
-- ✅ MCP protocol handling
-- ✅ DID resolution 
-- ✅ Cache management
-- ✅ Profile tool
-- ✅ Search tool
-- ✅ Error handling
-- ⚠️ CAR parsing (currently mock data - real CAR parsing requires production-ready library)
-
-## Dependencies
-
-Key Rust crates used:
-- `tokio` - Async runtime
-- `reqwest` - HTTP client
-- `serde_json` - JSON serialization
-- `serde_cbor` - CBOR parsing
-- `unicode-normalization` - Text normalization
-- `regex` - Text matching
-- `anyhow` - Error handling
-- `tracing` - Logging

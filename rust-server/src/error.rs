@@ -102,6 +102,16 @@ pub fn validate_account(account: &str) -> Result<(), AppError> {
         }
         return Ok(());
     }
+    if account.starts_with("did:web:") {
+        // Basic structural validation for did:web
+        // did:web:<host>[:<path segments separated by ':'>]
+        let rest = &account[8..];
+        if rest.is_empty() {
+            return Err(AppError::InvalidInput("Invalid did:web format".to_string()));
+        }
+        // Do not over-validate here; downstream resolution will attempt to fetch the DID document
+        return Ok(());
+    }
 
     // Check if it's a handle
     if !account.contains('.') {
