@@ -18,7 +18,7 @@ git clone https://github.com/oyin-bo/autoreply.git
 cd autoreply/go-server
 
 # Build the binary
-go build -o autoreply ./cmd/bluesky-mcp
+go build -o autoreply ./cmd/autoreply
 
 # Run the server
 ./autoreply
@@ -31,6 +31,7 @@ The server implements the JSON-RPC 2.0 protocol over stdio for MCP communication
 ### Available Tools
 
 #### profile
+
 Retrieve user profile information.
 
 ```json
@@ -48,13 +49,14 @@ Retrieve user profile information.
 ```
 
 #### search
+
 Search posts within a user's repository.
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 2,
-  "method": "tools/call", 
+  "method": "tools/call",
   "params": {
     "name": "search",
     "arguments": {
@@ -79,8 +81,9 @@ Configure via environment variables:
 ## Architecture
 
 ### Directory Structure
+
 ```
-cmd/bluesky-mcp/     # Main application entry point
+cmd/autoreply/     # Main application entry point
 internal/
 ├── mcp/             # MCP protocol implementation
 ├── bluesky/         # BlueSky API and CAR processing
@@ -91,6 +94,7 @@ pkg/errors/          # Error types and utilities
 ```
 
 ### Cache Structure
+
 ```
 {cache_dir}/
 ├── {2-letter-prefix-of-did-hash}/
@@ -116,7 +120,7 @@ go mod tidy
 go test ./...
 
 # Build for development
-go run ./cmd/bluesky-mcp
+go run ./cmd/autoreply
 ```
 
 ## License
