@@ -77,7 +77,7 @@ func (p *CARProcessor) ResolveURIsForCIDs(ctx context.Context, did string, neede
             if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
                 return
             }
-            for _, rec := range body.records {
+            for _, rec := range body.Records {
                 if _, ok := needed[rec.CID]; ok {
                     result[rec.CID] = rec.URI
                     delete(needed, rec.CID)

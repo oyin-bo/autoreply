@@ -218,12 +218,12 @@ func normalizeText(text string) string {
 
 // highlightMatches highlights search matches in text with bold markdown
 func (t *SearchTool) highlightMatches(text, query string) string {
-	if query == "" {
-{{ ... }}
-	}
+    if query == "" {
+        return text
+    }
 
-	normalizedText := normalizeText(text)
-	normalizedQuery := normalizeText(query)
+    normalizedText := normalizeText(text)
+    normalizedQuery := normalizeText(query)
 
 	// Simple substring highlighting - in a production implementation,
 	// you would want more sophisticated matching
