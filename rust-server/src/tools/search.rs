@@ -11,7 +11,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Search tool arguments
 #[derive(Debug, Deserialize)]
@@ -112,7 +112,7 @@ async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
     let cid_to_uri = car_processor.resolve_uris_for_cids(&did, &needed).await?;
 
     // Enrich matched posts with URIs
-    let mut enriched: Vec<PostRecord> = matching_posts
+    let enriched: Vec<PostRecord> = matching_posts
         .into_iter()
         .map(|p| {
             let mut pr = p.clone();

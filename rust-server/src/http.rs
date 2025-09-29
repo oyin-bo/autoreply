@@ -4,7 +4,6 @@
 
 use reqwest::{Client, Proxy};
 use std::time::Duration;
-use tracing::warn;
 use url::Url;
 
 /// Build a reqwest Client with the given timeout and honoring system proxy env vars
@@ -59,7 +58,7 @@ fn getenv_first(keys: &[&str]) -> Option<String> {
     None
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 enum NoProxyRule {
     Wildcard,
     Domain(String),   // matches suffix
@@ -72,13 +71,20 @@ fn parse_no_proxy(val: &str) -> Vec<NoProxyRule> {
         .filter(|s| !s.is_empty())
         .map(|token| {
             if token == "*" { return NoProxyRule::Wildcard; }
-            let t = token.trim_start_matches('.');
-            // If original started with a dot, treat as domain rule
+            
+            // If starts with dot, it's explicitly a domain suffix rule
             if token.starts_with('.') {
-                NoProxyRule::Domain(t.to_ascii_lowercase())
+                let domain = token.trim_start_matches('.').to_ascii_lowercase();
+                return NoProxyRule::Domain(domain);
+            }
+            
+            // Heuristic: if it looks like an IP or localhost, use exact matching
+            // Otherwise use domain suffix matching for better compatibility
+            let t = token.to_ascii_lowercase();
+            if t == "localhost" || t.parse::<std::net::IpAddr>().is_ok() {
+                NoProxyRule::Exact(t)
             } else {
-                // Treat both as exact and domain match (common behavior)
-                NoProxyRule::Domain(t.to_ascii_lowercase())
+                NoProxyRule::Domain(t)
             }
         })
         .collect()

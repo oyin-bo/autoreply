@@ -10,7 +10,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Profile tool arguments
 #[derive(Debug, Deserialize)]
