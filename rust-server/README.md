@@ -1,10 +1,15 @@
-# autoreply MCP Server (Rust)
+# autoreply MCP Server & CLI (Rust)
 
-A Model Context Protocol (MCP) server implementation for Bluesky profile and post search functionality, written in Rust.
+A dual-mode application for Bluesky profile and post search functionality, written in Rust.
 
 ## Overview
 
-This server implements two MCP tools:
+This application supports two operational modes:
+
+1. **MCP Server Mode** (default): Model Context Protocol server using stdio
+2. **CLI Mode**: Command-line utility for direct tool execution
+
+Both modes implement the same two tools:
 - `profile(account)` - Retrieve user profile information  
 - `search(account, query)` - Search posts within a user's repository
 
@@ -37,11 +42,32 @@ cargo build --release
 
 ## Usage
 
+### MCP Server Mode (Default)
+
 The server communicates via stdio using the MCP protocol:
 
 ```bash
 ./target/release/autoreply
 ```
+
+### CLI Mode
+
+When invoked with arguments, the binary operates as a command-line utility:
+
+```bash
+# Get profile information
+autoreply profile --account alice.bsky.social
+
+# Search posts
+autoreply search --account bob.bsky.social --query "rust programming" --limit 10
+
+# Get help
+autoreply --help
+autoreply profile --help
+autoreply search --help
+```
+
+For complete CLI usage documentation, see [CLI-USAGE.md](./CLI-USAGE.md).
 
 ### Proxy support
 

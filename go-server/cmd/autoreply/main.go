@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/oyin-bo/autoreply/go-server/internal/cli"
 	"github.com/oyin-bo/autoreply/go-server/internal/config"
 	"github.com/oyin-bo/autoreply/go-server/internal/mcp"
 	"github.com/oyin-bo/autoreply/go-server/internal/tools"
@@ -17,6 +18,58 @@ func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
 	
+	// Create tools
+	profileTool := tools.NewProfileTool()
+	searchTool := tools.NewSearchTool()
+
+	// Detect mode: CLI if args present, MCP server otherwise
+	if len(os.Args) > 1 {
+		// CLI Mode
+		runCLIMode(profileTool, searchTool)
+	} else {
+		// MCP Server Mode
+		runMCPMode(cfg, profileTool, searchTool)
+	}
+}
+
+// runCLIMode executes the tool in CLI mode
+func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
+	// Create registry
+	registry := cli.NewRegistry()
+
+	// Register profile tool
+	profileAdapter := cli.NewMCPToolAdapter(profileTool)
+	profileDef := &cli.ToolDefinition{
+		Name:        "profile",
+		Description: "Retrieve user profile information from Bluesky",
+		ArgsType:    &cli.ProfileArgs{},
+		Execute:     profileAdapter.Execute,
+	}
+	registry.RegisterTool(profileDef)
+
+	// Register search tool
+	searchAdapter := cli.NewMCPToolAdapter(searchTool)
+	searchDef := &cli.ToolDefinition{
+		Name:        "search",
+		Description: "Search posts within a user's repository",
+		ArgsType:    &cli.SearchArgs{},
+		Execute:     searchAdapter.Execute,
+	}
+	registry.RegisterTool(searchDef)
+
+	// Create and run CLI runner
+	runner := cli.NewRunner(registry)
+	runner.RegisterToolCommand(profileDef)
+	runner.RegisterToolCommand(searchDef)
+
+	ctx := context.Background()
+	if err := runner.Run(ctx, os.Args[1:]); err != nil {
+		os.Exit(1)
+	}
+}
+
+// runMCPMode starts the MCP server
+func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
 	// Create MCP server
 	server, err := mcp.NewServer()
 	if err != nil {
@@ -24,10 +77,7 @@ func main() {
 	}
 
 	// Register tools
-	profileTool := tools.NewProfileTool()
 	server.RegisterTool("profile", profileTool)
-
-	searchTool := tools.NewSearchTool()
 	server.RegisterTool("search", searchTool)
 
 	// Set up graceful shutdown

@@ -2,25 +2,17 @@
 //!
 //! Implements the `search(account, query)` MCP tool
 
-use crate::bluesky::car::CarProcessor;
 use crate::bluesky::did::DidResolver;
+use crate::bluesky::provider::RepositoryProvider;
 use crate::bluesky::records::PostRecord;
+use crate::cli::SearchArgs;
 use crate::error::{normalize_text, validate_account, validate_query, AppError};
 use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
-use serde::Deserialize;
+use atrium_api::app::bsky::feed::post::RecordData as PostRecordData;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
 use tracing::{debug, info};
-
-/// Search tool arguments
-#[derive(Debug, Deserialize)]
-struct SearchArgs {
-    account: String,
-    query: String,
-    #[serde(default)]
-    limit: Option<usize>,
-}
 
 /// Handle search tool call
 pub async fn handle_search(id: Option<Value>, args: Value) -> McpResponse {
@@ -39,6 +31,12 @@ async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
     let search_args: SearchArgs = serde_json::from_value(args)
         .map_err(|e| AppError::InvalidInput(format!("Invalid arguments: {}", e)))?;
 
+    // Execute using shared implementation
+    execute_search(search_args).await
+}
+
+/// Execute search tool (shared implementation for MCP and CLI)
+pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppError> {
     // Validate parameters
     validate_account(&search_args.account)?;
     validate_query(&search_args.query)?;
@@ -68,14 +66,36 @@ async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
 
     debug!("Resolved {} to DID: {}", search_args.account, did);
 
-    // Fetch and process repository
-    let car_processor = CarProcessor::new()?;
-    let car_data = car_processor.fetch_repo(&did).await?;
+    // Get repository
+    let provider = RepositoryProvider::new()?;
+    let repo = provider.get_repo(&did).await?;
+    debug!("Got repo for {}", did);
 
-    debug!("Fetched CAR data: {} bytes", car_data.len());
-
-    // Extract post records (parse-only)
-    let posts = car_processor.extract_posts(&car_data).await?;
+    // Extract and filter posts from the repo
+    let collection_prefix = "app.bsky.feed.post/";
+    let posts: Vec<PostRecord> = repo
+        .records()
+        .filter_map(|(key, record)| {
+            if !key.starts_with(collection_prefix) {
+                return None;
+            }
+            let rkey = &key[collection_prefix.len()..];
+            match serde_json::from_slice::<PostRecordData>(record.value()) {
+                Ok(post_data) => Some(PostRecord {
+                    uri: format!("at://{}/app.bsky.feed.post/{}", did, rkey),
+                    cid: record.cid().to_string(),
+                    text: post_data.text,
+                    created_at: post_data.created_at.as_ref().to_rfc3339(),
+                    embeds: Vec::new(), // Not extracting embeds for now
+                    facets: Vec::new(), // Not extracting facets for now
+                }),
+                Err(err) => {
+                    debug!("Failed to deserialize post record {}: {}", key, err);
+                    None
+                }
+            }
+        })
+        .collect();
 
     debug!("Extracted {} post records", posts.len());
 
@@ -102,24 +122,14 @@ async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
         search_args.query
     );
 
-    // Resolve URIs only for matched posts
-    use std::collections::HashSet;
-    let needed: HashSet<String> = matching_posts
-        .iter()
-        .filter(|p| !p.cid.is_empty())
-        .map(|p| p.cid.clone())
-        .collect();
-    let cid_to_uri = car_processor.resolve_uris_for_cids(&did, &needed).await?;
-
-    // Enrich matched posts with URIs
+    // Construct full URIs from DID + collection + rkey (already extracted from CAR)
     let enriched: Vec<PostRecord> = matching_posts
         .into_iter()
         .map(|p| {
             let mut pr = p.clone();
-            if pr.uri.is_empty() {
-                if let Some(u) = cid_to_uri.get(&pr.cid) {
-                    pr.uri = u.clone();
-                }
+            // URI format: at://{did}/app.bsky.feed.post/{rkey}
+            if !pr.uri.is_empty() && !pr.uri.starts_with("at://") {
+                pr.uri = format!("at://{}/app.bsky.feed.post/{}", did, pr.uri);
             }
             pr
         })

@@ -109,25 +109,8 @@ func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}) (*mc
         posts = posts[:limit]
     }
 
-    // Resolve URIs for posts that have a CID but missing URI
-    needed := map[string]struct{}{}
-    for _, p := range posts {
-        if p.PostRecord != nil && p.PostRecord.URI == "" && p.PostRecord.CID != "" {
-            needed[p.PostRecord.CID] = struct{}{}
-        }
-    }
-    if len(needed) > 0 {
-        cidToURI, err := t.carProcessor.ResolveURIsForCIDs(ctx, did, needed)
-        if err == nil {
-            for _, p := range posts {
-                if p.PostRecord != nil {
-                    if uri, ok := cidToURI[p.PostRecord.CID]; ok {
-                        p.PostRecord.URI = uri
-                    }
-                }
-            }
-        }
-    }
+    // URIs are now constructed directly from MST during search
+    // No HTTP requests needed!
 
     // Format results as markdown
     markdown := t.formatSearchResults(account, query, posts)
@@ -235,6 +218,36 @@ func (t *SearchTool) highlightMatches(text, query string) string {
 	return text
 }
 
+// atURIToBskyURL converts an AT URI to a Bluesky web URL
+// at://did:plc:abc/app.bsky.feed.post/xyz -> https://bsky.app/profile/handle/post/xyz
+func (t *SearchTool) atURIToBskyURL(atURI, handle string) string {
+	// Parse AT URI: at://{did}/{collection}/{rkey}
+	if !strings.HasPrefix(atURI, "at://") {
+		return atURI
+	}
+	
+	parts := strings.Split(strings.TrimPrefix(atURI, "at://"), "/")
+	if len(parts) < 3 {
+		return atURI
+	}
+	
+	// parts[0] = DID
+	// parts[1] = collection (e.g., app.bsky.feed.post)
+	// parts[2] = rkey
+	
+	// Use handle if available, otherwise use DID
+	profile := handle
+	if profile == "" {
+		profile = parts[0] // Use DID as fallback
+	} else {
+		profile = strings.TrimPrefix(profile, "@") // Remove @ if present
+	}
+	
+	rkey := parts[2]
+	
+	return fmt.Sprintf("https://bsky.app/profile/%s/post/%s", profile, rkey)
+}
+
 // formatSearchResults formats search results as markdown
 func (t *SearchTool) formatSearchResults(handle, query string, posts []*bluesky.ParsedPost) string {
 	var sb strings.Builder
@@ -255,7 +268,10 @@ func (t *SearchTool) formatSearchResults(handle, query string, posts []*bluesky.
 		sb.WriteString(fmt.Sprintf("## Post %d\n", i+1))
 		
 		if post.URI != "" {
-			sb.WriteString(fmt.Sprintf("**URI:** %s\n", post.URI))
+			// Convert AT URI to Bluesky web URL
+			// at://did:plc:abc/app.bsky.feed.post/xyz -> https://bsky.app/profile/did:plc:abc/post/xyz
+			webURL := t.atURIToBskyURL(post.URI, handle)
+			sb.WriteString(fmt.Sprintf("**Link:** %s\n", webURL))
 		}
 		
 		if post.CreatedAt != "" {
