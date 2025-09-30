@@ -5,15 +5,21 @@
 - `RepositoryProvider` (defined in `src/bluesky/provider.rs`) owns all responsibilities previously split across the cache manager and other car parsing code.
 
 ## Responsibilities
-1. **Tool layer**
-	- Inject or construct a `RepositoryProvider`.
-	- Call `get_repo(did)` to obtain a parsed `atrium_repo::Repository` value.
-	- Iterate/filter records as needed; determining which collections matter is entirely tool-specific.
+### Tool layer
+- Inject or construct a `RepositoryProvider`.
+- Call `get_repo(did)` to obtain a parsed `atrium_repo::Repository` value.
+- Iterate/filter records as needed; determining which collections matter is entirely tool-specific.
 
-2. **Provider layer**
-	- Resolve the DID via `DidResolver` to determine the correct PDS endpoint when necessary.
-	- Use `CacheManager` to check for an existing CAR, download if missing/stale, and persist both bytes and metadata.
-	- Parse the CAR synchronously (e.g. within `spawn_blocking` if invoked from async) into an `atrium_repo::Repository` and hand it back to the caller.
+### Provider layer
+- If handle (not a DID) is provided, resolve it to DID via HTTP call.
+- Check CAR for that DID exists locally and if so, parse CAR and return `Repo`.
+- Resolve the DID via `DidResolver` to the correct PDS endpoint.
+- Download CAR.
+- Store CAR in local cache, atomically.
+- After async IO completes, parse the CAR synchronously using atrium-repo:
+    - Call *atrium_repo::car::**CarRepoReader::new**(std::fs::File).read_repo()* directly.
+    - The provider MUST NOT call `spawn_blocking` to offload parsing — callers invoke `get_repo` and use results.
+
 
 3. **IO separation**
 	- Network fetches and disk IO remain async to avoid blocking the runtime.
