@@ -12,24 +12,31 @@
 
 ### Provider layer
 - If handle (not a DID) is provided, resolve it to DID via HTTP call.
-- Check CAR for that DID exists locally and if so, parse CAR and return `Repo`.
 - Resolve the DID via `DidResolver` to the correct PDS endpoint.
-- Download CAR.
-- Store CAR in local cache, atomically.
+- Download CAR by streaming the HTTP response directly into a temporary file placed in the same directory where the final cache file will live.
+    - The temp file must use a randomized suffix (for example pid+timestamp or random bytes) so concurrent writes cannot collide.
+    - The implementation must stream bytes straight to disk as they arrive (do not buffer the full CAR in memory).
+    - After the stream completes the temp file must be flushed and fsynced, then atomically renamed into the final cache path (atomic rename in the same directory).
+    - There must be NO collection or use of cache metadata, ETags, Last-Modified, content-length checks, timeouts, or size limits in this flow; the provider performs a straightforward network->file transfer.
 - After async IO completes, parse the CAR synchronously using atrium-repo:
-    - Call *atrium_repo::car::**CarRepoReader::new**(std::fs::File).read_repo()* directly.
-    - The provider MUST NOT call `spawn_blocking` to offload parsing — callers invoke `get_repo` and use results.
+    - Call `atrium_repo::car::CarRepoReader::new(std::fs::File).read_repo()` directly on the file you just wrote.
+    - The provider MUST NOT call `spawn_blocking` to offload parsing — callers invoke `get_repo` and use the returned repo directly.
 
 
 3. **IO separation**
-	- Network fetches and disk IO remain async to avoid blocking the runtime.
-	- Parsing of the CAR into a `Repo` uses the synchronous atrium-repo APIs, isolated from the async path.
+    - Network fetches remain async and are streamed directly to disk to avoid buffering large CARs in memory.
+    - Parsing of the CAR into a `Repo` uses the synchronous atrium-repo APIs and is performed after the file is fully written and atomically placed in the cache directory.
 
 ## Provider method shape
 
-  ```rust
-  pub async fn get_repo(&self, did: &str) -> Result<atrium_repo::repo::Repo, AppError>
-  ```
+```rust
+// Return the concrete repository type produced by the CAR reader: a
+// Repository parameterised over a file-backed CarStore.
+pub async fn get_repo(
+        &self,
+        did: &str,
+) -> Result<atrium_repo::Repository<atrium_repo::blockstore::CarStore<std::fs::File>>, AppError>
+```
 
 ## Expected flow
 ```
@@ -49,15 +56,16 @@ tool -> RepositoryProvider::get_repo(did)
 Pseudocode for parsing the repository and reading records:
 
 ```rust
-use atrium_repo::{car::CarRepoReader, repo::Repo};
+use atrium_repo::{car::CarRepoReader, Repository, blockstore::CarStore};
 use std::fs::File;
 
 fn main() {
     // Open the CAR file
     let file = File::open("repo.car").unwrap();
 
-    // Parse the repo from CAR
-    let repo: Repo = CarRepoReader::new(file).unwrap().read_repo().unwrap();
+    // Parse the repo from CAR. The reader produces a Repository whose blockstore
+    // is a file-backed CarStore; express the concrete returned type explicitly.
+    let repo: Repository<CarStore<File>> = CarRepoReader::new(file).unwrap().read_repo().unwrap();
 
     // Iterate over records
     for (key, record) in repo.records() {
