@@ -17,24 +17,44 @@ path = "src/main.rs"
 
 [dependencies]
 # Required Crates as specified in docs/7.1-rust.md
+atrium-api = "0.24"
+atrium-xrpc-client = "0.5"
+atrium-repo = "0.1"
+
+# Core dependencies
 tokio = { version = "1.0", features = ["full"] }
-# Use native TLS to rely on OS trust store (corporate CAs, OS updates)
-reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "system-proxy", "native-tls"] }
+reqwest = { version = "0.12", features = ["stream", "native-tls", "json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_cbor = "0.11"
+anyhow = "1.0"
+
+# IPLD and CAR parsing
+tokio-stream = "0.1"
+futures = "0.3"
+rs-car-sync = "0.5"
+ipld-core = "0.4"
+serde_ipld_dagcbor = "0.6"
+
+# Text processing
 unicode-normalization = "0.1"
 regex = "1.10"
-anyhow = "1.0"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-url = "2"
-
-# Alternative to ipld-core and ipld-car - using more basic approach
-libipld = "0.16"
-tokio-stream = "0.1"
-
-# Optional Crates
 aho-corasick = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+url = "2"
 fs2 = "0.4"
 dirs = "5.0"
+
+# CLI and Schema Unification
+clap = { version = "4.5", features = ["derive", "env", "unicode", "wrap_help"] }
+schemars = "0.8"
+
+# Additional dependencies
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3.23"

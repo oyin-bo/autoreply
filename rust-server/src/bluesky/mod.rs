@@ -1,5 +1,5 @@
 //! Bluesky/ATProto related functionality
 
 pub mod did;
-pub mod car;
+pub mod provider;
 pub mod records;

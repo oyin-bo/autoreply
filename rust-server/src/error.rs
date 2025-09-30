@@ -14,6 +14,8 @@ pub enum AppError {
     NotFound(String),
     Timeout(String),
     CacheError(String),
+    HttpClientInitialization(String),
+    NetworkError(String),
     Internal(String),
 }
 
@@ -27,6 +29,8 @@ impl fmt::Display for AppError {
             AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
             AppError::Timeout(msg) => write!(f, "Timeout: {}", msg),
             AppError::CacheError(msg) => write!(f, "Cache error: {}", msg),
+            AppError::HttpClientInitialization(msg) => write!(f, "HTTP client initialization failed: {}", msg),
+            AppError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             AppError::Internal(msg) => write!(f, "Internal error: {}", msg),
         }
     }
@@ -45,6 +49,8 @@ impl AppError {
             AppError::NotFound(_) => "not_found",
             AppError::Timeout(_) => "timeout",
             AppError::CacheError(_) => "cache_error",
+            AppError::HttpClientInitialization(_) => "http_client_initialization",
+            AppError::NetworkError(_) => "network_error",
             AppError::Internal(_) => "internal_error",
         }
     }
@@ -163,6 +169,8 @@ mod tests {
             (AppError::NotFound("not found".to_string()), "Not found: not found"),
             (AppError::Timeout("timeout error".to_string()), "Timeout: timeout error"),
             (AppError::CacheError("cache error".to_string()), "Cache error: cache error"),
+            (AppError::HttpClientInitialization("http client error".to_string()), "HTTP client initialization failed: http client error"),
+            (AppError::NetworkError("network error".to_string()), "Network error: network error"),
             (AppError::Internal("internal error".to_string()), "Internal error: internal error"),
         ];
 
@@ -181,6 +189,8 @@ mod tests {
             (AppError::NotFound("test".to_string()), "not_found"),
             (AppError::Timeout("test".to_string()), "timeout"),
             (AppError::CacheError("test".to_string()), "cache_error"),
+            (AppError::HttpClientInitialization("test".to_string()), "http_client_initialization"),
+            (AppError::NetworkError("test".to_string()), "network_error"),
             (AppError::Internal("test".to_string()), "internal_error"),
         ];
 

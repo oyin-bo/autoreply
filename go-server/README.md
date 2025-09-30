@@ -4,6 +4,7 @@ An autoreply Model Context Protocol (MCP) server for BlueSky profile and post se
 
 ## Features
 
+- **Dual-Mode Operation**: MCP server mode and CLI trial mode
 - **Profile Tool**: Retrieve user profile information from BlueSky
 - **Search Tool**: Search posts within a user's repository
 - **Two-tier Caching**: Efficient caching with DID-based directory structure
@@ -20,13 +21,44 @@ cd autoreply/go-server
 # Build the binary
 go build -o autoreply ./cmd/autoreply
 
-# Run the server
+# Run as MCP server (default)
 ./autoreply
+
+# Run as CLI tool
+./autoreply --help
 ```
 
 ## Usage
 
-The server implements the JSON-RPC 2.0 protocol over stdio for MCP communication.
+The binary operates in two modes:
+
+### 1. MCP Server Mode (Default)
+
+Run without arguments to start an MCP server that implements the JSON-RPC 2.0 protocol over stdio:
+
+```bash
+./autoreply
+```
+
+### 2. CLI Mode (Trial/Testing)
+
+Run with commands for direct tool execution:
+
+```bash
+# Get profile information
+./autoreply profile --account alice.bsky.social
+./autoreply profile -a alice.bsky.social
+
+# Search posts
+./autoreply search --account bob.bsky.social --query "rust programming" --limit 10
+./autoreply search -a bob.bsky.social -q "rust" -l 10
+
+# Get help
+./autoreply --help
+./autoreply profile --help
+```
+
+**See [CLI_MODE.md](./CLI_MODE.md) for detailed CLI usage documentation.**
 
 ### Available Tools
 
@@ -85,6 +117,7 @@ Configure via environment variables:
 ```
 cmd/autoreply/     # Main application entry point
 internal/
+├── cli/             # CLI mode implementation (args, registry, runner)
 ├── mcp/             # MCP protocol implementation
 ├── bluesky/         # BlueSky API and CAR processing
 ├── cache/           # Cache management with two-tier structure
@@ -106,7 +139,8 @@ pkg/errors/          # Error types and utilities
 ## Dependencies
 
 - `github.com/ipld/go-car/v2` - CAR file parsing
-- `github.com/fxamacker/cbor/v2` - CBOR encoding/decoding
+- `github.com/spf13/cobra` - CLI framework
+- `github.com/invopop/jsonschema` - JSON Schema generation
 - `golang.org/x/text` - Unicode normalization
 - `golang.org/x/sync` - Concurrency utilities
 

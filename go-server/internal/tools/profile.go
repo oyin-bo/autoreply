@@ -102,8 +102,11 @@ func (t *ProfileTool) Call(ctx context.Context, args map[string]interface{}) (*m
 func (t *ProfileTool) formatProfileMarkdown(handle, did string, profile *bluesky.ParsedProfile) string {
 	var sb strings.Builder
 
-	// Header
-	sb.WriteString(fmt.Sprintf("# @%s (%s)\n\n", strings.TrimPrefix(handle, "@"), did))
+	// Header with Bluesky web link
+	cleanHandle := strings.TrimPrefix(handle, "@")
+	profileURL := fmt.Sprintf("https://bsky.app/profile/%s", cleanHandle)
+	sb.WriteString(fmt.Sprintf("# [@%s](%s)\n\n", cleanHandle, profileURL))
+	sb.WriteString(fmt.Sprintf("**DID:** `%s`\n\n", did))
 
 	// Display name
 	if profile.DisplayName != nil && *profile.DisplayName != "" {

@@ -4,19 +4,13 @@
 
 use crate::bluesky::car::CarProcessor;
 use crate::bluesky::did::DidResolver;
+use crate::cli::ProfileArgs;
 use crate::error::{validate_account, AppError};
 use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
-use serde::Deserialize;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
 use tracing::{debug, info};
-
-/// Profile tool arguments
-#[derive(Debug, Deserialize)]
-struct ProfileArgs {
-    account: String,
-}
 
 /// Handle profile tool call
 pub async fn handle_profile(id: Option<Value>, args: Value) -> McpResponse {
@@ -35,6 +29,12 @@ async fn handle_profile_impl(args: Value) -> Result<ToolResult, AppError> {
     let profile_args: ProfileArgs = serde_json::from_value(args)
         .map_err(|e| AppError::InvalidInput(format!("Invalid arguments: {}", e)))?;
 
+    // Execute using shared implementation
+    execute_profile(profile_args).await
+}
+
+/// Execute profile tool (shared implementation for MCP and CLI)
+pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, AppError> {
     // Validate account parameter
     validate_account(&profile_args.account)?;
     

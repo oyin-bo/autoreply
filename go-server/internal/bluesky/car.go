@@ -130,13 +130,20 @@ func (p *CARProcessor) SearchPosts(did, query string) ([]*ParsedPost, error) {
         return nil, err
     }
 
+    // Extract CID to rkey mapping from CAR file's MST structure using indigo
+    cidToRKey, err := ExtractCIDToRKeyMapping(carData, "app.bsky.feed.post")
+    if err != nil {
+        log.Printf("Warning: failed to extract rkey mappings: %v", err)
+        cidToRKey = make(map[string]string) // Continue with empty map
+    }
+
     reader := bytes.NewReader(carData)
     carReader, err := carv2.NewBlockReader(reader)
     if err != nil {
         return nil, errors.Wrap(err, errors.RepoParseFailed, "Failed to parse CAR file")
     }
 
-    posts, err := p.findMatchingPosts(carReader, did, query)
+    posts, err := p.findMatchingPosts(carReader, did, query, cidToRKey)
     if err != nil {
         return nil, err
     }
@@ -254,7 +261,7 @@ func (p *CARProcessor) findProfileRecord(carReader *carv2.BlockReader, did strin
 }
 
 // findMatchingPosts finds posts that match the search query
-func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, query string) ([]*ParsedPost, error) {
+func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, query string, cidToRKey map[string]string) ([]*ParsedPost, error) {
     var results []*ParsedPost
     normalizedQuery := strings.ToLower(query)
     for {
@@ -305,8 +312,18 @@ func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, quer
             continue
         }
 
+        cidStr := blk.Cid().String()
+        
+        // Construct URI from CID to rkey mapping
+        uri := ""
+        if rkey, ok := cidToRKey[cidStr]; ok {
+            // rkey from ForEach already includes collection prefix
+            uri = fmt.Sprintf("at://%s/%s", did, rkey)
+        }
+
         pr := &PostRecord{
-            CID:       blk.Cid().String(),
+            URI:       uri,
+            CID:       cidStr,
             Text:      text,
             CreatedAt: createdAt,
         }

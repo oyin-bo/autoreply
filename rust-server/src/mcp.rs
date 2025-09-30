@@ -198,42 +198,23 @@ async fn handle_initialize(request: McpRequest) -> McpResponse {
 
 /// Build the tools array returned from tools/list and initialize
 fn build_tools_array() -> serde_json::Value {
+    use crate::cli::{ProfileArgs, SearchArgs};
+    use schemars::schema_for;
+
+    // Generate JSON schemas from the CLI argument structs
+    let profile_schema = schema_for!(ProfileArgs);
+    let search_schema = schema_for!(SearchArgs);
+
     serde_json::json!([
         {
             "name": "profile",
             "description": "Retrieve user profile information",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "account": {
-                        "type": "string",
-                        "description": "Handle (alice.bsky.social) or DID (did:plc:...)"
-                    }
-                },
-                "required": ["account"]
-            }
+            "inputSchema": profile_schema
         },
         {
             "name": "search",
             "description": "Search posts within a user's repository",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "account": {
-                        "type": "string",
-                        "description": "Handle or DID"
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Search terms (case-insensitive)"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of results (default 50, max 200)"
-                    }
-                },
-                "required": ["account", "query"]
-            }
+            "inputSchema": search_schema
         }
     ])
 }

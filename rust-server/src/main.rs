@@ -1,7 +1,10 @@
-//! autoreply MCP Server (Rust)
+//! autoreply MCP Server & CLI (Rust)
 //!
-//! Model Context Protocol server for Bluesky profile and post search functionality.
-//! Implements two MCP tools:
+//! Dual-mode application:
+//! - MCP Server Mode (default): Model Context Protocol server using stdio
+//! - CLI Mode: Command-line utility for direct tool execution
+//!
+//! Implements two tools:
 //! - `profile(account)` - Retrieve user profile information
 //! - `search(account, query)` - Search posts within a user's repository
 
@@ -11,13 +14,128 @@ mod cache;
 mod bluesky;
 mod tools;
 mod http;
+mod cli;
 
 use anyhow::Result;
+use clap::Parser;
+use cli::{Cli, Commands};
 use tracing::info;
 use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Detect mode: CLI if args present, MCP server otherwise
+    let args: Vec<String> = std::env::args().collect();
+    
+    if args.len() > 1 {
+        // CLI mode - parse arguments and execute
+        run_cli_mode().await
+    } else {
+        // MCP server mode - default behavior
+        run_mcp_mode().await
+    }
+}
+
+/// Run in CLI mode
+async fn run_cli_mode() -> Result<()> {
+    let cli = Cli::parse();
+    
+    // Initialize logging based on verbosity flags
+    let log_level = if cli.quiet {
+        "error"
+    } else if cli.verbose {
+        "debug"
+    } else {
+        "info"
+    };
+    
+    tracing_subscriber::fmt()
+        .with_env_filter(log_level)
+        .with_writer(std::io::stderr) // Log to stderr to keep stdout clean
+        .init();
+
+    // Execute command
+    let result = match cli.command {
+        Some(Commands::Profile(args)) => {
+            execute_profile_cli(args).await
+        }
+        Some(Commands::Search(args)) => {
+            execute_search_cli(args).await
+        }
+        None => {
+            eprintln!("Error: No command specified. Use --help for usage information.");
+            std::process::exit(1);
+        }
+    };
+
+    // Handle result and exit with appropriate code
+    match result {
+        Ok(output) => {
+            println!("{}", output);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(get_exit_code(&e));
+        }
+    }
+}
+
+/// Execute profile command in CLI mode
+async fn execute_profile_cli(args: cli::ProfileArgs) -> Result<String> {
+    use tokio::time::{timeout, Duration};
+    
+    let result = timeout(Duration::from_secs(120), tools::profile::execute_profile(args)).await;
+    
+    match result {
+        Ok(Ok(tool_result)) => {
+            // Extract markdown text from ToolResult
+            Ok(tool_result.content.first()
+                .map(|c| c.text.clone())
+                .unwrap_or_default())
+        }
+        Ok(Err(e)) => Err(anyhow::anyhow!(e.message())),
+        Err(_) => Err(anyhow::anyhow!("Request exceeded 120 second timeout")),
+    }
+}
+
+/// Execute search command in CLI mode
+async fn execute_search_cli(args: cli::SearchArgs) -> Result<String> {
+    use tokio::time::{timeout, Duration};
+    
+    let result = timeout(Duration::from_secs(120), tools::search::execute_search(args)).await;
+    
+    match result {
+        Ok(Ok(tool_result)) => {
+            // Extract markdown text from ToolResult
+            Ok(tool_result.content.first()
+                .map(|c| c.text.clone())
+                .unwrap_or_default())
+        }
+        Ok(Err(e)) => Err(anyhow::anyhow!(e.message())),
+        Err(_) => Err(anyhow::anyhow!("Request exceeded 120 second timeout")),
+    }
+}
+
+/// Map AppError to exit code
+fn get_exit_code(err: &anyhow::Error) -> i32 {
+    let err_str = err.to_string().to_lowercase();
+    
+    if err_str.contains("invalid") || err_str.contains("usage") {
+        1 // Invalid arguments or usage error
+    } else if err_str.contains("network") || err_str.contains("connection") {
+        2 // Network or API error
+    } else if err_str.contains("not found") {
+        3 // Not found error
+    } else if err_str.contains("timeout") {
+        4 // Timeout error
+    } else {
+        5 // Other application errors
+    }
+}
+
+/// Run in MCP server mode
+async fn run_mcp_mode() -> Result<()> {
     // Initialize logging
     tracing_subscriber::fmt::init();
     
