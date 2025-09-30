@@ -19,6 +19,12 @@
 	- Network fetches and disk IO remain async to avoid blocking the runtime.
 	- Parsing of the CAR into a `Repo` uses the synchronous atrium-repo APIs, isolated from the async path.
 
+## Provider method shape
+
+  ```rust
+  pub async fn get_repo(&self, did: &str) -> Result<atrium_repo::repo::Repo, AppError>
+  ```
+
 ## Expected flow
 ```
 tool -> RepositoryProvider::get_repo(did)
@@ -31,3 +37,31 @@ tool -> RepositoryProvider::get_repo(did)
 - No tool performs CAR parsing or caching directly.
 - `CarProcessor` is fully superseded by `RepositoryProvider`.
 - Tools can iterate posts, profile records, or other collections without extra allocations; record selection logic lives alongside tool-specific filters/reporting.
+
+# REQUIREMENTS
+
+Pseudocode for parsing the repository and reading records:
+
+```rust
+use atrium_repo::{car::CarRepoReader, repo::Repo};
+use std::fs::File;
+
+fn main() {
+    // Open the CAR file
+    let file = File::open("repo.car").unwrap();
+
+    // Parse the repo from CAR
+    let repo: Repo = CarRepoReader::new(file).unwrap().read_repo().unwrap();
+
+    // Iterate over records
+    for (key, record) in repo.records() {
+        println!("Key: {key}");
+        println!("Record: {:?}", record);
+    }
+}
+```
+
+# LIMITATIONS
+
+* No spawn_blocking is allowed for parsing. Use the snippet above.
+* No wrappers or adapters allowed. Use atrium-repo types directly.
