@@ -29,3 +29,14 @@ type AccountsArgs struct {
 	Action string `json:"action,omitempty" jsonschema:"description=Action to perform: 'list' or 'set-default' (default: list)" short:"a" long:"action"`
 	Handle string `json:"handle,omitempty" jsonschema:"description=Handle for set-default action" short:"u" long:"handle"`
 }
+
+// OAuthLoginArgs defines arguments for the OAuth login tool
+type OAuthLoginArgs struct {
+	ClientID string `json:"client_id,omitempty" jsonschema:"description=OAuth client ID (optional uses default if not provided)" short:"c" long:"client-id"`
+	Port     int    `json:"port,omitempty" jsonschema:"description=Local callback server port (default: 8080)" short:"p" long:"port"`
+}
+
+// DeviceLoginArgs defines arguments for the device login tool
+type DeviceLoginArgs struct {
+	ClientID string `json:"client_id,omitempty" jsonschema:"description=OAuth client ID (optional uses default if not provided)" short:"c" long:"client-id"`
+}
