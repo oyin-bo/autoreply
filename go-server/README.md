@@ -5,7 +5,11 @@ An autoreply Model Context Protocol (MCP) server for BlueSky profile and post se
 ## Features
 
 - **Dual-Mode Operation**: MCP server mode and CLI trial mode
-- **Authentication**: Secure app password authentication with OS keychain integration
+- **Complete Authentication**: Three authentication methods:
+  - App password (simple)
+  - OAuth 2.0 with PKCE and DPoP (most secure)
+  - Device Authorization Grant (headless)
+- **Secure Credential Storage**: OS keychain integration with encrypted fallback
 - **Profile Tool**: Retrieve user profile information from BlueSky
 - **Search Tool**: Search posts within a user's repository
 - **Account Management**: Multi-account support with login/logout/accounts commands
@@ -47,8 +51,16 @@ Run without arguments to start an MCP server that implements the JSON-RPC 2.0 pr
 Run with commands for direct tool execution:
 
 ```bash
-# Authentication
+# Authentication - App Password (Simple)
 ./autoreply login --handle alice.bsky.social --password xxxx-xxxx-xxxx-xxxx
+
+# Authentication - OAuth (Most Secure)
+./autoreply oauth-login --port 8080
+
+# Authentication - Device (Headless)
+./autoreply device-login
+
+# Account Management
 ./autoreply accounts
 ./autoreply logout
 
