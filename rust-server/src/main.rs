@@ -129,7 +129,7 @@ async fn execute_search_cli(args: cli::SearchArgs) -> Result<String> {
 
 /// Execute login command in CLI mode
 async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
-    use auth::{Credentials, CredentialStorage, SessionManager};
+    use auth::{Credentials, CredentialStorage, SessionManager, OAuthManager, OAuthConfig};
     use std::io::{self, Write};
     
     let storage = CredentialStorage::new()?;
@@ -145,36 +145,79 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         input.trim().to_string()
     };
     
-    // Get password - prompt if not provided
-    let password = if let Some(p) = args.password {
-        p
-    } else {
-        // Use rpassword crate if available, otherwise just read from stdin
-        print!("App password: ");
-        io::stdout().flush()?;
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        input.trim().to_string()
-    };
-    
-    if handle.is_empty() || password.is_empty() {
-        return Err(anyhow::anyhow!("Handle and password are required"));
+    if handle.is_empty() {
+        return Err(anyhow::anyhow!("Handle is required"));
     }
     
-    // Create credentials
-    let credentials = if let Some(service) = args.service {
-        Credentials::with_service(&handle, &password, service)
+    // Determine authentication method
+    let session = if args.device {
+        // OAuth device flow
+        info!("Starting OAuth device flow...");
+        
+        let oauth_config = if let Some(service) = args.service {
+            OAuthConfig {
+                client_id: "autoreply-cli".to_string(),
+                redirect_uri: None,
+                service,
+            }
+        } else {
+            OAuthConfig::default()
+        };
+        
+        let oauth_manager = OAuthManager::new(oauth_config)?;
+        oauth_manager.device_flow_login(&handle).await?
+    } else if args.oauth {
+        // OAuth browser flow
+        info!("Starting OAuth browser flow...");
+        
+        let oauth_config = if let Some(service) = args.service {
+            OAuthConfig {
+                client_id: "autoreply-cli".to_string(),
+                redirect_uri: None,
+                service,
+            }
+        } else {
+            OAuthConfig::default()
+        };
+        
+        let oauth_manager = OAuthManager::new(oauth_config)?;
+        oauth_manager.browser_flow_login(&handle).await?
     } else {
-        Credentials::new(&handle, &password)
+        // App password authentication (default)
+        let password = if let Some(p) = args.password {
+            p
+        } else {
+            // Use rpassword crate if available, otherwise just read from stdin
+            print!("App password: ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            input.trim().to_string()
+        };
+        
+        if password.is_empty() {
+            return Err(anyhow::anyhow!("Password is required for app password authentication"));
+        }
+        
+        // Create credentials
+        let credentials = if let Some(service) = args.service {
+            Credentials::with_service(&handle, &password, service)
+        } else {
+            Credentials::new(&handle, &password)
+        };
+        
+        // Authenticate
+        info!("Authenticating with app password...");
+        let manager = SessionManager::new()?;
+        let session = manager.login(&credentials).await?;
+        
+        // Store credentials for app password method
+        storage.add_account(&handle, credentials)?;
+        
+        session
     };
     
-    // Authenticate
-    info!("Authenticating...");
-    let manager = SessionManager::new()?;
-    let session = manager.login(&credentials).await?;
-    
-    // Store credentials and session
-    storage.add_account(&handle, credentials)?;
+    // Store session
     storage.store_session(&handle, session.clone())?;
     
     // Set as default if it's the first account
@@ -183,10 +226,19 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         storage.set_default_account(&handle)?;
     }
     
+    let auth_method = if args.device {
+        "OAuth (device flow)"
+    } else if args.oauth {
+        "OAuth (browser)"
+    } else {
+        "app password"
+    };
+    
     Ok(format!(
-        "✓ Successfully authenticated as @{}\n  DID: {}\n  Using: {} storage",
+        "✓ Successfully authenticated as @{}\n  DID: {}\n  Method: {}\n  Storage: {}",
         session.handle,
         session.did,
+        auth_method,
         match storage.backend() {
             auth::StorageBackend::Keyring => "OS keyring",
             auth::StorageBackend::File => "file",

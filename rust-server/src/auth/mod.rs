@@ -2,6 +2,7 @@
 //!
 //! Provides authentication functionality including:
 //! - App password authentication via com.atproto.server.createSession
+//! - OAuth 2.0 with PKCE and DPoP (browser-based and device flows)
 //! - Credential storage with OS keyring and file fallback
 //! - Token refresh and lifecycle management
 //! - Multi-account support
@@ -9,10 +10,12 @@
 pub mod credentials;
 pub mod session;
 pub mod storage;
+pub mod oauth;
 
 pub use credentials::Credentials;
 pub use session::{Session, SessionManager};
 pub use storage::{CredentialStorage, StorageBackend};
+pub use oauth::{OAuthManager, OAuthConfig};
 
 use crate::error::AppError;
 
