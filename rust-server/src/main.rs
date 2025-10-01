@@ -15,6 +15,7 @@ mod tools;
 mod http;
 mod cli;
 mod car;
+mod auth;
 
 use anyhow::Result;
 use clap::Parser;
@@ -61,6 +62,15 @@ async fn run_cli_mode() -> Result<()> {
         }
         Some(Commands::Search(args)) => {
             execute_search_cli(args).await
+        }
+        Some(Commands::Login(args)) => {
+            execute_login_cli(args).await
+        }
+        Some(Commands::Logout(args)) => {
+            execute_logout_cli(args).await
+        }
+        Some(Commands::Accounts(args)) => {
+            execute_accounts_cli(args).await
         }
         None => {
             eprintln!("Error: No command specified. Use --help for usage information.");
@@ -114,6 +124,133 @@ async fn execute_search_cli(args: cli::SearchArgs) -> Result<String> {
         }
         Ok(Err(e)) => Err(anyhow::anyhow!(e.message())),
         Err(_) => Err(anyhow::anyhow!("Request exceeded 120 second timeout")),
+    }
+}
+
+/// Execute login command in CLI mode
+async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
+    use auth::{Credentials, CredentialStorage, SessionManager};
+    use std::io::{self, Write};
+    
+    let storage = CredentialStorage::new()?;
+    
+    // Get handle - prompt if not provided
+    let handle = if let Some(h) = args.handle {
+        h
+    } else {
+        print!("Handle (e.g., alice.bsky.social): ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        input.trim().to_string()
+    };
+    
+    // Get password - prompt if not provided
+    let password = if let Some(p) = args.password {
+        p
+    } else {
+        // Use rpassword crate if available, otherwise just read from stdin
+        print!("App password: ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        input.trim().to_string()
+    };
+    
+    if handle.is_empty() || password.is_empty() {
+        return Err(anyhow::anyhow!("Handle and password are required"));
+    }
+    
+    // Create credentials
+    let credentials = if let Some(service) = args.service {
+        Credentials::with_service(&handle, &password, service)
+    } else {
+        Credentials::new(&handle, &password)
+    };
+    
+    // Authenticate
+    info!("Authenticating...");
+    let manager = SessionManager::new()?;
+    let session = manager.login(&credentials).await?;
+    
+    // Store credentials and session
+    storage.add_account(&handle, credentials)?;
+    storage.store_session(&handle, session.clone())?;
+    
+    // Set as default if it's the first account
+    let accounts = storage.list_accounts()?;
+    if accounts.len() == 1 || storage.get_default_account()?.is_none() {
+        storage.set_default_account(&handle)?;
+    }
+    
+    Ok(format!(
+        "✓ Successfully authenticated as @{}\n  DID: {}\n  Using: {} storage",
+        session.handle,
+        session.did,
+        match storage.backend() {
+            auth::StorageBackend::Keyring => "OS keyring",
+            auth::StorageBackend::File => "file",
+        }
+    ))
+}
+
+/// Execute logout command in CLI mode
+async fn execute_logout_cli(args: cli::LogoutArgs) -> Result<String> {
+    use auth::CredentialStorage;
+    
+    let storage = CredentialStorage::new()?;
+    
+    // Determine which account to logout
+    let handle = if let Some(h) = args.handle {
+        h
+    } else {
+        // Use default account
+        storage.get_default_account()?
+            .ok_or_else(|| anyhow::anyhow!("No default account set. Specify --handle"))?
+    };
+    
+    // Remove credentials
+    storage.remove_account(&handle)?;
+    
+    Ok(format!("✓ Logged out from @{}", handle))
+}
+
+/// Execute accounts command in CLI mode
+async fn execute_accounts_cli(args: cli::AccountsArgs) -> Result<String> {
+    use auth::CredentialStorage;
+    
+    let storage = CredentialStorage::new()?;
+    
+    match args.command {
+        cli::AccountsCommands::List => {
+            let accounts = storage.list_accounts()?;
+            let default_account = storage.get_default_account()?;
+            
+            if accounts.is_empty() {
+                return Ok("No accounts stored. Use 'autoreply login' to add an account.".to_string());
+            }
+            
+            let mut output = format!("Authenticated accounts ({}):\n", accounts.len());
+            for account in accounts {
+                let marker = if Some(&account) == default_account.as_ref() {
+                    " (default)"
+                } else {
+                    ""
+                };
+                output.push_str(&format!("  • @{}{}\n", account, marker));
+            }
+            
+            Ok(output)
+        }
+        cli::AccountsCommands::Default { handle } => {
+            // Verify account exists
+            storage.get_credentials(&handle)?;
+            
+            // Set as default
+            storage.set_default_account(&handle)?;
+            
+            Ok(format!("✓ Set @{} as default account", handle))
+        }
     }
 }
 
