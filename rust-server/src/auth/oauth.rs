@@ -229,20 +229,276 @@ impl OAuthManager {
     /// 
     /// Opens browser for user to authorize, returns Session on success
     pub async fn browser_flow_login(&self, handle: &str) -> Result<Session, AppError> {
-        // For now, this is a placeholder that shows the concept
-        // Full implementation would:
-        // 1. Generate PKCE code verifier and challenge
-        // 2. Start local HTTP server for callback
-        // 3. Build authorization URL
-        // 4. Open browser
-        // 5. Wait for callback with authorization code
-        // 6. Exchange code for tokens
-        // 7. Create session
+        use tokio::sync::oneshot;
+        use std::net::TcpListener;
         
-        Err(AuthError::AuthenticationFailed(
-            "Browser-based OAuth flow is not yet fully implemented. Use --device for device flow or app passwords.".to_string()
-        ).into())
+        // Step 1: Generate PKCE code verifier and challenge
+        let (code_verifier, code_challenge) = generate_pkce_challenge()?;
+        let state = generate_random_state();
+        
+        // Step 2: Find available port and start callback server
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .map_err(|e| AppError::NetworkError(format!("Failed to bind local server: {}", e)))?;
+        let addr = listener.local_addr()
+            .map_err(|e| AppError::NetworkError(format!("Failed to get server address: {}", e)))?;
+        
+        let redirect_uri = format!("http://localhost:{}/callback", addr.port());
+        tracing::info!("Starting OAuth callback server on {}", redirect_uri);
+        
+        // Create channel for receiving authorization code
+        let (tx, rx) = oneshot::channel();
+        
+        // Step 3: Build authorization URL
+        let auth_url = build_authorization_url(
+            &self.config.service,
+            &self.config.client_id,
+            &redirect_uri,
+            &code_challenge,
+            &state,
+        )?;
+        
+        tracing::info!("Authorization URL: {}", auth_url);
+        
+        // Step 4: Start callback server in background
+        let server_handle = tokio::spawn(async move {
+            run_callback_server(listener, state.clone(), tx).await
+        });
+        
+        // Step 5: Open browser
+        if let Err(e) = webbrowser::open(&auth_url) {
+            tracing::warn!("Failed to open browser automatically: {}. Please visit the URL manually.", e);
+            eprintln!("\nPlease visit this URL in your browser:");
+            eprintln!("{}\n", auth_url);
+        } else {
+            tracing::info!("Opened browser for authorization");
+            eprintln!("\nBrowser opened for authorization. Waiting for callback...");
+        }
+        
+        // Step 6: Wait for callback with timeout
+        let auth_code = tokio::time::timeout(
+            Duration::from_secs(300), // 5 minute timeout
+            rx
+        ).await
+            .map_err(|_| AuthError::AuthenticationFailed("Authorization timeout - no callback received within 5 minutes".to_string()))?
+            .map_err(|_| AuthError::AuthenticationFailed("Callback server error".to_string()))??;
+        
+        // Stop the server
+        server_handle.abort();
+        
+        tracing::info!("Received authorization code, exchanging for tokens");
+        
+        // Step 7: Exchange authorization code for tokens
+        let token_response = self.exchange_code_for_token(
+            &auth_code,
+            &redirect_uri,
+            &code_verifier,
+        ).await?;
+        
+        // Step 8: Create session from tokens
+        self.token_to_session(token_response, handle).await
     }
+    
+    /// Exchange authorization code for access token
+    async fn exchange_code_for_token(
+        &self,
+        code: &str,
+        redirect_uri: &str,
+        code_verifier: &str,
+    ) -> Result<TokenResponse, AppError> {
+        let url = format!("{}/oauth/token", self.config.service);
+        
+        let params = serde_json::json!({
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": self.config.client_id,
+            "code_verifier": code_verifier,
+        });
+        
+        let response = self.client
+            .post(&url)
+            .json(&params)
+            .send()
+            .await
+            .map_err(|e| AppError::NetworkError(format!("Token exchange request failed: {}", e)))?;
+        
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(AuthError::AuthenticationFailed(format!(
+                "Token exchange failed with status {}: {}",
+                status, error_text
+            )).into());
+        }
+        
+        let token_response: TokenResponse = response
+            .json()
+            .await
+            .map_err(|e| AppError::ParseError(format!("Failed to parse token response: {}", e)))?;
+        
+        Ok(token_response)
+    }
+}
+
+/// Generate PKCE code verifier and challenge
+fn generate_pkce_challenge() -> Result<(String, String), AppError> {
+    use rand::Rng;
+    use base64::Engine;
+    
+    // Generate 32 random bytes for code verifier
+    let mut rng = rand::thread_rng();
+    let verifier_bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    
+    // Base64-URL encode without padding
+    let code_verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&verifier_bytes);
+    
+    // Create SHA-256 hash of verifier for challenge
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(code_verifier.as_bytes());
+    let challenge_bytes = hasher.finalize();
+    
+    // Base64-URL encode challenge
+    let code_challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(challenge_bytes);
+    
+    Ok((code_verifier, code_challenge))
+}
+
+/// Generate random state parameter for CSRF protection
+fn generate_random_state() -> String {
+    use rand::Rng;
+    use base64::Engine;
+    let mut rng = rand::thread_rng();
+    let state_bytes: Vec<u8> = (0..16).map(|_| rng.gen()).collect();
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&state_bytes)
+}
+
+/// Build OAuth authorization URL
+fn build_authorization_url(
+    service: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    code_challenge: &str,
+    state: &str,
+) -> Result<String, AppError> {
+    let auth_endpoint = format!("{}/oauth/authorize", service);
+    
+    let url = format!(
+        "{}?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&state={}&scope={}",
+        auth_endpoint,
+        urlencoding::encode(client_id),
+        urlencoding::encode(redirect_uri),
+        urlencoding::encode(code_challenge),
+        urlencoding::encode(state),
+        urlencoding::encode("atproto transition:generic")
+    );
+    
+    Ok(url)
+}
+
+/// Run callback server to receive authorization code
+async fn run_callback_server(
+    listener: std::net::TcpListener,
+    expected_state: String,
+    tx: tokio::sync::oneshot::Sender<Result<String, AppError>>,
+) -> Result<(), AppError> {
+    use axum::{
+        Router,
+        routing::get,
+        extract::Query,
+        response::{Html, IntoResponse},
+    };
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    
+    #[derive(serde::Deserialize)]
+    struct CallbackParams {
+        code: Option<String>,
+        state: Option<String>,
+        error: Option<String>,
+        error_description: Option<String>,
+    }
+    
+    let state_for_handler = expected_state.clone();
+    let tx = Arc::new(Mutex::new(Some(tx)));
+    let _ = state_for_handler; // Suppress unused warning until we need it
+    
+    async fn callback_handler(
+        Query(params): Query<CallbackParams>,
+        axum::extract::State(state_data): axum::extract::State<(String, Arc<Mutex<Option<tokio::sync::oneshot::Sender<Result<String, AppError>>>>>)>,
+    ) -> impl IntoResponse {
+        let (expected_state, tx) = state_data;
+        
+        // Check for errors
+        if let Some(error) = params.error {
+            let error_desc = params.error_description.unwrap_or_else(|| "Unknown error".to_string());
+            let error_msg = format!("Authorization failed: {} - {}", error, error_desc);
+            
+            if let Some(sender) = tx.lock().await.take() {
+                let _ = sender.send(Err(AppError::Authentication(error_msg.clone())));
+            }
+            
+            return Html(format!(
+                "<html><body><h1>Authorization Failed</h1><p>{}</p><p>You can close this window.</p></body></html>",
+                error_msg
+            ));
+        }
+        
+        // Validate state
+        if params.state.as_ref() != Some(&expected_state) {
+            let error_msg = "State mismatch - possible CSRF attack";
+            
+            if let Some(sender) = tx.lock().await.take() {
+                let _ = sender.send(Err(AppError::Authentication(error_msg.to_string())));
+            }
+            
+            return Html(format!(
+                "<html><body><h1>Authorization Failed</h1><p>{}</p><p>You can close this window.</p></body></html>",
+                error_msg
+            ));
+        }
+        
+        // Extract authorization code
+        match params.code {
+            Some(code) => {
+                if let Some(sender) = tx.lock().await.take() {
+                    let _ = sender.send(Ok(code));
+                }
+                
+                Html(
+                    "<html><body><h1>Authorization Successful!</h1><p>You have successfully authorized the application.</p><p>You can close this window and return to the CLI.</p></body></html>".to_string()
+                )
+            }
+            None => {
+                let error_msg = "No authorization code received";
+                
+                if let Some(sender) = tx.lock().await.take() {
+                    let _ = sender.send(Err(AppError::Authentication(error_msg.to_string())));
+                }
+                
+                Html(format!(
+                    "<html><body><h1>Authorization Failed</h1><p>{}</p><p>You can close this window.</p></body></html>",
+                    error_msg
+                ))
+            }
+        }
+    }
+    
+    let app = Router::new()
+        .route("/callback", get(callback_handler))
+        .with_state((expected_state, tx));
+    
+    // Convert std::net::TcpListener to tokio::net::TcpListener
+    listener.set_nonblocking(true)
+        .map_err(|e| AppError::NetworkError(format!("Failed to set non-blocking: {}", e)))?;
+    let listener = tokio::net::TcpListener::from_std(listener)
+        .map_err(|e| AppError::NetworkError(format!("Failed to create tokio listener: {}", e)))?;
+    
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| AppError::NetworkError(format!("Server error: {}", e)))?;
+    
+    Ok(())
 }
 
 /// Device authorization response
