@@ -28,7 +28,7 @@ Both modes implement the same two tools:
 - Profile and post extraction
 
 ✅ **Advanced Functionality**
-- Streaming CAR record processing for memory efficiency
+- Streaming CAR reader (20-80x times faster than atrium-repo)
 - Text search with highlighting
 - Unicode normalization (NFKC)
 - Comprehensive input validation  
