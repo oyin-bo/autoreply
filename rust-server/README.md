@@ -23,11 +23,14 @@ Authentication support via app passwords allows storing and managing credentials
 - Proper error handling with MCP error codes
 
 ✅ **Authentication & Credential Management**
+- OAuth Device Flow - Secure OAuth for headless/CLI environments (fully implemented)
+- OAuth Browser Flow - Interactive OAuth with browser redirect (infrastructure in place)
 - App password authentication via AT Protocol
 - Secure credential storage (OS keyring with file fallback)
 - Multi-account support with default selection
 - Token refresh and lifecycle management
 - CLI commands: `login`, `logout`, `accounts list`, `accounts default`
+- Support for multiple authentication methods: `--device`, `--oauth`, or app passwords
 
 ✅ **Bluesky Integration**
 - DID resolution (handle → DID)
@@ -78,7 +81,17 @@ autoreply profile --account alice.bsky.social
 autoreply search --account bob.bsky.social --query "rust programming" --limit 10
 
 # Authentication commands
+
+# OAuth device flow (recommended for CLI)
+autoreply login --device --handle alice.bsky.social
+
+# OAuth browser flow (infrastructure in place)
+autoreply login --oauth --handle alice.bsky.social
+
+# App password authentication (traditional)
 autoreply login --handle alice.bsky.social --password app-password-here
+
+# Account management
 autoreply logout --handle alice.bsky.social
 autoreply accounts list
 autoreply accounts default alice.bsky.social

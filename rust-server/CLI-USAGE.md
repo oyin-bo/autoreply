@@ -44,7 +44,7 @@ autoreply --quiet search --account bob.bsky.social --query rust
 
 ### login
 
-Authenticate with BlueSky using an app password.
+Authenticate with BlueSky using app passwords or OAuth.
 
 **Usage:**
 ```bash
@@ -54,11 +54,60 @@ autoreply login [OPTIONS]
 **Options:**
 ```
 -u, --handle <HANDLE>        Handle (e.g., alice.bsky.social)
--p, --password <PASSWORD>    App password
+-p, --password <PASSWORD>    App password (for app password authentication)
 -s, --service <SERVICE>      Service URL (defaults to https://bsky.social)
+    --oauth                  Use OAuth with browser redirect
+    --device                 Use OAuth device flow (for headless environments)
 ```
 
-**Examples:**
+**Authentication Methods:**
+
+#### OAuth Device Flow (Recommended for CLI)
+
+Secure OAuth authentication for headless or remote environments:
+
+```bash
+autoreply login --device --handle alice.bsky.social
+```
+
+The CLI will:
+1. Display a verification URL to visit on any device
+2. Show a user code to enter on that device
+3. Wait while you complete authorization
+4. Automatically store tokens when you approve
+
+**Example output:**
+```
+Device authorization started
+Please visit: https://bsky.social/oauth/device
+And enter code: ABCD-1234
+
+Or visit: https://bsky.social/oauth/device?code=ABCD-1234
+
+Waiting for authorization...
+✓ Successfully authenticated as @alice.bsky.social
+  DID: did:plc:abc123...
+  Method: OAuth (device flow)
+  Storage: OS keyring
+```
+
+**Advantages:**
+- More secure than app passwords
+- Works on remote/headless servers
+- Tokens revocable per-application
+- No password storage needed
+
+#### OAuth Browser Flow
+
+Interactive OAuth with automatic browser opening:
+
+```bash
+autoreply login --oauth --handle alice.bsky.social
+```
+
+**Note:** Full browser flow implementation is in progress. For now, use `--device` for OAuth or app passwords.
+
+#### App Password Authentication (Traditional)
 
 Interactive login (prompts for credentials):
 ```bash
@@ -83,14 +132,15 @@ autoreply login --handle alice.bsky.social --service https://custom.pds.example
 
 **Storage:**
 - Credentials are stored securely in your OS keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-- If keyring is unavailable, falls back to encrypted file storage in `~/.config/autoreply/credentials.json`
+- If keyring is unavailable, falls back to file storage in `~/.config/autoreply/credentials.json`
 - First account you add becomes the default account
 
 **Output:**
 ```
 ✓ Successfully authenticated as @alice.bsky.social
   DID: did:plc:abc123...
-  Using: OS keyring storage
+  Method: app password
+  Storage: OS keyring
 ```
 
 ---

@@ -1,9 +1,11 @@
 # Authentication Module
 
-This module provides authentication support for the BlueSky AT Protocol.
+This module provides comprehensive authentication support for the BlueSky AT Protocol.
 
 ## Features
 
+- **OAuth Device Flow**: Secure OAuth authentication for headless/CLI environments (✅ fully implemented)
+- **OAuth Browser Flow**: Interactive OAuth with browser redirect (⚠️ infrastructure in place, full implementation pending)
 - **App Password Authentication**: Uses `com.atproto.server.createSession` XRPC endpoint
 - **Credential Storage**: OS keyring (primary) with file fallback
 - **Token Management**: Automatic token refresh and expiry checking
@@ -24,7 +26,39 @@ The module automatically selects the best available storage backend:
 
 ## CLI Usage
 
-### Login
+### Login - OAuth Device Flow (Recommended for CLI)
+
+For secure OAuth authentication without requiring a browser on the same device:
+
+```bash
+# OAuth device flow (fully functional)
+autoreply login --device --handle alice.bsky.social
+```
+
+The CLI will:
+1. Display a verification URL to visit on any device
+2. Show a user code to enter
+3. Poll for authorization while you complete the flow
+4. Automatically store tokens when authorized
+
+**Advantages:**
+- More secure than app passwords
+- Works in headless/remote environments
+- Tokens can be revoked per-application
+- No password storage needed
+
+### Login - OAuth Browser Flow
+
+For interactive OAuth with automatic browser opening:
+
+```bash
+# OAuth browser flow (infrastructure in place)
+autoreply login --oauth --handle alice.bsky.social
+```
+
+**Note**: Full browser flow implementation is pending. Use `--device` for OAuth authentication.
+
+### Login - App Password (Traditional)
 
 Authenticate with your BlueSky account using an app password:
 
@@ -252,12 +286,24 @@ cargo test auth::session::
 cargo test auth::storage::
 ```
 
-## Future Enhancements
+## Implementation Status
 
-Planned features for future releases:
+### ✅ Fully Implemented
+- App password authentication
+- OAuth Device Authorization Grant
+- Secure credential storage (OS keyring + file fallback)
+- Multi-account management
+- Token management and refresh
 
-- OAuth 2.0 with DPoP and PKCE support
-- Device Authorization Grant for headless environments
+### ⚠️ Partial Implementation
+- OAuth Browser Flow (infrastructure in place, needs full callback server implementation)
+  - PKCE code challenge generation pending
+  - Local HTTP server for callback pending
+  - DPoP token binding pending
+
+### 📋 Planned for Future Releases
+- Complete browser-based OAuth flow
 - Token rotation and automatic session management
 - MCP tool for authentication in server mode
 - Encrypted file storage option
+- OAuth token refresh flows
