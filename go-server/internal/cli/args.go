@@ -18,3 +18,14 @@ type LoginArgs struct {
 	Handle   string `json:"handle" jsonschema:"required,description=Bluesky handle (e.g. alice.bsky.social)" short:"u" long:"handle"`
 	Password string `json:"password" jsonschema:"required,description=App password (generated in Bluesky settings)" short:"p" long:"password"`
 }
+
+// LogoutArgs defines arguments for the logout tool
+type LogoutArgs struct {
+	Handle string `json:"handle,omitempty" jsonschema:"description=Bluesky handle to logout (uses default if not provided)" short:"u" long:"handle"`
+}
+
+// AccountsArgs defines arguments for the accounts tool
+type AccountsArgs struct {
+	Action string `json:"action,omitempty" jsonschema:"description=Action to perform: 'list' or 'set-default' (default: list)" short:"a" long:"action"`
+	Handle string `json:"handle,omitempty" jsonschema:"description=Handle for set-default action" short:"u" long:"handle"`
+}
