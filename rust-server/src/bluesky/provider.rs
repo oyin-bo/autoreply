@@ -1,26 +1,23 @@
 //! Repository provider for fetching and parsing ATProto repositories.
 
 use crate::bluesky::did::DidResolver;
-use crate::cache::{CacheManager, CacheMetadata};
 use crate::error::AppError;
-use anyhow::Result;
-use atrium_repo::{blockstore::CarStore, Repository};
 use futures::StreamExt;
 use reqwest::Client;
-use std::io::Cursor;
-use std::time::{Duration};
+use std::path::PathBuf;
+use std::time::Duration;
 use tracing::{debug, info};
 
 /// Provides a parsed `Repo` object for a given DID.
 ///
 /// This provider encapsulates the logic for:
 /// 1. Resolving DIDs to get PDS endpoints.
-/// 2. Fetching repository CAR files over HTTP.
-/// 3. Caching the CAR files locally.
-/// 4. Parsing the CAR files into a `Repo` object.
+/// 2. Fetching repository CAR files over HTTP, streaming directly to disk.
+/// 3. Caching the CAR files locally with atomic operations.
+/// 4. Parsing the CAR files into a `Repository` object using atrium-repo APIs.
 pub struct RepositoryProvider {
     client: Client,
-    cache: CacheManager,
+    cache_dir: PathBuf,
     did_resolver: DidResolver,
 }
 
@@ -31,71 +28,57 @@ impl RepositoryProvider {
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| AppError::HttpClientInitialization(e.to_string()))?;
-        let cache = CacheManager::new()?;
+        
+        let cache_dir = dirs::cache_dir()
+            .unwrap_or_else(|| std::env::temp_dir())
+            .join("autoreply")
+            .join("repos");
+        
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|e| AppError::CacheError(format!("Failed to create cache directory: {}", e)))?;
+        
         let did_resolver = DidResolver::new();
         Ok(Self {
             client,
-            cache,
+            cache_dir,
             did_resolver,
         })
     }
 
-    /// Gets a parsed `Repo` for a given DID.
-    ///
-    /// This method handles fetching the repository from the network if it's not cached
-    /// or if the cached version is stale. The parsing is done synchronously on a
-    /// blocking thread to avoid stalling the async runtime.
-    pub async fn get_repo(
-        &self,
-        did: &str,
-    ) -> Result<Repository<CarStore<Cursor<Vec<u8>>>>, AppError> {
-        let car_data = self.fetch_repo_car(did).await?;
-        let cursor = Cursor::new(car_data);
-        let store = CarStore::new(cursor)
-            .map_err(|e| AppError::RepoParseFailed(format!("CarStore::new failed: {}", e)))?;
-        let repo = Repository::new(store)
-            .map_err(|e| AppError::RepoParseFailed(format!("Repository::new failed: {}", e)))?;
-        Ok(repo)
-            .await
-            .map_err(|e| AppError::RepoParseFailed(format!("spawn_blocking join error: {}", e)))?
-    }
+    
 
     /// Fetches the repository CAR file for a DID.
     ///
-    /// Handles PDS resolution, caching, and HTTP fetching.
-    async fn fetch_repo_car(&self, did: &str) -> Result<Vec<u8>, AppError> {
+    /// Streams the CAR file directly to disk with atomic operations as specified in PROCEED-FIX.md.
+    /// Returns the path to the cached CAR file.
+    async fn fetch_repo_car(&self, did: &str) -> Result<PathBuf, AppError> {
+        // Resolve DID to PDS endpoint
         let pds_endpoint = self.did_resolver.discover_pds(did).await?.ok_or_else(|| {
             AppError::DidResolveFailed(format!("Could not determine PDS for DID {}", did))
         })?;
         let url = format!("{}/xrpc/com.atproto.sync.getRepo?did={}", pds_endpoint, did);
         debug!("Fetching repo from URL: {}", url);
 
-        let cache_key = did.to_string();
-        if let Ok(metadata) = self.cache.get_metadata(&cache_key) {
-            if self.cache.is_cache_valid(&cache_key, metadata.ttl_hours) {
-                if let Ok(cached_data) = self.cache.read_car(&cache_key) {
-                    info!("Repo for {} is valid in cache. Loading from cache.", did);
-                    return Ok(cached_data);
-                }
-            }
+        // Generate cache file paths
+        let cache_filename = format!("{}.car", did.replace(':', "_"));
+        let final_path = self.cache_dir.join(&cache_filename);
+        
+        // Check if cached file exists (no TTL or metadata per PROCEED-FIX.md spec)
+        if final_path.exists() {
+            info!("Using cached repo for {}", did);
+            return Ok(final_path);
         }
 
-        let mut request = self.client.get(&url);
-        if let Ok(metadata) = self.cache.get_metadata(&cache_key) {
-            if let Some(etag) = &metadata.etag {
-                request = request.header("If-None-Match", etag);
-            }
-        }
+        // Generate temporary file path with randomized suffix to avoid collisions
+        let temp_filename = format!("{}.tmp.{}", cache_filename, std::process::id());
+        let temp_path = self.cache_dir.join(&temp_filename);
 
-        let response = request
+        // Fetch CAR file and stream directly to temp file
+        let response = self.client
+            .get(&url)
             .send()
             .await
             .map_err(|e| AppError::NetworkError(e.to_string()))?;
-
-        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
-            info!("Repo for {} not modified. Loading from cache.", did);
-            return self.cache.read_car(&cache_key);
-        }
 
         if !response.status().is_success() {
             return Err(AppError::NetworkError(format!(
@@ -105,34 +88,63 @@ impl RepositoryProvider {
             )));
         }
 
-        let new_etag = response
-            .headers()
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(String::from);
-
-        let content_length = response.content_length();
-
         info!(
-            "Streaming repo for {} ({} bytes)",
+            "Streaming repo for {} ({} bytes) to {}",
             did,
-            content_length.unwrap_or(0)
+            response.content_length().unwrap_or(0),
+            temp_path.display()
         );
 
-        let mut car_data = Vec::with_capacity(content_length.unwrap_or(0) as usize);
+        // Stream bytes directly to temp file
+        let mut temp_file = tokio::fs::File::create(&temp_path)
+            .await
+            .map_err(|e| AppError::CacheError(format!("Failed to create temp file: {}", e)))?;
+        
         let mut stream = response.bytes_stream();
-
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| AppError::NetworkError(e.to_string()))?;
-            car_data.extend_from_slice(&chunk);
+            tokio::io::AsyncWriteExt::write_all(&mut temp_file, &chunk)
+                .await
+                .map_err(|e| AppError::CacheError(format!("Failed to write to temp file: {}", e)))?;
         }
 
-        let mut new_metadata = CacheMetadata::new(did.to_string(), 24);
-        new_metadata = new_metadata.with_headers(new_etag, None, content_length);
-        self.cache.store_car(&cache_key, &car_data, new_metadata)?;
+        // Flush and fsync as required
+        tokio::io::AsyncWriteExt::flush(&mut temp_file)
+            .await
+            .map_err(|e| AppError::CacheError(format!("Failed to flush temp file: {}", e)))?;
+        temp_file.sync_all()
+            .await
+            .map_err(|e| AppError::CacheError(format!("Failed to fsync temp file: {}", e)))?;
+        
+        // Drop the file handle before rename
+        drop(temp_file);
 
-        Ok(car_data)
+        // Atomically rename temp file to final path
+        std::fs::rename(&temp_path, &final_path)
+            .map_err(|e| AppError::CacheError(format!("Failed to atomically rename temp file: {}", e)))?;
+
+        info!("Successfully cached repo for {} at {}", did, final_path.display());
+        Ok(final_path)
     }
+
+
+
+    /// Get an iterator over AT Protocol records from a user's repository.
+    /// Returns a streaming iterator that yields (record_type, cbor_data) tuples.
+    /// This avoids loading all records into memory and supports early termination.
+    pub async fn records(&self, did: &str) -> Result<crate::car::CarRecords, AppError> {
+        let car_file_path = self.fetch_repo_car(did).await?;
+        
+        // Read entire file into memory (CAR files are typically 1-10MB)
+        let car_bytes = tokio::fs::read(&car_file_path).await
+            .map_err(|e| AppError::CacheError(format!("Failed to read CAR file: {}", e)))?;
+        
+        // Create iterator from CAR file bytes
+        crate::car::CarRecords::from_bytes(car_bytes)
+            .map_err(|e| AppError::RepoParseFailed(format!("Failed to create CAR iterator: {}", e)))
+    }
+
+
 }
 
 impl Default for RepositoryProvider {

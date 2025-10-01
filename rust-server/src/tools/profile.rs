@@ -2,8 +2,8 @@
 //!
 //! Implements the `profile(account)` MCP tool
 
-use crate::bluesky::car::CarProcessor;
 use crate::bluesky::did::DidResolver;
+use crate::bluesky::provider::RepositoryProvider;
 use crate::cli::ProfileArgs;
 use crate::error::{validate_account, AppError};
 use crate::mcp::{McpResponse, ToolResult};
@@ -11,6 +11,20 @@ use anyhow::Result;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
 use tracing::{debug, info};
+
+/// Helper function to extract string field from CBOR map without allocation
+fn get_cbor_string_field(map: &std::collections::BTreeMap<serde_cbor::Value, serde_cbor::Value>, key: &str) -> Option<String> {
+    for (k, v) in map.iter() {
+        if let serde_cbor::Value::Text(text_key) = k {
+            if text_key == key {
+                if let serde_cbor::Value::Text(text_value) = v {
+                    return Some(text_value.clone());
+                }
+            }
+        }
+    }
+    None
+}
 
 /// Handle profile tool call
 pub async fn handle_profile(id: Option<Value>, args: Value) -> McpResponse {
@@ -54,17 +68,49 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
 
     debug!("Resolved {} to DID: {}", profile_args.account, did);
 
-    // Fetch and process repository
-    let car_processor = CarProcessor::new()?;
-    let car_data = car_processor.fetch_repo(&did).await?;
+        // Use true streaming to process CAR blocks one by one (like Go version)
+    let provider = RepositoryProvider::new()?;
     
-    debug!("Fetched CAR data: {} bytes", car_data.len());
-
-    // Extract profile record
-    let profile_record = car_processor.extract_profile(&car_data).await?;
+    debug!("Starting streaming CAR block processing for {}", did);
+    use crate::bluesky::records::ProfileRecord;
     
-    let profile = match profile_record {
-        Some(profile) => profile,
+    // Use the new iterator-based streaming approach
+    let mut records = provider.records(&did).await?;
+    let profile = records
+        .find_map(|record_result| {
+            let (record_type, cbor_data) = record_result.ok()?;
+            debug!("Processing record of type: {}", record_type);
+            
+            // Check if this is a profile record
+            if record_type == "app.bsky.actor.profile" {
+                debug!("Found profile record!");
+                
+                // Decode CBOR data to ProfileRecord
+                if let Ok(profile_value) = serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data) {
+                    if let serde_cbor::Value::Map(profile_map) = profile_value {
+                        // Use helper function to avoid string allocations
+                        let display_name = get_cbor_string_field(&profile_map, "displayName");
+                        let description = get_cbor_string_field(&profile_map, "description");
+                        let avatar = get_cbor_string_field(&profile_map, "avatar");
+                        let banner = get_cbor_string_field(&profile_map, "banner");
+                        let created_at = get_cbor_string_field(&profile_map, "createdAt")
+                            .unwrap_or_else(|| "unknown".to_string());
+                        
+                        return Some(ProfileRecord {
+                            display_name,
+                            description,
+                            avatar,
+                            banner,
+                            created_at,
+                        });
+                    }
+                }
+            }
+            None
+        });
+    
+    let profile = match profile {
+        Some(profile_data) => profile_data,
         None => {
             return Err(AppError::NotFound(format!(
                 "No profile found for account: {}",

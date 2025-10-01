@@ -95,6 +95,13 @@ impl From<std::io::Error> for AppError {
     }
 }
 
+/// Convert CAR reader errors to AppError
+impl From<crate::car::CarError> for AppError {
+    fn from(err: crate::car::CarError) -> Self {
+        AppError::RepoParseFailed(format!("CAR parsing error: {}", err))
+    }
+}
+
 /// Validation functions
 pub fn validate_account(account: &str) -> Result<(), AppError> {
     if account.is_empty() {

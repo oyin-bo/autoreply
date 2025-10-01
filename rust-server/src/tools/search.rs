@@ -9,7 +9,7 @@ use crate::cli::SearchArgs;
 use crate::error::{normalize_text, validate_account, validate_query, AppError};
 use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
-use atrium_api::app::bsky::feed::post::RecordData as PostRecordData;
+
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
 use tracing::{debug, info};
@@ -66,38 +66,53 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
 
     debug!("Resolved {} to DID: {}", search_args.account, did);
 
-    // Get repository
+    // Get posts using streaming iterator
     let provider = RepositoryProvider::new()?;
-    let repo = provider.get_repo(&did).await?;
-    debug!("Got repo for {}", did);
-
-    // Extract and filter posts from the repo
-    let collection_prefix = "app.bsky.feed.post/";
-    let posts: Vec<PostRecord> = repo
-        .records()
-        .filter_map(|(key, record)| {
-            if !key.starts_with(collection_prefix) {
+    let records = provider.records(&did).await?;
+    
+    // Stream through records and collect posts
+    let posts: Vec<PostRecord> = records
+        .filter_map(|record_result| {
+            let (record_type, cbor_data) = record_result.ok()?;
+            
+            // Only process post records
+            if record_type != "app.bsky.feed.post" {
                 return None;
             }
-            let rkey = &key[collection_prefix.len()..];
-            match serde_json::from_slice::<PostRecordData>(record.value()) {
-                Ok(post_data) => Some(PostRecord {
-                    uri: format!("at://{}/app.bsky.feed.post/{}", did, rkey),
-                    cid: record.cid().to_string(),
-                    text: post_data.text,
-                    created_at: post_data.created_at.as_ref().to_rfc3339(),
-                    embeds: Vec::new(), // Not extracting embeds for now
-                    facets: Vec::new(), // Not extracting facets for now
-                }),
-                Err(err) => {
-                    debug!("Failed to deserialize post record {}: {}", key, err);
+            
+            // Decode CBOR data to extract post fields
+            if let Ok(post_value) = serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data) {
+                if let serde_cbor::Value::Map(post_map) = post_value {
+                    let text = match post_map.get(&serde_cbor::Value::Text("text".to_string())) {
+                        Some(serde_cbor::Value::Text(t)) => t.clone(),
+                        _ => return None,
+                    };
+                    
+                    let created_at = match post_map.get(&serde_cbor::Value::Text("createdAt".to_string())) {
+                        Some(serde_cbor::Value::Text(t)) => t.clone(),
+                        _ => return None,
+                    };
+                    
+                    // For now, we'll use a placeholder for rkey - we'd need to extract it from the MST key
+                    // This is a limitation of the current approach vs the specialized get_posts method
+                    Some(PostRecord {
+                        uri: format!("at://{}/app.bsky.feed.post/unknown", did),
+                        cid: "unknown".to_string(), // Would need CID from CAR entry
+                        text,
+                        created_at,
+                        embeds: Vec::new(), // TODO: Convert embeds if needed in future
+                        facets: Vec::new(), // TODO: Convert facets if needed in future
+                    })
+                } else {
                     None
                 }
+            } else {
+                None
             }
         })
         .collect();
-
-    debug!("Extracted {} post records", posts.len());
+    
+    debug!("Extracted {} post records using streaming iterator", posts.len());
 
     // Search posts
     let mut matching_posts = search_posts(&posts, &normalized_query);

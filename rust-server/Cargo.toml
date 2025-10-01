@@ -1,6 +1,6 @@
 [package]
 name = "autoreply"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "autoreply: Model Context Protocol server for Bluesky profile and post search functionality"
 authors = ["Oleg Mihailik"]
@@ -17,9 +17,9 @@ path = "src/main.rs"
 
 [dependencies]
 # Required Crates as specified in docs/7.1-rust.md
-atrium-api = "0.24"
-atrium-xrpc-client = "0.5"
-atrium-repo = "0.1"
+# atrium-api = "0.24"
+# atrium-xrpc-client = "0.5"
+# atrium-repo = "0.1"
 
 # Core dependencies
 tokio = { version = "1.0", features = ["full"] }
@@ -52,6 +52,11 @@ schemars = "0.8"
 
 # Additional dependencies
 hex = "0.4"
+
+# New dependencies for fast CAR reader
+serde_cbor = "0.11"
+unsigned-varint = "0.7"
+thiserror = "1.0"
 
 [dev-dependencies]
 tempfile = "3.23"

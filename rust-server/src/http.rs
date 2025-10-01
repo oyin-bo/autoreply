@@ -128,7 +128,7 @@ mod tests {
         let client = client_with_timeout(Duration::from_secs(10));
         
         // Should have proper user agent set
-        let user_agent = format!("autoreply/{}", env!("CARGO_PKG_VERSION"));
+        let _user_agent = format!("autoreply/{}", env!("CARGO_PKG_VERSION"));
         // We can't directly access the user agent from reqwest::Client, 
         // but we can verify the client was built successfully with our config
         assert!(format!("{:?}", client).contains("Client"));
