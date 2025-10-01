@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Authentication System**: Complete app password authentication implementation
+  - App password authentication via AT Protocol `com.atproto.server.createSession`
+  - Secure credential storage with OS keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service)
+  - File-based fallback storage with restricted permissions (0600)
+  - Token refresh and lifecycle management (2h access token, 90d refresh token)
+  - Multi-account support with default account selection
+- **CLI Commands**: New authentication commands
+  - `autoreply login` - Authenticate with BlueSky using app passwords
+  - `autoreply logout` - Remove stored credentials
+  - `autoreply accounts list` - List all authenticated accounts
+  - `autoreply accounts default` - Set default account
+- **Documentation**: Comprehensive documentation for authentication
+  - `src/auth/README.md` - Authentication module documentation with API reference
+  - `CLI-USAGE.md` - Complete CLI usage guide with examples
+  - `demo_auth.sh` - Interactive demonstration script
+- **Tests**: 10 new unit tests for authentication components (110 total)
+  - Credential serialization and storage tests
+  - Session expiry and lifecycle tests
+  - Multi-account management tests
+  - Storage backend tests
+
+### Changed
+- Updated `README.md` to document authentication features
+- Enhanced error handling with new error types: `Authentication`, `ConfigError`, `ParseError`
+- Dependencies: Added `keyring`, `chrono`, and `base64` crates
+
 ## [0.2.0] - 2024-09-30
 
 ### Added
