@@ -15,6 +15,7 @@ mod tools;
 mod http;
 mod cli;
 mod car;
+mod auth;
 
 use anyhow::Result;
 use clap::Parser;
