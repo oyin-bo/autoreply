@@ -224,26 +224,18 @@ mod tests {
     async fn test_pds_operations() {
         let resolver = DidResolver::new();
         
-        // Test getting PDS for unknown DID
-        let pds = resolver.get_pds_for("did:plc:unknown").await;
-        assert!(pds.is_none());
+        // Test discovering PDS for unknown DID - should return Ok(None)
+        let pds = resolver.discover_pds("did:plc:unknown").await;
+        assert!(matches!(pds, Ok(None)));
+        
+        // Test discovering PDS for invalid DID format - should return Ok(None)
+        let pds = resolver.discover_pds("invalid:did").await;
+        assert!(matches!(pds, Ok(None)));
     }
 }
 
 impl DidResolver {
-    /// Ensure PDS for a did:web is loaded; return it if found
-    pub async fn ensure_did_web_pds(&self, did: &str) -> Result<Option<String>, AppError> {
-        // If we already have it, return
-        if let Some(pds) = self.get_pds_for(did).await { return Ok(Some(pds)); }
-        // Attempt to fetch did:web document and cache endpoint
-        self.resolve_did_web(did).await?;
-        Ok(self.get_pds_for(did).await)
-    }
-    /// Get cached PDS endpoint for a DID (from did:web documents)
-    pub async fn get_pds_for(&self, did: &str) -> Option<String> {
-        let map = self.pds_map.lock().await;
-        map.get(did).cloned()
-    }
+
 
     /// Try resolving DID via .well-known on the handle domain.
     /// Returns Ok(Some(did)) on success, Ok(None) if not found or invalid, Err on parsing errors only.
