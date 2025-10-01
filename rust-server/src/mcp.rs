@@ -165,6 +165,7 @@ async fn handle_tool_call(request: McpRequest) -> McpResponse {
     match args.name.as_str() {
         "profile" => crate::tools::profile::handle_profile(request.id, args.arguments).await,
         "search" => crate::tools::search::handle_search(request.id, args.arguments).await,
+        "auth_status" => crate::tools::auth_status::handle_auth_status(request.id, args.arguments).await,
         _ => McpResponse::error(
             request.id,
             "tool_not_found",
@@ -199,11 +200,13 @@ async fn handle_initialize(request: McpRequest) -> McpResponse {
 /// Build the tools array returned from tools/list and initialize
 fn build_tools_array() -> serde_json::Value {
     use crate::cli::{ProfileArgs, SearchArgs};
+    use crate::tools::auth_status::AuthStatusArgs;
     use schemars::schema_for;
 
     // Generate JSON schemas from the CLI argument structs
     let profile_schema = schema_for!(ProfileArgs);
     let search_schema = schema_for!(SearchArgs);
+    let auth_status_schema = schema_for!(AuthStatusArgs);
 
     serde_json::json!([
         {
@@ -215,6 +218,11 @@ fn build_tools_array() -> serde_json::Value {
             "name": "search",
             "description": "Search posts within a user's repository",
             "inputSchema": search_schema
+        },
+        {
+            "name": "auth_status",
+            "description": "Check authentication status and list authenticated accounts",
+            "inputSchema": auth_status_schema
         }
     ])
 }

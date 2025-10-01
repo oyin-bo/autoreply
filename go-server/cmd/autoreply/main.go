@@ -79,6 +79,10 @@ func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *
 	// Register tools
 	server.RegisterTool("profile", profileTool)
 	server.RegisterTool("search", searchTool)
+	
+	// Register authentication tool
+	authStatusTool := tools.NewAuthStatusTool()
+	server.RegisterTool("auth_status", authStatusTool)
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
