@@ -6,8 +6,8 @@ description = "autoreply: Model Context Protocol server for Bluesky profile and 
 authors = ["Oleg Mihailik"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/yourusername/autoreply"
-repository = "https://github.com/yourusername/autoreply"
+homepage = "https://github.com/oyin.bo/autoreply"
+repository = "https://github.com/oyin.bo/autoreply"
 keywords = ["mcp", "bluesky", "atproto", "server"]
 categories = ["command-line-utilities", "web-programming"]
 
