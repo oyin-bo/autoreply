@@ -12,7 +12,8 @@ use std::time::Duration;
 pub struct OAuthConfig {
     /// Client identifier (public client by default)
     pub client_id: String,
-    /// Redirect URI for browser flow
+    /// Redirect URI for browser flow (set dynamically when starting callback server)
+    #[allow(dead_code)]
     pub redirect_uri: Option<String>,
     /// Service URL (e.g., https://bsky.social)
     pub service: String,
@@ -42,6 +43,8 @@ impl OAuthManager {
     }
     
     /// Create with default configuration
+    /// Convenience constructor for programmatic use when OAuth is enabled
+    #[allow(dead_code)]
     pub fn with_defaults() -> Result<Self, AppError> {
         Self::new(OAuthConfig::default())
     }
@@ -520,11 +523,13 @@ pub struct DeviceAuthResponse {
 }
 
 /// Token response from OAuth
+/// All fields are part of OAuth 2.0 spec and will be used when BlueSky enables OAuth
 #[derive(Debug, serde::Deserialize)]
 pub struct TokenResponse {
     /// Access token
     pub access_token: String,
     /// Token type (usually "Bearer")
+    #[allow(dead_code)]
     pub token_type: String,
     /// Refresh token
     #[serde(default)]

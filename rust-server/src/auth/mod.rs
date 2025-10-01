@@ -31,12 +31,16 @@ pub enum AuthError {
     #[error("No credentials found for account: {0}")]
     NoCredentials(String),
     
+    // Token refresh functionality - will be used when OAuth is enabled
+    #[allow(dead_code)]
     #[error("Token expired")]
     TokenExpired,
     
+    #[allow(dead_code)]
     #[error("Failed to refresh token: {0}")]
     RefreshFailed(String),
     
+    #[allow(dead_code)]
     #[error("Invalid session data: {0}")]
     InvalidSession(String),
 }

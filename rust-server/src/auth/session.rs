@@ -35,6 +35,8 @@ fn default_service() -> String {
 
 impl Session {
     /// Check if the access token is expired or will expire soon (within 5 minutes)
+    /// Used by token refresh logic when OAuth is enabled
+    #[allow(dead_code)]
     pub fn is_expired(&self) -> bool {
         if let Some(expires_at) = self.expires_at {
             // Consider expired if within 5 minutes of expiry
@@ -55,11 +57,15 @@ struct CreateSessionResponse {
     refresh_jwt: String,
     handle: String,
     did: String,
+    // DID document - may be needed for verification in future
     #[serde(default)]
+    #[allow(dead_code)]
     did_doc: Option<serde_json::Value>,
 }
 
 /// Response from com.atproto.server.refreshSession
+/// All fields needed for token refresh functionality when OAuth is enabled
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RefreshSessionResponse {
@@ -127,6 +133,8 @@ impl SessionManager {
     }
     
     /// Refresh an existing session using the refresh token
+    /// Will be used for automatic token refresh when OAuth is enabled
+    #[allow(dead_code)]
     pub async fn refresh(&self, session: &Session) -> Result<Session, AppError> {
         let url = format!("{}/xrpc/com.atproto.server.refreshSession", session.service);
         
@@ -165,6 +173,8 @@ impl SessionManager {
     }
     
     /// Get a valid session, refreshing if necessary
+    /// Will be used for automatic token refresh when OAuth is enabled
+    #[allow(dead_code)]
     pub async fn get_valid_session(&self, session: &Session) -> Result<Session, AppError> {
         if session.is_expired() {
             self.refresh(session).await

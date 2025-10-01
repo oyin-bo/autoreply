@@ -200,6 +200,8 @@ impl CredentialStorage {
     }
     
     /// Retrieve session for an account
+    /// Will be used for token refresh when OAuth is enabled
+    #[allow(dead_code)]
     pub fn get_session(&self, handle: &str) -> Result<Option<Session>, AppError> {
         match self.backend {
             StorageBackend::Keyring => {
