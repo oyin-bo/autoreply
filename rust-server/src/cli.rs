@@ -30,6 +30,14 @@ pub enum Commands {
     Profile(ProfileArgs),
     /// Search posts within a user's repository
     Search(SearchArgs),
+    /// Authenticate with BlueSky
+    Login(LoginArgs),
+    /// List authenticated accounts
+    Accounts,
+    /// Remove stored credentials
+    Logout(LogoutArgs),
+    /// Set default account
+    Use(UseArgs),
 }
 
 /// Profile tool arguments
@@ -58,6 +66,34 @@ pub struct SearchArgs {
     #[arg(short = 'l', long)]
     #[schemars(description = "Maximum number of results (default 50, max 200)")]
     pub limit: Option<usize>,
+}
+
+/// Login arguments
+#[derive(Parser, Clone, Debug)]
+pub struct LoginArgs {
+    /// BlueSky handle (e.g., alice.bsky.social)
+    #[arg(long)]
+    pub handle: Option<String>,
+    
+    /// Authentication method (password|oauth|device)
+    #[arg(long, default_value = "password")]
+    pub method: String,
+}
+
+/// Logout arguments
+#[derive(Parser, Clone, Debug)]
+pub struct LogoutArgs {
+    /// Handle to logout from
+    #[arg()]
+    pub handle: String,
+}
+
+/// Use/set-default arguments
+#[derive(Parser, Clone, Debug)]
+pub struct UseArgs {
+    /// Handle to set as default
+    #[arg()]
+    pub handle: String,
 }
 
 #[cfg(test)]
