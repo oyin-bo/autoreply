@@ -31,8 +31,8 @@ func NewRunner(registry *Registry) *Runner {
 It operates in two modes:
 1. MCP Server Mode (default): Run without arguments to start an MCP server
 2. CLI Mode: Run with a command to execute a single tool and exit`,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		SilenceUsage: true,
+		// Do NOT silence errors - they should be printed to stderr
 	}
 
 	// Add version flag

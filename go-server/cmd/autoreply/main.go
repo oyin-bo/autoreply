@@ -77,13 +77,13 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 	}
 	registry.RegisterTool(searchDef)
 
-	// Register login tool
-	loginAdapter := cli.NewMCPToolAdapter(loginTool)
+	// Register login tool with interactive prompting
+	loginInteractiveAdapter := cli.NewInteractiveLoginAdapter(loginTool)
 	loginDef := &cli.ToolDefinition{
 		Name:        "login",
 		Description: "Authenticate with Bluesky using handle and app password",
 		ArgsType:    &cli.LoginArgs{},
-		Execute:     loginAdapter.Execute,
+		Execute:     loginInteractiveAdapter.Execute,
 	}
 	registry.RegisterTool(loginDef)
 

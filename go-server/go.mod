@@ -1,6 +1,8 @@
 module github.com/oyin-bo/autoreply/go-server
 
-go 1.24
+go 1.24.0
+
+toolchain go1.24.7
 
 require (
 	github.com/bluesky-social/indigo v0.0.0-20250926122318-7bec8976937c
@@ -90,8 +92,8 @@ require (
 	go.uber.org/zap v1.26.0 // indirect
 	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
-	golang.org/x/sys v0.22.0 // indirect
-	golang.org/x/term v0.18.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/term v0.35.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect

@@ -15,8 +15,8 @@ type SearchArgs struct {
 
 // LoginArgs defines arguments for the login tool
 type LoginArgs struct {
-	Handle   string `json:"handle" jsonschema:"required,description=Bluesky handle (e.g. alice.bsky.social)" short:"u" long:"handle"`
-	Password string `json:"password" jsonschema:"required,description=App password (generated in Bluesky settings)" short:"p" long:"password"`
+	Handle   string `json:"handle,omitempty" jsonschema:"description=Bluesky handle (e.g. alice.bsky.social) (optional - will prompt if not provided)" short:"u" long:"handle"`
+	Password string `json:"password,omitempty" jsonschema:"description=App password (generated in Bluesky settings) (optional - will prompt if not provided)" short:"p" long:"password"`
 }
 
 // LogoutArgs defines arguments for the logout tool
