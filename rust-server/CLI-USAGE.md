@@ -97,7 +97,7 @@ Waiting for authorization...
 - Tokens revocable per-application
 - No password storage needed
 
-#### OAuth Browser Flow
+#### OAuth Browser Flow (Recommended for Desktop)
 
 Interactive OAuth with automatic browser opening:
 
@@ -105,7 +105,36 @@ Interactive OAuth with automatic browser opening:
 autoreply login --oauth --handle alice.bsky.social
 ```
 
-**Note:** Full browser flow implementation is in progress. For now, use `--device` for OAuth or app passwords.
+**Example workflow:**
+1. CLI starts local callback server on random port
+2. Browser opens automatically to authorization page
+3. You click "Authorize" on BlueSky
+4. Browser shows success page
+5. CLI receives tokens and completes login
+
+**Example output:**
+```
+Starting OAuth callback server on http://localhost:54321/callback
+Opened browser for authorization. Waiting for callback...
+
+Received authorization code, exchanging for tokens
+✓ Successfully authenticated as @alice.bsky.social
+  DID: did:plc:abc123...
+  Method: OAuth (browser)
+  Storage: OS keyring
+```
+
+**Advantages:**
+- Most user-friendly (one-click in browser)
+- Most secure OAuth flow (PKCE + CSRF protection)
+- Perfect for desktop environments
+- Tokens revocable per-application
+
+**Security features:**
+- PKCE S256 code challenge
+- State parameter validation
+- Localhost-only callback server
+- 5-minute authorization timeout
 
 #### App Password Authentication (Traditional)
 

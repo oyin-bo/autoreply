@@ -3,11 +3,17 @@
 ## [Unreleased]
 
 ### Added
-- **OAuth Authentication**: OAuth 2.0 authentication flows
+- **OAuth Authentication**: Complete OAuth 2.0 authentication flows
+  - OAuth Browser Flow (fully implemented) - interactive OAuth with PKCE and callback server
+    - PKCE S256 code challenge generation
+    - Local HTTP callback server (Axum-based)
+    - State parameter validation (CSRF protection)
+    - Automatic browser opening with manual fallback
+    - User-friendly authorization success/error pages
+    - 5-minute authorization timeout
   - OAuth Device Authorization Grant (fully implemented) - secure OAuth for headless/CLI environments
-  - OAuth Browser Flow (infrastructure in place) - interactive OAuth with browser redirect
   - CLI flags: `--device` for device flow, `--oauth` for browser flow
-  - Token polling and exchange for device flow
+  - Token polling and exchange for both flows
   - Support for multiple authentication methods in single CLI
 - **Authentication System**: Complete app password authentication implementation
   - App password authentication via AT Protocol `com.atproto.server.createSession`
@@ -16,17 +22,18 @@
   - Token refresh and lifecycle management (2h access token, 90d refresh token)
   - Multi-account support with default account selection
 - **CLI Commands**: Enhanced authentication commands
+  - `autoreply login --oauth` - OAuth browser flow (fully functional)
   - `autoreply login --device` - OAuth device flow for headless environments
-  - `autoreply login --oauth` - OAuth browser flow (placeholder)
   - `autoreply login` - App password authentication (default)
   - `autoreply logout` - Remove stored credentials
   - `autoreply accounts list` - List all authenticated accounts
   - `autoreply accounts default` - Set default account
 - **Documentation**: Comprehensive documentation for authentication
-  - `src/auth/README.md` - Authentication module documentation with OAuth examples
+  - `src/auth/README.md` - Authentication module documentation with complete OAuth examples
   - `CLI-USAGE.md` - Complete CLI usage guide with OAuth flows
   - `demo_auth.sh` - Interactive demonstration script
   - `docs/OAuth-Implementation-Plan.md` - OAuth implementation roadmap
+  - `docs/OAuth-Implementation-Summary.md` - Technical implementation details
 - **Tests**: 12 new unit tests for authentication components (112 total)
   - Credential serialization and storage tests
   - Session expiry and lifecycle tests
@@ -35,9 +42,9 @@
   - OAuth configuration and manager tests
 
 ### Changed
-- Updated `README.md` to document OAuth authentication features
+- Updated `README.md` to document complete OAuth authentication features
 - Enhanced error handling with new error types: `Authentication`, `ConfigError`, `ParseError`
-- Dependencies: Added `keyring`, `chrono`, `base64`, `atproto-oauth`, `atproto-client`, `atproto-identity`, `axum`, `webbrowser`, `rand` crates
+- Dependencies: Added `keyring`, `chrono`, `base64`, `atproto-oauth`, `atproto-client`, `atproto-identity`, `axum`, `webbrowser`, `rand`, `sha2`, `urlencoding` crates
 - Login command now supports three authentication methods with conflict detection
 
 ## [0.2.0] - 2024-09-30

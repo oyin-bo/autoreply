@@ -4,8 +4,8 @@ This module provides comprehensive authentication support for the BlueSky AT Pro
 
 ## Features
 
+- **OAuth Browser Flow**: Interactive OAuth with automatic browser redirect (✅ fully implemented)
 - **OAuth Device Flow**: Secure OAuth authentication for headless/CLI environments (✅ fully implemented)
-- **OAuth Browser Flow**: Interactive OAuth with browser redirect (⚠️ infrastructure in place, full implementation pending)
 - **App Password Authentication**: Uses `com.atproto.server.createSession` XRPC endpoint
 - **Credential Storage**: OS keyring (primary) with file fallback
 - **Token Management**: Automatic token refresh and expiry checking
@@ -47,16 +47,49 @@ The CLI will:
 - Tokens can be revoked per-application
 - No password storage needed
 
-### Login - OAuth Browser Flow
+### Login - OAuth Browser Flow (Recommended for Desktop)
 
 For interactive OAuth with automatic browser opening:
 
 ```bash
-# OAuth browser flow (infrastructure in place)
+# OAuth browser flow (fully functional!)
 autoreply login --oauth --handle alice.bsky.social
 ```
 
-**Note**: Full browser flow implementation is pending. Use `--device` for OAuth authentication.
+The CLI will:
+1. Start a local callback server on a random port
+2. Open your default browser to the authorization page
+3. Wait for you to approve (5-minute timeout)
+4. Automatically receive the callback and exchange for tokens
+5. Store tokens securely
+
+**Example:**
+```
+Starting OAuth callback server on http://localhost:54321/callback
+Opened browser for authorization. Waiting for callback...
+
+[Browser opens to BlueSky authorization page]
+[You click "Authorize"]
+[Browser shows: "Authorization Successful! You can close this window."]
+
+Received authorization code, exchanging for tokens
+✓ Successfully authenticated as @alice.bsky.social
+  DID: did:plc:abc123...
+  Method: OAuth (browser)
+  Storage: OS keyring
+```
+
+**Advantages:**
+- Most user-friendly (one-click authorization)
+- Most secure OAuth flow (PKCE + state validation)
+- Works on desktop environments
+- Tokens revocable per-application
+
+**Security:**
+- Uses PKCE (Proof Key for Code Exchange) S256 method
+- State parameter for CSRF protection
+- Localhost-only callback server
+- 5-minute authorization timeout
 
 ### Login - App Password (Traditional)
 
@@ -290,19 +323,19 @@ cargo test auth::storage::
 
 ### ✅ Fully Implemented
 - App password authentication
+- OAuth Browser Flow with PKCE and callback server
 - OAuth Device Authorization Grant
 - Secure credential storage (OS keyring + file fallback)
 - Multi-account management
 - Token management and refresh
-
-### ⚠️ Partial Implementation
-- OAuth Browser Flow (infrastructure in place, needs full callback server implementation)
-  - PKCE code challenge generation pending
-  - Local HTTP server for callback pending
-  - DPoP token binding pending
+- PKCE S256 code challenge generation
+- Local HTTP callback server (Axum-based)
+- State parameter validation (CSRF protection)
+- Automatic browser opening
+- User-friendly authorization pages
 
 ### 📋 Planned for Future Releases
-- Complete browser-based OAuth flow
+- DPoP token binding (advanced security feature)
 - Token rotation and automatic session management
 - MCP tool for authentication in server mode
 - Encrypted file storage option
