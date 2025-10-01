@@ -21,19 +21,23 @@ func main() {
 	// Create tools
 	profileTool := tools.NewProfileTool()
 	searchTool := tools.NewSearchTool()
+	loginTool, err := tools.NewLoginTool()
+	if err != nil {
+		log.Fatalf("Failed to create login tool: %v", err)
+	}
 
 	// Detect mode: CLI if args present, MCP server otherwise
 	if len(os.Args) > 1 {
 		// CLI Mode
-		runCLIMode(profileTool, searchTool)
+		runCLIMode(profileTool, searchTool, loginTool)
 	} else {
 		// MCP Server Mode
-		runMCPMode(cfg, profileTool, searchTool)
+		runMCPMode(cfg, profileTool, searchTool, loginTool)
 	}
 }
 
 // runCLIMode executes the tool in CLI mode
-func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
+func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool) {
 	// Create registry
 	registry := cli.NewRegistry()
 
@@ -57,10 +61,21 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
 	}
 	registry.RegisterTool(searchDef)
 
+	// Register login tool
+	loginAdapter := cli.NewMCPToolAdapter(loginTool)
+	loginDef := &cli.ToolDefinition{
+		Name:        "login",
+		Description: "Authenticate with Bluesky using handle and app password",
+		ArgsType:    &cli.LoginArgs{},
+		Execute:     loginAdapter.Execute,
+	}
+	registry.RegisterTool(loginDef)
+
 	// Create and run CLI runner
 	runner := cli.NewRunner(registry)
 	runner.RegisterToolCommand(profileDef)
 	runner.RegisterToolCommand(searchDef)
+	runner.RegisterToolCommand(loginDef)
 
 	ctx := context.Background()
 	if err := runner.Run(ctx, os.Args[1:]); err != nil {
@@ -69,7 +84,7 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
 }
 
 // runMCPMode starts the MCP server
-func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
+func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool) {
 	// Create MCP server
 	server, err := mcp.NewServer()
 	if err != nil {
@@ -79,6 +94,7 @@ func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *
 	// Register tools
 	server.RegisterTool("profile", profileTool)
 	server.RegisterTool("search", searchTool)
+	server.RegisterTool("login", loginTool)
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
