@@ -38,6 +38,11 @@ It operates in two modes:
 	// Add version flag
 	runner.rootCmd.Version = "0.1.0"
 	runner.rootCmd.SetVersionTemplate("autoreply version {{.Version}}\n")
+	
+	// Add authentication commands
+	for _, cmd := range CreateAuthCommands() {
+		runner.rootCmd.AddCommand(cmd)
+	}
 
 	return runner
 }
