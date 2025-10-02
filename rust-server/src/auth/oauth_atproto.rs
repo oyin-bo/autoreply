@@ -14,7 +14,102 @@
 use crate::auth::{AuthError, Session};
 use crate::error::AppError;
 use std::time::Duration;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use p256::ecdsa::SigningKey;
+use rand::rngs::OsRng;
+use base64::Engine;
+
+/// DPoP (Demonstrating Proof of Possession) key manager
+pub struct DPoPManager {
+    signing_key: SigningKey,
+    public_jwk: serde_json::Value,
+    nonce: Option<String>,
+}
+
+impl DPoPManager {
+    /// Create a new DPoP manager with a fresh ES256 keypair
+    pub fn new() -> Result<Self, AppError> {
+        let signing_key = SigningKey::random(&mut OsRng);
+        
+        // Extract public key in JWK format
+        let verifying_key = signing_key.verifying_key();
+        let encoded_point = verifying_key.to_encoded_point(false);
+        let x = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(encoded_point.x().ok_or_else(|| {
+            AppError::ParseError("Failed to get x coordinate".to_string())
+        })?);
+        let y = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(encoded_point.y().ok_or_else(|| {
+            AppError::ParseError("Failed to get y coordinate".to_string())
+        })?);
+        
+        let public_jwk = serde_json::json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": x,
+            "y": y,
+        });
+        
+        Ok(Self {
+            signing_key,
+            public_jwk,
+            nonce: None,
+        })
+    }
+    
+    /// Update the DPoP nonce from server response
+    pub fn set_nonce(&mut self, nonce: String) {
+        self.nonce = Some(nonce);
+    }
+    
+    /// Generate a DPoP proof JWT for a token endpoint request
+    pub fn create_proof(&self, http_method: &str, http_uri: &str) -> Result<String, AppError> {
+        use jsonwebtoken::{encode, Header, EncodingKey, Algorithm};
+        
+        // Generate random jti (JWT ID)
+        let jti = {
+            use rand::Rng;
+            let random_bytes: Vec<u8> = (0..16).map(|_| rand::thread_rng().gen()).collect();
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&random_bytes)
+        };
+        
+        #[derive(Serialize)]
+        struct DPoPClaims {
+            jti: String,
+            htm: String,
+            htu: String,
+            iat: i64,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            nonce: Option<String>,
+        }
+        
+        let claims = DPoPClaims {
+            jti,
+            htm: http_method.to_uppercase(),
+            htu: http_uri.to_string(),
+            iat: chrono::Utc::now().timestamp(),
+            nonce: self.nonce.clone(),
+        };
+        
+        // Create JWT header with embedded JWK
+        let mut header = Header::new(Algorithm::ES256);
+        header.typ = Some("dpop+jwt".to_string());
+        
+        // Convert serde_json::Value to jsonwebtoken::jwk::Jwk
+        let jwk_str = serde_json::to_string(&self.public_jwk)
+            .map_err(|e| AppError::ParseError(format!("Failed to serialize JWK: {}", e)))?;
+        let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_str(&jwk_str)
+            .map_err(|e| AppError::ParseError(format!("Failed to parse JWK: {}", e)))?;
+        header.jwk = Some(jwk);
+        
+        // Sign the JWT - use SEC1 encoding for EC keys
+        use p256::pkcs8::EncodePrivateKey;
+        let key_der = self.signing_key.to_pkcs8_der()
+            .map_err(|e| AppError::ParseError(format!("Failed to encode key: {}", e)))?;
+        let encoding_key = EncodingKey::from_ec_der(key_der.as_bytes());
+        
+        encode(&header, &claims, &encoding_key)
+            .map_err(|e| AppError::ParseError(format!("Failed to create DPoP proof: {}", e)))
+    }
+}
 
 /// OAuth client configuration for AT Protocol
 #[allow(dead_code)] // Fields used when configuring OAuth
@@ -30,9 +125,11 @@ pub struct AtProtoOAuthConfig {
 impl Default for AtProtoOAuthConfig {
     fn default() -> Self {
         Self {
-            // For CLI apps, we'll use localhost loopback pattern
+            // For development/CLI apps, use http://localhost per atproto OAuth spec
+            // This is a special exception for development that allows dynamic redirect_uri
+            // The redirect_uri will use 127.0.0.1 per RFC 8252 (set dynamically)
             client_id: "http://localhost".to_string(),
-            redirect_uri: "http://localhost/callback".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
             scope: "atproto transition:generic".to_string(),
         }
     }
@@ -87,6 +184,7 @@ pub struct TokenResponse {
 pub struct AtProtoOAuthManager {
     config: AtProtoOAuthConfig,
     client: reqwest::Client,
+    dpop: DPoPManager,
 }
 
 impl AtProtoOAuthManager {
@@ -98,7 +196,20 @@ impl AtProtoOAuthManager {
     /// Create OAuth manager with custom config
     pub fn with_config(config: AtProtoOAuthConfig) -> Result<Self, AppError> {
         let client = crate::http::client_with_timeout(Duration::from_secs(30));
-        Ok(Self { config, client })
+        let dpop = DPoPManager::new()?;
+        Ok(Self { config, client, dpop })
+    }
+    
+    /// Update redirect URI and scopes (used when callback server port is determined dynamically)
+    /// For localhost development clients, scopes must be passed as query parameters
+    pub fn set_redirect_uri(&mut self, redirect_uri: String) {
+        // For localhost development, we need to add scopes and redirect_uri as query params
+        self.config.client_id = format!(
+            "http://localhost?redirect_uri={}&scope={}",
+            urlencoding::encode(&redirect_uri),
+            urlencoding::encode(&self.config.scope)
+        );
+        self.config.redirect_uri = redirect_uri;
     }
     
     /// Resolve handle to DID using AT Protocol identity resolution
@@ -285,7 +396,7 @@ impl AtProtoOAuthManager {
     /// 2. Submit PAR (Pushed Authorization Request)
     /// 3. Get request_uri
     /// 4. Return authorization URL for browser
-    pub async fn start_browser_flow(&self, handle: &str) -> Result<BrowserFlowState, AppError> {
+    pub async fn start_browser_flow(&mut self, handle: &str) -> Result<BrowserFlowState, AppError> {
         tracing::info!("Starting atproto OAuth flow for handle: {}", handle);
         
         // Step 1: Resolve handle to DID
@@ -334,9 +445,9 @@ impl AtProtoOAuthManager {
         })
     }
     
-    /// Submit PAR (Pushed Authorization Request)
+    /// Submit PAR (Pushed Authorization Request) with DPoP
     async fn submit_par(
-        &self,
+        &mut self,
         par_endpoint: &str,
         code_challenge: &str,
         state: &str,
@@ -351,15 +462,54 @@ impl AtProtoOAuthManager {
             ("scope", &self.config.scope),
         ];
         
+        // Create DPoP proof for PAR request
+        let dpop_proof = self.dpop.create_proof("POST", par_endpoint)?;
+        
         let response = self.client
             .post(par_endpoint)
+            .header("DPoP", dpop_proof)
             .form(&params)
             .send()
             .await
             .map_err(|e| AppError::NetworkError(format!("PAR request failed: {}", e)))?;
         
+        // Extract and store DPoP nonce if present
+        if let Some(nonce) = response.headers().get("dpop-nonce") {
+            if let Ok(nonce_str) = nonce.to_str() {
+                self.dpop.set_nonce(nonce_str.to_string());
+            }
+        }
+        
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            
+            // Check if we need to retry with nonce
+            if error_text.contains("use_dpop_nonce") {
+                // Retry with the nonce we just received
+                let dpop_proof = self.dpop.create_proof("POST", par_endpoint)?;
+                let retry_response = self.client
+                    .post(par_endpoint)
+                    .header("DPoP", dpop_proof)
+                    .form(&params)
+                    .send()
+                    .await
+                    .map_err(|e| AppError::NetworkError(format!("PAR retry failed: {}", e)))?;
+                
+                if !retry_response.status().is_success() {
+                    let retry_error = retry_response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                    return Err(AuthError::AuthenticationFailed(format!(
+                        "PAR failed after retry: {}", retry_error
+                    )).into());
+                }
+                
+                let par_response: PARResponse = retry_response
+                    .json()
+                    .await
+                    .map_err(|e| AppError::ParseError(format!("Failed to parse PAR response: {}", e)))?;
+                
+                return Ok(par_response);
+            }
+            
             return Err(AuthError::AuthenticationFailed(format!(
                 "PAR failed: {}", error_text
             )).into());
@@ -373,9 +523,9 @@ impl AtProtoOAuthManager {
         Ok(par_response)
     }
     
-    /// Exchange authorization code for tokens
+    /// Exchange authorization code for tokens with DPoP
     pub async fn exchange_code(
-        &self,
+        &mut self,
         code: &str,
         code_verifier: &str,
         token_endpoint: &str,
@@ -388,15 +538,56 @@ impl AtProtoOAuthManager {
             ("code_verifier", code_verifier),
         ];
         
+        // Create DPoP proof for token request
+        let dpop_proof = self.dpop.create_proof("POST", token_endpoint)?;
+        
         let response = self.client
             .post(token_endpoint)
+            .header("DPoP", dpop_proof)
             .form(&params)
             .send()
             .await
             .map_err(|e| AppError::NetworkError(format!("Token exchange failed: {}", e)))?;
         
+        // Extract and store DPoP nonce if present
+        if let Some(nonce) = response.headers().get("dpop-nonce") {
+            if let Ok(nonce_str) = nonce.to_str() {
+                self.dpop.set_nonce(nonce_str.to_string());
+            }
+        }
+        
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            
+            // Check if we need to retry with nonce
+            if error_text.contains("use_dpop_nonce") || error_text.contains("invalid_dpop_proof") {
+                tracing::debug!("Retrying token exchange with DPoP nonce");
+                
+                // Retry with the nonce we just received
+                let dpop_proof = self.dpop.create_proof("POST", token_endpoint)?;
+                let retry_response = self.client
+                    .post(token_endpoint)
+                    .header("DPoP", dpop_proof)
+                    .form(&params)
+                    .send()
+                    .await
+                    .map_err(|e| AppError::NetworkError(format!("Token exchange retry failed: {}", e)))?;
+                
+                if !retry_response.status().is_success() {
+                    let retry_error = retry_response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                    return Err(AuthError::AuthenticationFailed(format!(
+                        "Token exchange failed after retry: {}", retry_error
+                    )).into());
+                }
+                
+                let token_response: TokenResponse = retry_response
+                    .json()
+                    .await
+                    .map_err(|e| AppError::ParseError(format!("Failed to parse token response: {}", e)))?;
+                
+                return Ok(token_response);
+            }
+            
             return Err(AuthError::AuthenticationFailed(format!(
                 "Token exchange failed: {}", error_text
             )).into());
@@ -412,7 +603,7 @@ impl AtProtoOAuthManager {
     
     /// Complete the OAuth flow and create a session
     pub async fn complete_flow(
-        &self,
+        &mut self,
         code: &str,
         state: &BrowserFlowState,
     ) -> Result<Session, AppError> {

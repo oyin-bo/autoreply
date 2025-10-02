@@ -65,7 +65,7 @@ impl CallbackServer {
     
     /// Get the callback URL
     pub fn callback_url(&self) -> String {
-        format!("http://localhost:{}/callback", self.port)
+        format!("http://127.0.0.1:{}/callback", self.port)
     }
     
     /// Start the server and wait for a callback

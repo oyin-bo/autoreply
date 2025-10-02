@@ -73,6 +73,8 @@ webbrowser = "1.0"
 rand = "0.8"
 sha2 = "0.10"
 urlencoding = "2.1"
+jsonwebtoken = "9.3"
+p256 = { version = "0.13", features = ["ecdsa"] }
 
 [dev-dependencies]
 tempfile = "3.23"

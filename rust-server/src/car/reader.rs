@@ -309,8 +309,7 @@ impl Iterator for CarRecords {
                 self.processed_count += 1;
                 
                 // Try to decode CBOR and check if it's an AT Protocol record
-                if let Ok(cbor_value) = serde_cbor::from_slice::<serde_cbor::Value>(&entry.bytes) {
-                    if let serde_cbor::Value::Map(ref cbor_map) = cbor_value {
+                if let Ok(serde_cbor::Value::Map(ref cbor_map)) = serde_cbor::from_slice::<serde_cbor::Value>(&entry.bytes) {
                         // Look for $type field to identify AT Protocol records
                         for (key, value) in cbor_map.iter() {
                             if let serde_cbor::Value::Text(key_str) = key {
@@ -322,7 +321,6 @@ impl Iterator for CarRecords {
                                 }
                             }
                         }
-                    }
                 }
                 // This CAR block wasn't an AT Protocol record, continue to next
             }

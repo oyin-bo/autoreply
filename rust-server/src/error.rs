@@ -118,8 +118,8 @@ pub fn validate_account(account: &str) -> Result<(), AppError> {
     }
 
     // Check if it's a DID
-    if account.starts_with("did:plc:") {
-        if account.len() != 32 || !account[8..].chars().all(|c| c.is_ascii_alphanumeric()) {
+    if let Some(stripped) = account.strip_prefix("did:plc:") {
+        if account.len() != 32 || !stripped.chars().all(|c| c.is_ascii_alphanumeric()) {
             return Err(AppError::InvalidInput("Invalid DID format".to_string()));
         }
         return Ok(());
@@ -354,7 +354,7 @@ mod tests {
         ];
         
         for query in valid_queries {
-            assert!(validate_query(&query).is_ok());
+            assert!(validate_query(query).is_ok());
         }
     }
 

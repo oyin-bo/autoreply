@@ -161,16 +161,17 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         
         use auth::{AtProtoOAuthManager, CallbackServer, CallbackResult};
         
-        // Create OAuth manager
-        let oauth_manager = AtProtoOAuthManager::new()?;
+        // Start local callback server first to get the port
+        let callback_server = CallbackServer::new()
+            .map_err(|e| anyhow::anyhow!("Failed to start callback server: {}", e))?;
+        
+        // Create OAuth manager and set the dynamic redirect_uri
+        let mut oauth_manager = AtProtoOAuthManager::new()?;
+        oauth_manager.set_redirect_uri(callback_server.callback_url());
         
         // Start the flow - this does identity resolution and PAR
         info!("Resolving handle and discovering authorization server...");
         let flow_state = oauth_manager.start_browser_flow(&handle).await?;
-        
-        // Start local callback server
-        let callback_server = CallbackServer::new()
-            .map_err(|e| anyhow::anyhow!("Failed to start callback server: {}", e))?;
         
         info!("OAuth callback server started on {}", callback_server.callback_url());
         info!("Authorization URL: {}", flow_state.auth_url);
