@@ -5,11 +5,10 @@ This module provides comprehensive authentication support for the BlueSky AT Pro
 ## Features
 
 - **OAuth Browser Flow**: Interactive OAuth with automatic browser redirect (✅ fully implemented)
-- **OAuth Device Flow**: Secure OAuth authentication for headless/CLI environments (✅ fully implemented)
-- **App Password Authentication**: Uses `com.atproto.server.createSession` XRPC endpoint
-- **Credential Storage**: OS keyring (primary) with file fallback
-- **Token Management**: Automatic token refresh and expiry checking
-- **Multi-Account Support**: Store and manage multiple accounts with default selection
+- **App Password Authentication**: Uses `com.atproto.server.createSession` XRPC endpoint (✅ fully implemented)
+- **Credential Storage**: OS keyring (primary) with file fallback (✅ fully implemented)
+- **Token Management**: Automatic token refresh and expiry checking (✅ fully implemented)
+- **Multi-Account Support**: Store and manage multiple accounts with default selection (✅ fully implemented)
 
 ## Storage Backends
 
@@ -25,27 +24,6 @@ The module automatically selects the best available storage backend:
    - Permissions: Set to 0600 (user-only read/write)
 
 ## CLI Usage
-
-### Login - OAuth Device Flow (Recommended for CLI)
-
-For secure OAuth authentication without requiring a browser on the same device:
-
-```bash
-# OAuth device flow (fully functional)
-autoreply login --device --handle alice.bsky.social
-```
-
-The CLI will:
-1. Display a verification URL to visit on any device
-2. Show a user code to enter
-3. Poll for authorization while you complete the flow
-4. Automatically store tokens when authorized
-
-**Advantages:**
-- More secure than app passwords
-- Works in headless/remote environments
-- Tokens can be revoked per-application
-- No password storage needed
 
 ### Login - OAuth Browser Flow (Recommended for Desktop)
 
@@ -324,7 +302,6 @@ cargo test auth::storage::
 ### ✅ Fully Implemented
 - App password authentication
 - OAuth Browser Flow with PKCE and callback server
-- OAuth Device Authorization Grant
 - Secure credential storage (OS keyring + file fallback)
 - Multi-account management
 - Token management and refresh
@@ -335,8 +312,8 @@ cargo test auth::storage::
 - User-friendly authorization pages
 
 ### 📋 Planned for Future Releases
+- OAuth Device Flow (not yet in AT Protocol OAuth spec)
 - DPoP token binding (advanced security feature)
 - Token rotation and automatic session management
 - MCP tool for authentication in server mode
 - Encrypted file storage option
-- OAuth token refresh flows
