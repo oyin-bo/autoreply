@@ -12,12 +12,14 @@ pub mod session;
 pub mod storage;
 pub mod oauth;
 pub mod oauth_atproto;
+pub mod callback_server;
 
 pub use credentials::Credentials;
 pub use session::{Session, SessionManager};
 pub use storage::{CredentialStorage, StorageBackend};
 pub use oauth::{OAuthManager, OAuthConfig};
 pub use oauth_atproto::{AtProtoOAuthManager, AtProtoOAuthConfig, BrowserFlowState};
+pub use callback_server::{CallbackServer, CallbackResult};
 
 use crate::error::AppError;
 

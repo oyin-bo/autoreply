@@ -151,37 +151,67 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
     
     // Determine authentication method
     let session = if args.device {
-        // OAuth device flow
-        info!("Starting OAuth device flow...");
-        
-        let oauth_config = if let Some(service) = args.service {
-            OAuthConfig {
-                client_id: "autoreply-cli".to_string(),
-                redirect_uri: None,
-                service,
-            }
-        } else {
-            OAuthConfig::default()
-        };
-        
-        let oauth_manager = OAuthManager::new(oauth_config)?;
-        oauth_manager.device_flow_login(&handle).await?
+        // Device flow is not supported in atproto OAuth spec
+        return Err(anyhow::anyhow!(
+            "Device flow is not supported in atproto OAuth specification.\n\
+             Use --oauth for browser-based OAuth, or app passwords (default)."
+        ));
     } else if args.oauth {
-        // OAuth browser flow
-        info!("Starting OAuth browser flow...");
+        // OAuth browser flow with proper atproto identity resolution
+        info!("Starting atproto OAuth browser flow...");
         
-        let oauth_config = if let Some(service) = args.service {
-            OAuthConfig {
-                client_id: "autoreply-cli".to_string(),
-                redirect_uri: None,
-                service,
-            }
+        use auth::{AtProtoOAuthManager, AtProtoOAuthConfig, CallbackServer, CallbackResult};
+        
+        // Create OAuth manager
+        let oauth_manager = AtProtoOAuthManager::new()?;
+        
+        // Start the flow - this does identity resolution and PAR
+        info!("Resolving handle and discovering authorization server...");
+        let flow_state = oauth_manager.start_browser_flow(&handle).await?;
+        
+        // Start local callback server
+        let callback_server = CallbackServer::new()
+            .map_err(|e| anyhow::anyhow!("Failed to start callback server: {}", e))?;
+        
+        info!("OAuth callback server started on {}", callback_server.callback_url());
+        info!("Authorization URL: {}", flow_state.auth_url);
+        
+        // Open browser
+        if webbrowser::open(&flow_state.auth_url).is_ok() {
+            info!("Opened browser for authorization");
         } else {
-            OAuthConfig::default()
-        };
+            eprintln!("\nPlease visit this URL in your browser:");
+            eprintln!("{}\n", flow_state.auth_url);
+        }
         
-        let oauth_manager = OAuthManager::new(oauth_config)?;
-        oauth_manager.browser_flow_login(&handle).await?
+        // Wait for callback (5 minute timeout)
+        info!("Waiting for authorization callback...");
+        let callback_result = callback_server
+            .wait_for_callback(std::time::Duration::from_secs(300))
+            .await
+            .map_err(|e| anyhow::anyhow!("OAuth callback failed: {}", e))?;
+        
+        // Handle callback result
+        match callback_result {
+            CallbackResult::Success { code, state } => {
+                // Verify state matches
+                if state != flow_state.state {
+                    return Err(anyhow::anyhow!("State parameter mismatch - possible CSRF attack"));
+                }
+                
+                info!("Authorization successful, exchanging code for tokens...");
+                
+                // Exchange code for tokens
+                let session = oauth_manager.complete_flow(&code, &flow_state).await?;
+                
+                info!("OAuth authentication successful!");
+                session
+            }
+            CallbackResult::Error { error, description } => {
+                let desc = description.unwrap_or_else(|| "No description provided".to_string());
+                return Err(anyhow::anyhow!("OAuth authorization failed: {} - {}", error, desc));
+            }
+        }
     } else {
         // App password authentication (default)
         let password = if let Some(p) = args.password {
