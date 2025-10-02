@@ -2,6 +2,38 @@
 
 This document provides research findings and implementation guidance for authentication in the autoreply MCP servers (Go and Rust).
 
+## Current Implementation Status
+
+✅ **Unified Login Command**: The `login` command now supports both OAuth 2.0 and app password authentication with automatic fallback.
+
+### Go Server Implementation
+
+The Go server (`go-server/`) has a fully functional unified login system:
+
+- **OAuth 2.0 by default**: When you run `login`, it attempts OAuth authentication first
+- **Automatic fallback**: If OAuth fails in interactive mode, prompts to try app password instead
+- **App password direct**: Use the `-p` or `--password` flag to skip OAuth and go directly to app password mode
+  - `autoreply login -u alice.bsky.social -p` - prompts for password
+  - `autoreply login -u alice.bsky.social -p mypassword` - uses provided password
+- **Interactive mode**: When run without arguments, prompts for handle, tries OAuth, falls back to app password on failure
+- **Device Authorization**: Removed (not fully implemented in AT Protocol OAuth infrastructure)
+
+### Command Line Usage
+
+```bash
+# OAuth login (default - opens browser, automatic fallback on failure)
+autoreply login -u alice.bsky.social
+
+# App password login (skips OAuth, prompts for password)
+autoreply login -u alice.bsky.social -p
+
+# App password with inline password (least secure)
+autoreply login -u alice.bsky.social -p your-app-password
+
+# Interactive mode - tries OAuth first, prompts for app password if OAuth fails
+autoreply login
+```
+
 ## Authentication Methods
 
 BlueSky AT Protocol supports three authentication approaches:
@@ -22,6 +54,8 @@ AT Protocol OAuth extends standard OAuth 2.0 with:
 
 ### Device Authorization Grant
 
+**Status:** Not implemented. Removed from Go server due to incomplete AT Protocol OAuth infrastructure support.
+
 **Best for:** Headless environments (remote servers, CI/CD, agents without browsers)
 
 User visits verification URL on another device and enters code displayed by CLI.
@@ -29,7 +63,7 @@ User visits verification URL on another device and enters code displayed by CLI.
 **Flow:** Request device code → display verification URL and code → poll for authorization → receive tokens
 
 **Advantages:** Works without browser on target device, good UX for CLI tools
-**Considerations:** Requires user to switch devices
+**Considerations:** Requires AT Protocol OAuth server support for device authorization endpoint (not widely available yet)
 
 ### App-Specific Passwords (Fallback)
 
@@ -109,11 +143,42 @@ Run local HTTP server for OAuth callbacks. Better for browser-based flows.
 
 ### CLI Commands
 
-Provide standalone commands independent of MCP:
-- `autoreply login [--handle <handle>]` - Authenticate (prompt for method)
-- `autoreply logout [--handle <handle>]` - Remove credentials
-- `autoreply accounts list` - Show authenticated accounts
-- `autoreply accounts default <handle>` - Set default account
+The unified `login` command handles both OAuth and app password authentication:
+
+```bash
+# OAuth authentication (default - opens browser)
+autoreply login -u alice.bsky.social
+
+# App password authentication (use -p flag)
+autoreply login -u alice.bsky.social -p          # prompts for password
+autoreply login -u alice.bsky.social -p mypass   # inline password
+
+# Interactive mode (prompts for method choice)
+autoreply login
+
+# Other account management
+autoreply logout [--handle <handle>]             # Remove credentials
+autoreply accounts list                          # Show authenticated accounts  
+autoreply accounts --action set-default -u <handle>  # Set default account
+```
+
+### MCP Tool Usage
+
+When used as an MCP tool, the `login` tool accepts:
+
+- `handle` (required): Bluesky handle (e.g., alice.bsky.social)
+- `password` (optional): If present (even empty string), forces app password mode and prompts for password if empty
+- `port` (optional): Local callback server port for OAuth (default: 8080)
+
+**OAuth mode**: Omit the `password` parameter entirely
+```json
+{"handle": "alice.bsky.social"}
+```
+
+**App password mode**: Include the `password` parameter
+```json
+{"handle": "alice.bsky.social", "password": "your-app-password"}
+```
 
 ### Multi-Account Support
 
