@@ -5,10 +5,12 @@ use keyring::Entry;
 const SERVICE_NAME: &str = "autoreply-mcp";
 
 /// KeyringBackend provides OS keyring storage for credentials
+#[allow(dead_code)] // Used in external modules
 pub struct KeyringBackend {
     service_name: String,
 }
 
+#[allow(dead_code)] // Methods used in external modules
 impl KeyringBackend {
     /// Create a new keyring backend
     pub fn new() -> Self {

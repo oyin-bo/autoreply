@@ -3,6 +3,7 @@ use super::keyring::KeyringBackend;
 use super::types::{Account, Config, Credentials};
 use anyhow::{Context, Result};
 use std::sync::RwLock;
+#[allow(unused_imports)] // Used for timestamp operations
 use std::time::SystemTime;
 
 /// CredentialManager manages authentication credentials for multiple accounts
@@ -11,6 +12,7 @@ pub struct CredentialManager {
     config: RwLock<Config>,
 }
 
+#[allow(dead_code)] // Methods used in external modules
 impl CredentialManager {
     /// Create a new credential manager
     pub fn new() -> Result<Self> {

@@ -238,7 +238,7 @@ async fn execute_use_cli(args: cli::UseArgs) -> Result<String> {
 
 /// Format a Unix timestamp as a readable string
 fn format_timestamp(secs: u64) -> String {
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, UNIX_EPOCH};
     
     let dt = UNIX_EPOCH + Duration::from_secs(secs);
     // Simple formatting - in a real app you'd use chrono

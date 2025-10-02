@@ -13,6 +13,7 @@ pub struct Credentials {
 
 impl Credentials {
     /// Check if credentials need to be refreshed
+    #[allow(dead_code)] // Used in token lifecycle management
     pub fn needs_refresh(&self, threshold_minutes: u64) -> bool {
         let threshold = Duration::from_secs(threshold_minutes * 60);
         match self.expires_at.duration_since(SystemTime::now()) {

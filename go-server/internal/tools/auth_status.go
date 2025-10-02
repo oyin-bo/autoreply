@@ -115,7 +115,7 @@ func (t *AuthStatusTool) Call(ctx context.Context, args map[string]interface{}) 
 	}
 	
 	return &mcp.ToolResult{
-		Content: []mcp.Content{
+		Content: []mcp.ContentItem{
 			{
 				Type: "text",
 				Text: text,

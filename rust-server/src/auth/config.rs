@@ -4,6 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Get the path to the authentication configuration file
+#[allow(dead_code)] // Used in external modules
 pub fn config_path() -> Result<PathBuf> {
     let config_dir = dirs::config_dir()
         .context("Cannot determine config directory")?;
