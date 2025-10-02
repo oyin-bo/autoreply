@@ -32,7 +32,7 @@ func GenerateDPoPKey() (*DPoPKey, error) {
 }
 
 // CreateDPoPProof creates a DPoP proof JWT for a request
-func (k *DPoPKey) CreateDPoPProof(htm, htu string, accessToken string) (string, error) {
+func (k *DPoPKey) CreateDPoPProof(htm, htu string, accessToken string, nonce string) (string, error) {
 	// Create JWK thumbprint
 	jwk := map[string]interface{}{
 		"kty": "EC",
@@ -54,6 +54,11 @@ func (k *DPoPKey) CreateDPoPProof(htm, htu string, accessToken string) (string, 
 		"htu": htu,
 		"jti": generateJTI(),
 		"iat": time.Now().Unix(),
+	}
+
+	// Add server nonce if provided
+	if nonce != "" {
+		payload["nonce"] = nonce
 	}
 
 	// Add access token hash if provided
