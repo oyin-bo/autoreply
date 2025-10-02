@@ -106,9 +106,9 @@ func (t *OAuthLoginTool) Call(ctx context.Context, args map[string]interface{}) 
 
 	// Setup OAuth config with localhost development client
 	// Per AT Protocol OAuth spec, use http://localhost with redirect_uri in query param
-	clientID := fmt.Sprintf("http://localhost?redirect_uri=%s&scope=atproto%%20transition:generic", 
+	clientID := fmt.Sprintf("http://localhost?redirect_uri=%s&scope=atproto%%20transition:generic",
 		url.QueryEscape(redirectURI))
-	
+
 	config := &auth.OAuthConfig{
 		ClientID:       clientID,
 		RedirectURI:    redirectURI,
@@ -161,7 +161,7 @@ func (t *OAuthLoginTool) Call(ctx context.Context, args map[string]interface{}) 
 		}, nil
 	}
 	defer callbackServer.Stop(ctx)
-	
+
 	result := fmt.Sprintf(`
 OAuth Login Initiated
 

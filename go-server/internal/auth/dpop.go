@@ -36,13 +36,13 @@ func (k *DPoPKey) CreateDPoPProof(htm, htu string, accessToken string, nonce str
 	// Create JWK with properly padded coordinates (32 bytes for P-256)
 	xBytes := k.PublicKey.X.Bytes()
 	yBytes := k.PublicKey.Y.Bytes()
-	
+
 	// Pad to 32 bytes if needed
 	xPadded := make([]byte, 32)
 	yPadded := make([]byte, 32)
 	copy(xPadded[32-len(xBytes):], xBytes)
 	copy(yPadded[32-len(yBytes):], yBytes)
-	
+
 	jwk := map[string]interface{}{
 		"kty": "EC",
 		"crv": "P-256",
@@ -104,11 +104,11 @@ func (k *DPoPKey) CreateDPoPProof(htm, htu string, accessToken string, nonce str
 	signature := make([]byte, 64)
 	rBytes := r.Bytes()
 	sBytes := s.Bytes()
-	
+
 	// Pad r and s to 32 bytes if needed
 	copy(signature[32-len(rBytes):32], rBytes)
 	copy(signature[64-len(sBytes):64], sBytes)
-	
+
 	signatureB64 := base64.RawURLEncoding.EncodeToString(signature)
 
 	// Create JWT
@@ -129,12 +129,12 @@ func (k *DPoPKey) JWKThumbprint() (string, error) {
 	// Pad coordinates to 32 bytes for P-256
 	xBytes := k.PublicKey.X.Bytes()
 	yBytes := k.PublicKey.Y.Bytes()
-	
+
 	xPadded := make([]byte, 32)
 	yPadded := make([]byte, 32)
 	copy(xPadded[32-len(xBytes):], xBytes)
 	copy(yPadded[32-len(yBytes):], yBytes)
-	
+
 	jwk := map[string]interface{}{
 		"crv": "P-256",
 		"kty": "EC",

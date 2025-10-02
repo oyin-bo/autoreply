@@ -13,10 +13,10 @@ import (
 
 // DIDDocument represents a simplified DID document
 type DIDDocument struct {
-	Context []string               `json:"@context"`
-	ID      string                 `json:"id"`
-	Service []DIDServiceEndpoint   `json:"service,omitempty"`
-	AlsoKnownAs []string            `json:"alsoKnownAs,omitempty"`
+	Context     []string             `json:"@context"`
+	ID          string               `json:"id"`
+	Service     []DIDServiceEndpoint `json:"service,omitempty"`
+	AlsoKnownAs []string             `json:"alsoKnownAs,omitempty"`
 }
 
 // DIDServiceEndpoint represents a service endpoint in a DID document
@@ -60,11 +60,11 @@ func resolveHandleXRPC(ctx context.Context, handle string) (string, error) {
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	
+
 	var lastErr error
 	for _, endpoint := range endpoints {
 		url := fmt.Sprintf("%s?handle=%s", endpoint, handle)
-		
+
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			lastErr = err
@@ -78,7 +78,7 @@ func resolveHandleXRPC(ctx context.Context, handle string) (string, error) {
 			lastErr = err
 			continue
 		}
-		
+
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
 			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, endpoint)
@@ -90,7 +90,7 @@ func resolveHandleXRPC(ctx context.Context, handle string) (string, error) {
 		}
 		err = json.NewDecoder(resp.Body).Decode(&result)
 		resp.Body.Close()
-		
+
 		if err != nil {
 			lastErr = err
 			continue
@@ -274,4 +274,3 @@ func ExtractHandleFromDID(doc *DIDDocument) string {
 	}
 	return ""
 }
-

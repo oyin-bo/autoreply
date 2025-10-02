@@ -67,7 +67,7 @@ func (s *CallbackServer) Start() error {
 	go func() {
 		// Signal that server is ready
 		close(s.readyChan)
-		
+
 		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			// Send error to result channel
 			select {
