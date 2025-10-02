@@ -149,13 +149,7 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
     }
     
     // Determine authentication method
-    let session = if args.device {
-        // Device flow is not supported in atproto OAuth spec
-        return Err(anyhow::anyhow!(
-            "Device flow is not supported in atproto OAuth specification.\n\
-             Use --oauth for browser-based OAuth, or app passwords (default)."
-        ));
-    } else if args.oauth {
+    let session = if args.oauth {
         // OAuth browser flow with proper atproto identity resolution
         info!("Starting atproto OAuth browser flow...");
         
@@ -266,9 +260,7 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         storage.set_default_account(&handle)?;
     }
     
-    let auth_method = if args.device {
-        "OAuth (device flow)"
-    } else if args.oauth {
+    let auth_method = if args.oauth {
         "OAuth (browser)"
     } else {
         "app password"

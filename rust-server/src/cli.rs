@@ -82,12 +82,8 @@ pub struct LoginArgs {
     pub service: Option<String>,
     
     /// Use OAuth with browser redirect
-    #[arg(long, conflicts_with_all = ["password", "device"])]
+    #[arg(long, conflicts_with = "password")]
     pub oauth: bool,
-    
-    /// Use OAuth device flow (for headless environments)
-    #[arg(long, conflicts_with_all = ["password", "oauth"])]
-    pub device: bool,
 }
 
 /// Logout command arguments
