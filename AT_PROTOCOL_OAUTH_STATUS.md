@@ -1,70 +1,157 @@
-# AT Protocol OAuth Status
+# AT Protocol OAuth Implementation Status
 
-## Current Situation
+## IMPORTANT UPDATE: Implementation Now Follows AT Protocol Spec
 
-As of October 2024, **AT Protocol OAuth is not yet fully deployed** on all Bluesky PDS (Personal Data Server) instances. This means that while the OAuth implementation in this codebase is complete and functional, it may not work with all Bluesky accounts yet.
+As of the latest commit, the OAuth implementation has been corrected to follow the proper AT Protocol OAuth specification.
 
-## Error You Might See
+## What Changed
 
-When trying to use OAuth authentication, you may see:
+The implementation now correctly implements the AT Protocol OAuth discovery flow:
 
-```
-⏳ Discovering OAuth server metadata...
-```
+1. **Protected Resource Discovery** (Step 1)
+   - Queries `/.well-known/oauth-protected-resource` on the PDS
+   - Retrieves the list of authorization servers
+   
+2. **Authorization Server Discovery** (Step 2)
+   - Queries `/.well-known/oauth-authorization-server` on the authorization server
+   - Retrieves the OAuth server metadata
 
-And then the program hangs or times out. This happens because the PDS server does not yet support the OAuth metadata endpoint (`/.well-known/oauth-authorization-server`).
+Previously, the implementation incorrectly tried to get metadata directly from the PDS at `/.well-known/oauth-authorization-server`, which is not correct per the AT Protocol spec.
 
-## Recommended Authentication Method
+## Current Implementation Status
 
-**Use app passwords instead:**
+### What IS Implemented ✅
 
+1. **DPoP (Demonstrating Proof of Possession)** - Complete
+   - ES256 key pair generation
+   - DPoP JWT creation with all required claims (jti, htm, htu, iat, jwk)
+   - JWK thumbprint calculation
+   - Access token hash (ath) for authenticated requests
+   - Key persistence (PEM format)
+
+2. **PKCE (Proof Key for Code Exchange)** - Complete
+   - Code verifier generation (43-character cryptographically random string)
+   - S256 code challenge calculation
+   - Secure verifier storage and retrieval
+
+3. **OAuth Metadata Discovery** - Now Correct ✅
+   - Protected resource metadata discovery from PDS
+   - Authorization server discovery
+   - Full metadata parsing
+   - Proper timeout handling
+
+4. **PAR (Pushed Authorization Request)** - Complete
+   - PAR endpoint request with DPoP proof
+   - Request URI reception
+   - Parameter encoding per spec
+
+5. **Authorization Code Flow** - Complete
+   - Local callback server (port 8080)
+   - Browser opening
+   - Authorization code reception
+   - State parameter validation
+
+6. **Token Exchange** - Complete
+   - Authorization code to token exchange
+   - DPoP-bound token requests
+   - DPoP nonce retry logic
+   - Refresh token support
+
+7. **Authenticated Requests** - Complete
+   - DPoP-bound API requests
+   - Access token hash (ath) inclusion
+   - Proper Authorization header format
+
+### What is NOT Implemented ❌
+
+1. **Client Metadata Document** - Not Implemented
+   - The implementation does NOT publish a client metadata JSON document on the public web
+   - The `client_id` is currently hardcoded as "autoreply-mcp-client" instead of being an HTTPS URL
+   - This is REQUIRED by the AT Protocol OAuth spec
+   - **Impact**: The OAuth flow will fail because the authorization server cannot fetch client metadata
+
+2. **Proper Client ID** - Not Implemented
+   - Client ID must be a fully-qualified HTTPS URL pointing to the client metadata document
+   - Current implementation uses a string identifier instead
+
+3. **Scopes** - Incomplete
+   - Implementation requests generic scopes but not specific AT Protocol scopes
+   - Should request `atproto` and `transition:generic` scopes
+
+## Why OAuth Doesn't Work Right Now
+
+The OAuth implementation will FAIL because:
+
+1. **No Client Metadata**: The authorization server expects to fetch client metadata from the `client_id` URL, but there's no publicly hosted metadata document
+
+2. **Invalid Client ID**: Using "autoreply-mcp-client" instead of an HTTPS URL violates the spec
+
+3. **PDS May Not Have OAuth**: Even with proper metadata, many PDS instances don't have OAuth enabled yet
+
+## What Needs to Be Done
+
+To make OAuth functional:
+
+### Option 1: For End Users (Recommended)
+Use app passwords - they work reliably:
 ```bash
 ./autoreply login --method password --handle your.handle.bsky.social
 ```
 
-App passwords work with all Bluesky accounts and are currently the most reliable authentication method.
+### Option 2: For Developers (To Make OAuth Work)
 
-### How to Create an App Password
+1. **Host Client Metadata**
+   - Create a web server or use GitHub Pages to host `client-metadata.json`
+   - Include all required fields per AT Protocol spec
+   - Make it accessible via HTTPS
 
-1. Go to https://bsky.app/settings/app-passwords
-2. Click "Add App Password"
-3. Give it a name (e.g., "autoreply-cli")
-4. Copy the generated password
-5. Use it when prompted by the login command
+2. **Update Client ID**
+   - Change `client_id` from "autoreply-mcp-client" to the full HTTPS URL of the metadata document
+   - Example: `https://autoreply.example.com/oauth/client-metadata.json`
 
-## When Will OAuth Work?
-
-OAuth authentication will work once:
-
-1. Bluesky/AT Protocol rolls out OAuth support to all PDS servers
-2. Your specific PDS instance has been updated to support OAuth
-3. The OAuth metadata endpoint becomes available at your PDS
-
-You can test if your PDS supports OAuth by checking:
-```bash
-curl https://YOUR_PDS_URL/.well-known/oauth-authorization-server
+3. **Example Client Metadata** (what needs to be hosted):
+```json
+{
+  "client_id": "https://autoreply.example.com/oauth/client-metadata.json",
+  "application_type": "native",
+  "client_name": "Autoreply MCP CLI",
+  "dpop_bound_access_tokens": true,
+  "grant_types": ["authorization_code", "refresh_token"],
+  "redirect_uris": ["http://127.0.0.1:8080/callback"],
+  "response_types": ["code"],
+  "scope": "atproto transition:generic",
+  "token_endpoint_auth_method": "none"
+}
 ```
 
-If you get a valid JSON response, OAuth should work. If you get a timeout or 404, use app passwords.
+## Testing OAuth Support
 
-## Implementation Status
+To test if a PDS supports OAuth:
 
-The OAuth implementation in this codebase is **complete and production-ready**:
+```bash
+# Step 1: Check protected resource
+curl https://YOUR_PDS_URL/.well-known/oauth-protected-resource
 
-- ✅ DPoP (Demonstrating Proof of Possession) with ES256
-- ✅ PKCE (Proof Key for Code Exchange)
-- ✅ PAR (Pushed Authorization Request)
-- ✅ Full authorization code flow
-- ✅ Token refresh
-- ✅ Callback server
-- ✅ Browser integration
+# Step 2: Get authorization server from the response
+# Step 3: Check authorization server metadata
+curl https://AUTH_SERVER_URL/.well-known/oauth-authorization-server
+```
 
-The code is ready and will work as soon as AT Protocol OAuth becomes available on your PDS.
+If both requests return valid JSON, OAuth should be available.
 
-## Timeline
+## Summary
 
-According to the AT Protocol specification, OAuth support is planned but not yet universally deployed. Check the official Bluesky blog and AT Protocol documentation for updates on OAuth rollout.
+| Component | Status | Notes |
+|-----------|--------|-------|
+| DPoP | ✅ Complete | Fully spec-compliant |
+| PKCE | ✅ Complete | S256 implementation |
+| PAR | ✅ Complete | With DPoP support |
+| OAuth Discovery | ✅ Complete | Now follows AT Protocol spec |
+| Token Exchange | ✅ Complete | With DPoP nonce retry |
+| Token Refresh | ✅ Complete | DPoP-bound refreshes |
+| Callback Server | ✅ Complete | HTTP server on port 8080 |
+| **Client Metadata** | ❌ **Missing** | **No public metadata document** |
+| **Client ID** | ❌ **Invalid** | **Not an HTTPS URL** |
 
-## For Developers
+**Bottom Line**: The OAuth **code** is implemented correctly and follows the AT Protocol specification for DPoP, PKCE, PAR, and the authorization flow. However, it cannot work without a publicly hosted client metadata document and proper client ID URL. Users should use app passwords until this infrastructure is set up.
 
-If you're running your own PDS or testing against a development PDS with OAuth support enabled, the OAuth flow should work correctly. The implementation follows the AT Protocol OAuth specification exactly.

@@ -45,15 +45,16 @@ type PARResponse struct {
 	ExpiresIn  int64  `json:"expires_in"`
 }
 
-// DiscoverMetadata discovers OAuth server metadata for a PDS
+// DiscoverMetadata discovers OAuth server metadata for a PDS following AT Protocol spec
 func (c *AtProtoOAuthClient) DiscoverMetadata(ctx context.Context, pdsURL string) (*OAuthServerMetadata, error) {
-	metadataURL := fmt.Sprintf("%s/.well-known/oauth-authorization-server", pdsURL)
-
+	// Step 1: Get protected resource metadata from PDS to find authorization server
+	protectedResourceURL := fmt.Sprintf("%s/.well-known/oauth-protected-resource", pdsURL)
+	
 	// Create request with timeout context
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(timeoutCtx, "GET", metadataURL, nil)
+	req, err := http.NewRequestWithContext(timeoutCtx, "GET", protectedResourceURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -62,20 +63,57 @@ func (c *AtProtoOAuthClient) DiscoverMetadata(ctx context.Context, pdsURL string
 	if err != nil {
 		// Provide more detailed error message
 		if timeoutCtx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("OAuth metadata discovery timed out after 10 seconds. The server at %s may not support AT Protocol OAuth yet, or the endpoint is unreachable. Please use --method password instead", pdsURL)
+			return nil, fmt.Errorf("OAuth protected resource discovery timed out after 10 seconds at %s. The server may not support AT Protocol OAuth yet. Please use --method password instead", pdsURL)
 		}
-		return nil, fmt.Errorf("failed to fetch OAuth metadata from %s: %w. The server may not support AT Protocol OAuth yet. Please try --method password instead", metadataURL, err)
+		return nil, fmt.Errorf("failed to fetch OAuth protected resource metadata from %s: %w. The server may not support AT Protocol OAuth yet. Please try --method password instead", protectedResourceURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("OAuth metadata discovery failed with status %d from %s. Response: %s. The server may not support AT Protocol OAuth yet. Please try --method password instead", resp.StatusCode, metadataURL, string(body))
+		return nil, fmt.Errorf("OAuth protected resource discovery failed with status %d from %s. Response: %s. The server may not support AT Protocol OAuth yet. Please try --method password instead", resp.StatusCode, protectedResourceURL, string(body))
+	}
+
+	var protectedResource struct {
+		AuthorizationServers []string `json:"authorization_servers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&protectedResource); err != nil {
+		return nil, fmt.Errorf("failed to decode OAuth protected resource metadata from %s: %w", protectedResourceURL, err)
+	}
+
+	if len(protectedResource.AuthorizationServers) == 0 {
+		return nil, fmt.Errorf("no authorization servers found in protected resource metadata from %s. The server may not support AT Protocol OAuth yet. Please try --method password instead", protectedResourceURL)
+	}
+
+	// Step 2: Get authorization server metadata from the first authorization server
+	authServerURL := protectedResource.AuthorizationServers[0]
+	metadataURL := fmt.Sprintf("%s/.well-known/oauth-authorization-server", authServerURL)
+
+	timeoutCtx2, cancel2 := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel2()
+
+	req2, err := http.NewRequestWithContext(timeoutCtx2, "GET", metadataURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create authorization server metadata request: %w", err)
+	}
+
+	resp2, err := c.httpClient.Do(req2)
+	if err != nil {
+		if timeoutCtx2.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("OAuth authorization server metadata discovery timed out after 10 seconds at %s. The server may not support AT Protocol OAuth yet. Please use --method password instead", authServerURL)
+		}
+		return nil, fmt.Errorf("failed to fetch OAuth authorization server metadata from %s: %w. The server may not support AT Protocol OAuth yet. Please try --method password instead", metadataURL, err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp2.Body)
+		return nil, fmt.Errorf("OAuth authorization server metadata discovery failed with status %d from %s. Response: %s. The server may not support AT Protocol OAuth yet. Please try --method password instead", resp2.StatusCode, metadataURL, string(body))
 	}
 
 	var metadata OAuthServerMetadata
-	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
-		return nil, fmt.Errorf("failed to decode OAuth metadata from %s: %w", metadataURL, err)
+	if err := json.NewDecoder(resp2.Body).Decode(&metadata); err != nil {
+		return nil, fmt.Errorf("failed to decode OAuth authorization server metadata from %s: %w", metadataURL, err)
 	}
 
 	return &metadata, nil

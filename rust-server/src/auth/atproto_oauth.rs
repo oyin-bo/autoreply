@@ -23,28 +23,29 @@ impl AtProtoOAuthClient {
         }
     }
     
-    /// Discover OAuth server metadata for a PDS
+    /// Discover OAuth server metadata for a PDS following AT Protocol spec
     pub async fn discover_metadata(&self, pds_url: &str) -> Result<OAuthServerMetadata> {
-        let metadata_url = format!("{}/.well-known/oauth-authorization-server", pds_url);
+        // Step 1: Get protected resource metadata from PDS to find authorization server
+        let protected_resource_url = format!("{}/.well-known/oauth-protected-resource", pds_url);
         
-        // Add timeout for metadata discovery
+        // Add timeout for protected resource discovery
         let timeout_duration = std::time::Duration::from_secs(10);
         let resp = tokio::time::timeout(
             timeout_duration,
-            self.http_client.get(&metadata_url).send()
+            self.http_client.get(&protected_resource_url).send()
         ).await;
         
         let resp = match resp {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => {
                 anyhow::bail!(
-                    "Failed to fetch OAuth metadata from {}: {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
-                    metadata_url, e
+                    "Failed to fetch OAuth protected resource metadata from {}: {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
+                    protected_resource_url, e
                 );
             }
             Err(_) => {
                 anyhow::bail!(
-                    "OAuth metadata discovery timed out after 10 seconds. The server at {} may not support AT Protocol OAuth yet, or the endpoint is unreachable. Please use --method password instead.",
+                    "OAuth protected resource discovery timed out after 10 seconds at {}. The server may not support AT Protocol OAuth yet. Please use --method password instead.",
                     pds_url
                 );
             }
@@ -54,13 +55,62 @@ impl AtProtoOAuthClient {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             anyhow::bail!(
-                "OAuth metadata discovery failed with status {} from {}. Response: {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
+                "OAuth protected resource discovery failed with status {} from {}. Response: {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
+                status, protected_resource_url, body
+            );
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct ProtectedResourceMetadata {
+            authorization_servers: Vec<String>,
+        }
+        
+        let protected_resource: ProtectedResourceMetadata = resp.json().await
+            .context(format!("Failed to decode OAuth protected resource metadata from {}", protected_resource_url))?;
+        
+        if protected_resource.authorization_servers.is_empty() {
+            anyhow::bail!(
+                "No authorization servers found in protected resource metadata from {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
+                protected_resource_url
+            );
+        }
+        
+        // Step 2: Get authorization server metadata from the first authorization server
+        let auth_server_url = &protected_resource.authorization_servers[0];
+        let metadata_url = format!("{}/.well-known/oauth-authorization-server", auth_server_url);
+        
+        let resp2 = tokio::time::timeout(
+            timeout_duration,
+            self.http_client.get(&metadata_url).send()
+        ).await;
+        
+        let resp2 = match resp2 {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                anyhow::bail!(
+                    "Failed to fetch OAuth authorization server metadata from {}: {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
+                    metadata_url, e
+                );
+            }
+            Err(_) => {
+                anyhow::bail!(
+                    "OAuth authorization server metadata discovery timed out after 10 seconds at {}. The server may not support AT Protocol OAuth yet. Please use --method password instead.",
+                    auth_server_url
+                );
+            }
+        };
+        
+        if !resp2.status().is_success() {
+            let status = resp2.status();
+            let body = resp2.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "OAuth authorization server metadata discovery failed with status {} from {}. Response: {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
                 status, metadata_url, body
             );
         }
         
-        let metadata: OAuthServerMetadata = resp.json().await
-            .context(format!("Failed to decode OAuth metadata from {}", metadata_url))?;
+        let metadata: OAuthServerMetadata = resp2.json().await
+            .context(format!("Failed to decode OAuth authorization server metadata from {}", metadata_url))?;
         Ok(metadata)
     }
     
