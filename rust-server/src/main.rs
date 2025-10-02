@@ -205,6 +205,16 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
                 let session = oauth_manager.complete_flow(&code, &flow_state).await?;
                 
                 info!("OAuth authentication successful!");
+                
+                // Store OAuth credentials using the refresh token
+                // The refresh token is what we'd use to restore the session
+                let oauth_credentials = Credentials::with_service(
+                    &session.did,           // Use DID as identifier for OAuth
+                    &session.refresh_jwt,   // Store refresh token as "password"
+                    &session.service,
+                );
+                storage.store_credentials_with_fallback(&handle, oauth_credentials)?;
+                
                 session
             }
             CallbackResult::Error { error, description } => {

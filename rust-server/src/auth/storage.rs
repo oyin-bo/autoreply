@@ -374,10 +374,20 @@ impl CredentialStorage {
                 let entry = keyring::Entry::new(SERVICE_NAME, DEFAULT_ACCOUNT_KEY)
                     .map_err(|e| AppError::ConfigError(format!("Failed to create keyring entry: {}", e)))?;
                 
-                entry.set_password(handle)
-                    .map_err(|e| AppError::ConfigError(format!("Failed to set default account: {}", e)))?;
-                
-                Ok(())
+                match entry.set_password(handle) {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        // If keyring fails, fall back to file storage
+                        tracing::warn!("Keyring set_default_account failed: {}, falling back to file storage", e);
+                        let file_storage = Self {
+                            backend: StorageBackend::File,
+                            file_path: Some(Self::get_storage_file_path()?),
+                        };
+                        let mut storage = file_storage.read_file_storage()?;
+                        storage.default_account = Some(handle.to_string());
+                        file_storage.write_file_storage(&storage)
+                    }
+                }
             }
             StorageBackend::File => {
                 let mut storage = self.read_file_storage()?;
