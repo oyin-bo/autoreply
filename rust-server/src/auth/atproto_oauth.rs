@@ -27,16 +27,40 @@ impl AtProtoOAuthClient {
     pub async fn discover_metadata(&self, pds_url: &str) -> Result<OAuthServerMetadata> {
         let metadata_url = format!("{}/.well-known/oauth-authorization-server", pds_url);
         
-        let resp = self.http_client
-            .get(&metadata_url)
-            .send()
-            .await?;
+        // Add timeout for metadata discovery
+        let timeout_duration = std::time::Duration::from_secs(10);
+        let resp = tokio::time::timeout(
+            timeout_duration,
+            self.http_client.get(&metadata_url).send()
+        ).await;
+        
+        let resp = match resp {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
+                anyhow::bail!(
+                    "Failed to fetch OAuth metadata from {}: {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
+                    metadata_url, e
+                );
+            }
+            Err(_) => {
+                anyhow::bail!(
+                    "OAuth metadata discovery timed out after 10 seconds. The server at {} may not support AT Protocol OAuth yet, or the endpoint is unreachable. Please use --method password instead.",
+                    pds_url
+                );
+            }
+        };
         
         if !resp.status().is_success() {
-            anyhow::bail!("Failed to discover OAuth metadata: {}", resp.status());
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "OAuth metadata discovery failed with status {} from {}. Response: {}. The server may not support AT Protocol OAuth yet. Please try --method password instead.",
+                status, metadata_url, body
+            );
         }
         
-        let metadata: OAuthServerMetadata = resp.json().await?;
+        let metadata: OAuthServerMetadata = resp.json().await
+            .context(format!("Failed to decode OAuth metadata from {}", metadata_url))?;
         Ok(metadata)
     }
     

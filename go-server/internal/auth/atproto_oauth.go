@@ -49,24 +49,33 @@ type PARResponse struct {
 func (c *AtProtoOAuthClient) DiscoverMetadata(ctx context.Context, pdsURL string) (*OAuthServerMetadata, error) {
 	metadataURL := fmt.Sprintf("%s/.well-known/oauth-authorization-server", pdsURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", metadataURL, nil)
+	// Create request with timeout context
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(timeoutCtx, "GET", metadataURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
+		// Provide more detailed error message
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("OAuth metadata discovery timed out after 10 seconds. The server at %s may not support AT Protocol OAuth yet, or the endpoint is unreachable. Please use --method password instead", pdsURL)
+		}
+		return nil, fmt.Errorf("failed to fetch OAuth metadata from %s: %w. The server may not support AT Protocol OAuth yet. Please try --method password instead", metadataURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to discover OAuth metadata: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("OAuth metadata discovery failed with status %d from %s. Response: %s. The server may not support AT Protocol OAuth yet. Please try --method password instead", resp.StatusCode, metadataURL, string(body))
 	}
 
 	var metadata OAuthServerMetadata
 	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
-		return nil, fmt.Errorf("failed to decode metadata: %w", err)
+		return nil, fmt.Errorf("failed to decode OAuth metadata from %s: %w", metadataURL, err)
 	}
 
 	return &metadata, nil
