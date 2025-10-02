@@ -326,6 +326,7 @@ impl CredentialStorage {
     }
     
     /// Store credentials and update account list
+    #[allow(dead_code)]
     pub fn add_account(&self, handle: &str, credentials: Credentials) -> Result<(), AppError> {
         self.store_credentials(handle, credentials)?;
         self.update_account_list(handle, true)?;
