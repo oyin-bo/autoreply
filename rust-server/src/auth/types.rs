@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 
 /// Authentication errors
 #[derive(Debug)]
+#[allow(dead_code)] // Some variants for future use
 pub enum AuthError {
     /// Account not found
     AccountNotFound(String),

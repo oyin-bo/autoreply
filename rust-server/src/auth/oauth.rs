@@ -62,17 +62,35 @@ impl PKCEParams {
 /// Authorization request parameters
 pub struct AuthorizationRequest {
     pub handle: Option<String>,
-    pub callback_port: Option<u16>,
+    pub redirect_port: Option<u16>,
     pub state: Option<String>,
     pub pkce_params: Option<PKCEParams>,
 }
 
 /// Authorization response with URL and state
 #[derive(Debug)]
+#[allow(dead_code)] // State field unused in current implementation
 pub struct AuthorizationResponse {
     pub auth_url: String,
     pub state: String,
     pub code_verifier: String,
+}
+
+/// Token request for code exchange
+pub struct TokenRequest {
+    pub code: String,
+    pub code_verifier: String,
+    pub redirect_uri: String,
+}
+
+/// Device authorization request
+pub struct DeviceAuthorizationRequest {
+    pub handle: Option<String>,
+}
+
+/// Poll device token request
+pub struct PollDeviceTokenRequest {
+    pub device_code: String,
 }
 
 impl OAuthClient {
@@ -94,7 +112,7 @@ impl OAuthClient {
             }
         };
 
-        if let Some(port) = req.callback_port {
+        if let Some(port) = req.redirect_port {
             self.redirect_uri = format!("http://localhost:{}/callback", port);
         }
 
@@ -130,15 +148,14 @@ impl OAuthClient {
     /// Exchange authorization code for access token
     pub async fn exchange_code_for_token(
         &self,
-        code: &str,
-        code_verifier: &str,
+        req: &TokenRequest,
     ) -> Result<TokenResponse, AuthError> {
         let params = [
             ("grant_type", "authorization_code"),
-            ("code", code),
-            ("redirect_uri", &self.redirect_uri),
+            ("code", req.code.as_str()),
+            ("redirect_uri", req.redirect_uri.as_str()),
             ("client_id", &self.client_id),
-            ("code_verifier", code_verifier),
+            ("code_verifier", req.code_verifier.as_str()),
         ];
 
         let resp = self
@@ -172,6 +189,7 @@ impl OAuthClient {
     }
 
     /// Refresh an expired access token
+    #[allow(dead_code)] // Will be used in token lifecycle management
     pub async fn refresh_access_token(
         &self,
         refresh_token: &str,
@@ -215,7 +233,7 @@ impl OAuthClient {
     /// Start OAuth device authorization flow
     pub async fn start_device_flow(
         &self,
-        handle: Option<&str>,
+        req: &DeviceAuthorizationRequest,
     ) -> Result<DeviceAuthorizationResponse, AuthError> {
         let device_endpoint = self.token_endpoint.replace("/token", "/device/code");
 
@@ -224,8 +242,8 @@ impl OAuthClient {
             ("scope", "atproto transition:generic"),
         ];
 
-        if let Some(h) = handle {
-            params.push(("login_hint", h));
+        if let Some(ref h) = req.handle {
+            params.push(("login_hint", h.as_str()));
         }
 
         let resp = self
@@ -263,11 +281,11 @@ impl OAuthClient {
     /// Poll for device authorization completion
     pub async fn poll_device_token(
         &self,
-        device_code: &str,
+        req: &PollDeviceTokenRequest,
     ) -> Result<TokenResponse, AuthError> {
         let params = [
             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-            ("device_code", device_code),
+            ("device_code", req.device_code.as_str()),
             ("client_id", &self.client_id),
         ];
 
@@ -371,7 +389,7 @@ mod tests {
         let mut client = OAuthClient::new();
         let req = AuthorizationRequest {
             handle: None,
-            callback_port: None,
+            redirect_port: None,
             state: None,
             pkce_params: None,
         };
@@ -393,7 +411,7 @@ mod tests {
         let mut client = OAuthClient::new();
         let req = AuthorizationRequest {
             handle: Some("alice.bsky.social".to_string()),
-            callback_port: None,
+            redirect_port: None,
             state: None,
             pkce_params: None,
         };
@@ -408,7 +426,7 @@ mod tests {
         let mut client = OAuthClient::new();
         let req = AuthorizationRequest {
             handle: None,
-            callback_port: Some(9090),
+            redirect_port: Some(9090),
             state: None,
             pkce_params: None,
         };
@@ -426,7 +444,7 @@ mod tests {
 
         let req = AuthorizationRequest {
             handle: None,
-            callback_port: None,
+            redirect_port: None,
             state: Some("custom-state".to_string()),
             pkce_params: Some(pkce),
         };

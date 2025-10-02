@@ -37,12 +37,19 @@ func createLoginCommand() *cobra.Command {
 				fmt.Scanln(&handle)
 			}
 			
-			// For now, only support password method
-			if method == "" || method == "password" {
-				return loginWithPassword(handle)
-			}
+			ctx := context.Background()
 			
-			return fmt.Errorf("authentication method %s not yet implemented", method)
+			// Route to appropriate authentication method
+			switch method {
+			case "", "password":
+				return loginWithPassword(ctx, handle)
+			case "oauth":
+				return loginWithOAuth(ctx, handle)
+			case "device":
+				return loginWithDevice(ctx, handle)
+			default:
+				return fmt.Errorf("unsupported authentication method: %s (use password, oauth, or device)", method)
+			}
 		},
 	}
 	
@@ -53,7 +60,7 @@ func createLoginCommand() *cobra.Command {
 }
 
 // loginWithPassword performs password-based authentication
-func loginWithPassword(handle string) error {
+func loginWithPassword(ctx context.Context, handle string) error {
 	// Prompt for password
 	fmt.Print("App password: ")
 	passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
@@ -69,16 +76,14 @@ func loginWithPassword(handle string) error {
 		return fmt.Errorf("failed to create credential manager: %w", err)
 	}
 	
-	// For now, store the app password as a placeholder
-	// TODO: Implement actual OAuth flow
+	// Store the app password directly as access token
 	creds := &auth.Credentials{
-		AccessToken:  password, // Placeholder until OAuth is implemented
+		AccessToken:  password,
 		RefreshToken: "",
 		DPoPKey:      "",
 		ExpiresAt:    time.Now().Add(30 * 24 * time.Hour), // 30 days
 	}
 	
-	ctx := context.Background()
 	if err := cm.StoreCredentials(ctx, handle, creds); err != nil {
 		return fmt.Errorf("failed to store credentials: %w", err)
 	}
@@ -92,6 +97,147 @@ func loginWithPassword(handle string) error {
 	fmt.Println("  Credentials stored securely in system keyring")
 	
 	return nil
+}
+
+// loginWithOAuth performs OAuth 2.0 PKCE authorization code flow
+func loginWithOAuth(ctx context.Context, handle string) error {
+	client := auth.NewOAuthClient()
+	
+	// Start authorization flow
+	req := &auth.AuthorizationRequest{
+		Handle:       handle,
+		CallbackPort: 8472, // Local callback port
+	}
+	
+	resp, err := client.StartAuthorizationFlow(req)
+	if err != nil {
+		return fmt.Errorf("failed to start authorization flow: %w", err)
+	}
+	
+	fmt.Println("🔐 OAuth Authorization Required")
+	fmt.Println()
+	fmt.Printf("  Please open this URL in your browser:\n  %s\n", resp.AuthURL)
+	fmt.Println()
+	fmt.Print("Waiting for authorization...")
+	
+	// TODO: Implement local callback server to receive authorization code
+	// For now, prompt user to paste the code manually
+	fmt.Println()
+	fmt.Print("Authorization code: ")
+	var code string
+	fmt.Scanln(&code)
+	
+	// Exchange code for tokens
+	tokenReq := &auth.TokenRequest{
+		Code:         code,
+		CodeVerifier: resp.CodeVerifier,
+	}
+	
+	tokens, err := client.ExchangeCodeForToken(ctx, tokenReq)
+	if err != nil {
+		return fmt.Errorf("failed to exchange code for token: %w", err)
+	}
+	
+	// Store credentials
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return fmt.Errorf("failed to create credential manager: %w", err)
+	}
+	
+	creds := &auth.Credentials{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		DPoPKey:      "", // TODO: Generate DPoP key
+		ExpiresAt:    tokens.ExpiresAt,
+	}
+	
+	if err := cm.StoreCredentials(ctx, handle, creds); err != nil {
+		return fmt.Errorf("failed to store credentials: %w", err)
+	}
+	
+	if err := cm.SetDefaultAccount(ctx, handle); err != nil {
+		return fmt.Errorf("failed to set default account: %w", err)
+	}
+	
+	fmt.Printf("\n✓ Successfully authenticated @%s via OAuth\n", handle)
+	fmt.Println("  Credentials stored securely in system keyring")
+	
+	return nil
+}
+
+// loginWithDevice performs device authorization grant flow
+func loginWithDevice(ctx context.Context, handle string) error {
+	client := auth.NewOAuthClient()
+	
+	// Start device flow
+	req := &auth.DeviceAuthorizationRequest{
+		Handle: handle,
+	}
+	
+	device, err := client.StartDeviceFlow(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to start device flow: %w", err)
+	}
+	
+	fmt.Println("🔐 Device Authorization Required")
+	fmt.Println()
+	fmt.Printf("  1. Visit: %s\n", device.VerificationURI)
+	fmt.Printf("  2. Enter code: %s\n", device.UserCode)
+	fmt.Println()
+	fmt.Println("Waiting for authorization (this may take a few minutes)...")
+	
+	// Poll for completion
+	pollReq := &auth.PollDeviceTokenRequest{
+		DeviceCode: device.DeviceCode,
+	}
+	
+	interval := time.Duration(device.Interval) * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			tokens, err := client.PollDeviceToken(ctx, pollReq)
+			if err == auth.ErrAuthorizationPending {
+				continue // Keep polling
+			} else if err == auth.ErrSlowDown {
+				// Increase interval
+				ticker.Reset(interval + 5*time.Second)
+				continue
+			} else if err != nil {
+				return fmt.Errorf("device authorization failed: %w", err)
+			}
+			
+			// Success! Store credentials
+			cm, err := auth.NewCredentialManager()
+			if err != nil {
+				return fmt.Errorf("failed to create credential manager: %w", err)
+			}
+			
+			creds := &auth.Credentials{
+				AccessToken:  tokens.AccessToken,
+				RefreshToken: tokens.RefreshToken,
+				DPoPKey:      "", // TODO: Generate DPoP key
+				ExpiresAt:    tokens.ExpiresAt,
+			}
+			
+			if err := cm.StoreCredentials(ctx, handle, creds); err != nil {
+				return fmt.Errorf("failed to store credentials: %w", err)
+			}
+			
+			if err := cm.SetDefaultAccount(ctx, handle); err != nil {
+				return fmt.Errorf("failed to set default account: %w", err)
+			}
+			
+			fmt.Printf("\n✓ Successfully authenticated @%s via device flow\n", handle)
+			fmt.Println("  Credentials stored securely in system keyring")
+			
+			return nil
+		}
+	}
 }
 
 // createAccountsCommand creates the accounts list command

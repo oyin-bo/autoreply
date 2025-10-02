@@ -145,10 +145,18 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         input.trim().to_string()
     };
     
-    // For now, only support password method
-    if args.method != "password" {
-        return Err(anyhow::anyhow!("Authentication method {} not yet implemented", args.method));
+    // Route to appropriate authentication method
+    match args.method.as_str() {
+        "password" | "" => login_with_password(&handle).await,
+        "oauth" => login_with_oauth(&handle).await,
+        "device" => login_with_device(&handle).await,
+        _ => Err(anyhow::anyhow!("Unsupported authentication method: {} (use password, oauth, or device)", args.method))
     }
+}
+
+/// Login with password
+async fn login_with_password(handle: &str) -> Result<String> {
+    use std::io::{self, Write};
     
     // Get password
     print!("App password: ");
@@ -158,19 +166,130 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
     // Create credential manager
     let cm = auth::CredentialManager::new()?;
     
-    // For now, store the app password as a placeholder
-    // TODO: Implement actual OAuth flow
+    // Store the app password directly as access token
     let creds = auth::Credentials {
-        access_token: password, // Placeholder until OAuth is implemented
+        access_token: password,
         refresh_token: String::new(),
         dpop_key: String::new(),
         expires_at: std::time::SystemTime::now() + std::time::Duration::from_secs(30 * 24 * 3600), // 30 days
     };
     
-    cm.store_credentials(&handle, &creds)?;
-    cm.set_default_account(&handle)?;
+    cm.store_credentials(handle, &creds)?;
+    cm.set_default_account(handle)?;
     
     Ok(format!("✓ Successfully stored credentials for @{}\n  Credentials stored securely in system keyring", handle))
+}
+
+/// Login with OAuth PKCE flow
+async fn login_with_oauth(handle: &str) -> Result<String> {
+    use std::io::{self, Write};
+    
+    let mut client = auth::OAuthClient::new();
+    
+    // Start authorization flow
+    let req = auth::AuthorizationRequest {
+        handle: Some(handle.to_string()),
+        redirect_port: Some(8472),
+        pkce_params: None,
+        state: None,
+    };
+    
+    let resp = client.start_authorization_flow(req)?;
+    
+    println!("🔐 OAuth Authorization Required\n");
+    println!("  Please open this URL in your browser:");
+    println!("  {}\n", resp.auth_url);
+    print!("Waiting for authorization...\n");
+    
+    // TODO: Implement local callback server to receive authorization code
+    // For now, prompt user to paste the code manually
+    print!("Authorization code: ");
+    io::stdout().flush()?;
+    let mut code = String::new();
+    io::stdin().read_line(&mut code)?;
+    let code = code.trim();
+    
+    // Exchange code for tokens
+    let token_req = auth::TokenRequest {
+        code: code.to_string(),
+        code_verifier: resp.code_verifier,
+        redirect_uri: format!("http://localhost:{}/callback", 8472),
+    };
+    
+    let tokens = client.exchange_code_for_token(&token_req).await?;
+    
+    // Store credentials
+    let cm = auth::CredentialManager::new()?;
+    let creds = auth::Credentials {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        dpop_key: String::new(), // TODO: Generate DPoP key
+        expires_at: tokens.expires_at,
+    };
+    
+    cm.store_credentials(handle, &creds)?;
+    cm.set_default_account(handle)?;
+    
+    Ok(format!("\n✓ Successfully authenticated @{} via OAuth\n  Credentials stored securely in system keyring", handle))
+}
+
+/// Login with device flow
+async fn login_with_device(handle: &str) -> Result<String> {
+    let client = auth::OAuthClient::new();
+    
+    // Start device flow
+    let req = auth::DeviceAuthorizationRequest {
+        handle: Some(handle.to_string()),
+    };
+    
+    let device = client.start_device_flow(&req).await?;
+    
+    println!("🔐 Device Authorization Required\n");
+    println!("  1. Visit: {}", device.verification_uri);
+    println!("  2. Enter code: {}\n", device.user_code);
+    println!("Waiting for authorization (this may take a few minutes)...");
+    
+    // Poll for completion
+    let poll_req = auth::PollDeviceTokenRequest {
+        device_code: device.device_code.clone(),
+    };
+    
+    let interval = std::time::Duration::from_secs(device.interval as u64);
+    let mut current_interval = interval;
+    
+    loop {
+        tokio::time::sleep(current_interval).await;
+        
+        match client.poll_device_token(&poll_req).await {
+            Ok(tokens) => {
+                // Success! Store credentials
+                let cm = auth::CredentialManager::new()?;
+                let creds = auth::Credentials {
+                    access_token: tokens.access_token,
+                    refresh_token: tokens.refresh_token,
+                    dpop_key: String::new(), // TODO: Generate DPoP key
+                    expires_at: tokens.expires_at,
+                };
+                
+                cm.store_credentials(handle, &creds)?;
+                cm.set_default_account(handle)?;
+                
+                return Ok(format!("\n✓ Successfully authenticated @{} via device flow\n  Credentials stored securely in system keyring", handle));
+            }
+            Err(auth::AuthError::AuthorizationPending) => {
+                // Keep polling
+                continue;
+            }
+            Err(auth::AuthError::SlowDown) => {
+                // Increase interval
+                current_interval += std::time::Duration::from_secs(5);
+                continue;
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Device authorization failed: {}", e));
+            }
+        }
+    }
 }
 
 /// Execute accounts command
