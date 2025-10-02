@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime};
 use super::AuthError;
 
 /// OAuth client for BlueSky/AT Protocol authentication
+#[allow(dead_code)] // Fields will be used when OAuth is fully implemented
 pub struct OAuthClient {
     client_id: String,
     redirect_uri: String,
@@ -18,6 +19,7 @@ pub struct OAuthClient {
 
 impl OAuthClient {
     /// Create a new OAuth client for BlueSky authentication
+    #[allow(dead_code)] // Will be used when OAuth is fully implemented
     pub fn new() -> Self {
         Self {
             client_id: "autoreply-mcp-client".to_string(),
@@ -34,6 +36,7 @@ impl OAuthClient {
 
 /// PKCE parameters for OAuth flow
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Will be used when OAuth is fully implemented
 pub struct PKCEParams {
     pub code_verifier: String,
     pub code_challenge: String,
@@ -41,6 +44,7 @@ pub struct PKCEParams {
 
 impl PKCEParams {
     /// Generate PKCE code verifier and challenge
+    #[allow(dead_code)] // Will be used when OAuth is fully implemented
     pub fn generate() -> Result<Self, AuthError> {
         // Generate 32-byte random code verifier
         let verifier_bytes: Vec<u8> = (0..32).map(|_| rand::thread_rng().gen()).collect();
@@ -60,6 +64,7 @@ impl PKCEParams {
 }
 
 /// Authorization request parameters
+#[allow(dead_code)] // Will be used when OAuth is fully implemented
 pub struct AuthorizationRequest {
     pub handle: Option<String>,
     pub redirect_port: Option<u16>,
@@ -69,7 +74,7 @@ pub struct AuthorizationRequest {
 
 /// Authorization response with URL and state
 #[derive(Debug)]
-#[allow(dead_code)] // State field unused in current implementation
+#[allow(dead_code)] // Used in OAuth flows which are not fully implemented yet
 pub struct AuthorizationResponse {
     pub auth_url: String,
     pub state: String,
@@ -89,12 +94,14 @@ pub struct DeviceAuthorizationRequest {
 }
 
 /// Poll device token request
+#[allow(dead_code)] // Used in device flow which is not fully implemented yet
 pub struct PollDeviceTokenRequest {
     pub device_code: String,
 }
 
 impl OAuthClient {
     /// Start PKCE OAuth authorization flow
+    #[allow(dead_code)] // Will be used when OAuth is fully implemented
     pub fn start_authorization_flow(
         &mut self,
         req: AuthorizationRequest,
@@ -146,6 +153,7 @@ impl OAuthClient {
     }
 
     /// Exchange authorization code for access token
+    #[allow(dead_code)] // Will be used when OAuth PKCE flow is fully implemented
     pub async fn exchange_code_for_token(
         &self,
         req: &TokenRequest,
@@ -231,6 +239,7 @@ impl OAuthClient {
     }
 
     /// Start OAuth device authorization flow
+    #[allow(dead_code)] // Will be used when device flow is fully implemented
     pub async fn start_device_flow(
         &self,
         req: &DeviceAuthorizationRequest,
@@ -279,6 +288,7 @@ impl OAuthClient {
     }
 
     /// Poll for device authorization completion
+    #[allow(dead_code)] // Will be used when device flow is fully implemented
     pub async fn poll_device_token(
         &self,
         req: &PollDeviceTokenRequest,
@@ -304,6 +314,7 @@ impl OAuthClient {
         // Handle pending authorization
         if status == 400 {
             #[derive(Deserialize)]
+            #[allow(dead_code)]
             struct ErrorResponse {
                 error: String,
             }

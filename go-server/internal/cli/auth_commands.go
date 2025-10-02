@@ -123,6 +123,7 @@ func loginWithOAuth(ctx context.Context, handle string) error {
 		"  - OAuth metadata discovery\n\n" +
 		"Please use --method password (app passwords) for now.\n" +
 		"See docs/12-auth-implementation-plan.md for implementation details.")
+}
 
 // loginWithDevice performs device authorization grant flow
 func loginWithDevice(ctx context.Context, handle string) error {

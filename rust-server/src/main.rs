@@ -188,7 +188,8 @@ async fn login_with_password(handle: &str) -> Result<String> {
 }
 
 /// Login with OAuth PKCE flow
-async fn login_with_oauth(handle: &str) -> Result<String> {
+#[allow(dead_code)] // Will be used when OAuth is fully implemented
+async fn login_with_oauth(_handle: &str) -> Result<String> {
     // NOTE: Full AT Protocol OAuth implementation requires:
     // 1. DID resolution and PDS discovery for the handle
     // 2. PAR (Pushed Authorization Request) to the authorization server
@@ -212,7 +213,8 @@ async fn login_with_oauth(handle: &str) -> Result<String> {
 }
 
 /// Login with device flow
-async fn login_with_device(handle: &str) -> Result<String> {
+#[allow(dead_code)] // Will be used when device flow is fully implemented
+async fn login_with_device(_handle: &str) -> Result<String> {
     // NOTE: Full AT Protocol Device Flow implementation requires:
     // 1. DID resolution and PDS discovery for the handle
     // 2. Device authorization endpoint discovery
