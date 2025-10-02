@@ -537,7 +537,8 @@ pub struct TokenResponse {
     /// Expires in seconds
     #[serde(default)]
     pub expires_in: Option<u64>,
-    /// Scope
+    /// Scope (OAuth spec field, will be used when validating granted scopes)
+    #[allow(dead_code)]
     #[serde(default)]
     pub scope: Option<String>,
 }
