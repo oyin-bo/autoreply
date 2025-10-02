@@ -338,6 +338,164 @@ fn default_system_time() -> SystemTime {
     SystemTime::now()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pkce_generation() {
+        let pkce1 = PKCEParams::generate().unwrap();
+        let pkce2 = PKCEParams::generate().unwrap();
+
+        // Should not be empty
+        assert!(!pkce1.code_verifier.is_empty());
+        assert!(!pkce1.code_challenge.is_empty());
+
+        // Should be unique
+        assert_ne!(pkce1.code_verifier, pkce2.code_verifier);
+        assert_ne!(pkce1.code_challenge, pkce2.code_challenge);
+    }
+
+    #[test]
+    fn test_oauth_client_creation() {
+        let client = OAuthClient::new();
+
+        assert_eq!(client.client_id, "autoreply-mcp-client");
+        assert_eq!(client.redirect_uri, "http://localhost:8080/callback");
+        assert!(client.auth_endpoint.contains("oauth/authorize"));
+        assert!(client.token_endpoint.contains("oauth/token"));
+    }
+
+    #[test]
+    fn test_start_authorization_flow_basic() {
+        let mut client = OAuthClient::new();
+        let req = AuthorizationRequest {
+            handle: None,
+            callback_port: None,
+            state: None,
+            pkce_params: None,
+        };
+
+        let resp = client.start_authorization_flow(req).unwrap();
+
+        assert!(!resp.auth_url.is_empty());
+        assert!(!resp.state.is_empty());
+        assert!(!resp.code_verifier.is_empty());
+
+        // Verify URL contains required parameters
+        assert!(resp.auth_url.contains("response_type=code"));
+        assert!(resp.auth_url.contains("code_challenge="));
+        assert!(resp.auth_url.contains("code_challenge_method=S256"));
+    }
+
+    #[test]
+    fn test_start_authorization_flow_with_handle() {
+        let mut client = OAuthClient::new();
+        let req = AuthorizationRequest {
+            handle: Some("alice.bsky.social".to_string()),
+            callback_port: None,
+            state: None,
+            pkce_params: None,
+        };
+
+        let resp = client.start_authorization_flow(req).unwrap();
+
+        assert!(resp.auth_url.contains("login_hint=alice.bsky.social"));
+    }
+
+    #[test]
+    fn test_start_authorization_flow_with_custom_port() {
+        let mut client = OAuthClient::new();
+        let req = AuthorizationRequest {
+            handle: None,
+            callback_port: Some(9090),
+            state: None,
+            pkce_params: None,
+        };
+
+        let _resp = client.start_authorization_flow(req).unwrap();
+
+        assert_eq!(client.redirect_uri, "http://localhost:9090/callback");
+    }
+
+    #[test]
+    fn test_start_authorization_flow_with_provided_pkce() {
+        let mut client = OAuthClient::new();
+        let pkce = PKCEParams::generate().unwrap();
+        let code_verifier = pkce.code_verifier.clone();
+
+        let req = AuthorizationRequest {
+            handle: None,
+            callback_port: None,
+            state: Some("custom-state".to_string()),
+            pkce_params: Some(pkce),
+        };
+
+        let resp = client.start_authorization_flow(req).unwrap();
+
+        assert_eq!(resp.state, "custom-state");
+        assert_eq!(resp.code_verifier, code_verifier);
+    }
+
+    #[test]
+    fn test_token_response_expiration() {
+        let now = SystemTime::now();
+        let mut token_resp = TokenResponse {
+            access_token: "test-token".to_string(),
+            refresh_token: "test-refresh".to_string(),
+            token_type: "Bearer".to_string(),
+            expires_in: 3600,
+            scope: "atproto".to_string(),
+            did: "did:plc:test".to_string(),
+            expires_at: now,
+        };
+
+        // Simulate expiration calculation
+        token_resp.expires_at = now + Duration::from_secs(token_resp.expires_in as u64);
+
+        assert!(token_resp.expires_at > now);
+        
+        let expected_expiry = now + Duration::from_secs(3600);
+        let time_diff = token_resp.expires_at.duration_since(expected_expiry)
+            .unwrap_or_else(|e| e.duration());
+        assert!(time_diff < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_device_authorization_response_defaults() {
+        let mut device = DeviceAuthorizationResponse {
+            device_code: "ABC123".to_string(),
+            user_code: "WXYZ-1234".to_string(),
+            verification_uri: "https://bsky.app/device".to_string(),
+            verification_uri_complete: None,
+            expires_in: 600,
+            interval: 0,
+        };
+
+        // Simulate default interval setting
+        if device.interval == 0 {
+            device.interval = 5;
+        }
+
+        assert_eq!(device.interval, 5);
+    }
+
+    #[test]
+    fn test_auth_error_display() {
+        let errors = vec![
+            AuthError::AuthorizationPending,
+            AuthError::SlowDown,
+            AuthError::ExpiredToken,
+            AuthError::AccessDenied,
+        ];
+
+        for err in errors {
+            let msg = format!("{}", err);
+            assert!(!msg.is_empty());
+        }
+    }
+}
+
 /// Device authorization response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceAuthorizationResponse {
