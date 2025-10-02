@@ -21,19 +21,39 @@ func main() {
 	// Create tools
 	profileTool := tools.NewProfileTool()
 	searchTool := tools.NewSearchTool()
+	loginTool, err := tools.NewLoginTool()
+	if err != nil {
+		log.Fatalf("Failed to create login tool: %v", err)
+	}
+	logoutTool, err := tools.NewLogoutTool()
+	if err != nil {
+		log.Fatalf("Failed to create logout tool: %v", err)
+	}
+	accountsTool, err := tools.NewAccountsTool()
+	if err != nil {
+		log.Fatalf("Failed to create accounts tool: %v", err)
+	}
+	oauthLoginTool, err := tools.NewOAuthLoginTool()
+	if err != nil {
+		log.Fatalf("Failed to create OAuth login tool: %v", err)
+	}
+	deviceLoginTool, err := tools.NewDeviceLoginTool()
+	if err != nil {
+		log.Fatalf("Failed to create device login tool: %v", err)
+	}
 
 	// Detect mode: CLI if args present, MCP server otherwise
 	if len(os.Args) > 1 {
 		// CLI Mode
-		runCLIMode(profileTool, searchTool)
+		runCLIMode(profileTool, searchTool, loginTool, logoutTool, accountsTool, oauthLoginTool, deviceLoginTool)
 	} else {
 		// MCP Server Mode
-		runMCPMode(cfg, profileTool, searchTool)
+		runMCPMode(cfg, profileTool, searchTool, loginTool, logoutTool, accountsTool, oauthLoginTool, deviceLoginTool)
 	}
 }
 
 // runCLIMode executes the tool in CLI mode
-func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
+func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool, logoutTool *tools.LogoutTool, accountsTool *tools.AccountsTool, oauthLoginTool *tools.OAuthLoginTool, deviceLoginTool *tools.DeviceLoginTool) {
 	// Create registry
 	registry := cli.NewRegistry()
 
@@ -57,10 +77,65 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
 	}
 	registry.RegisterTool(searchDef)
 
+	// Register login tool with interactive prompting
+	loginInteractiveAdapter := cli.NewInteractiveLoginAdapter(loginTool)
+	loginDef := &cli.ToolDefinition{
+		Name:        "login",
+		Description: "Authenticate with Bluesky using handle and app password",
+		ArgsType:    &cli.LoginArgs{},
+		Execute:     loginInteractiveAdapter.Execute,
+	}
+	registry.RegisterTool(loginDef)
+
+	// Register OAuth login tool with interactive prompting
+	oauthLoginInteractiveAdapter := cli.NewInteractiveOAuthLoginAdapter(oauthLoginTool)
+	oauthLoginDef := &cli.ToolDefinition{
+		Name:        "oauth-login",
+		Description: "Authenticate with Bluesky using OAuth 2.0 with PKCE and DPoP (most secure)",
+		ArgsType:    &cli.OAuthLoginArgs{},
+		Execute:     oauthLoginInteractiveAdapter.Execute,
+	}
+	registry.RegisterTool(oauthLoginDef)
+
+	// Register device login tool (shows implementation status)
+	deviceLoginAdapter := cli.NewMCPToolAdapter(deviceLoginTool)
+	deviceLoginDef := &cli.ToolDefinition{
+		Name:        "device-login",
+		Description: "Show Device Authorization Grant implementation status",
+		ArgsType:    &cli.DeviceLoginArgs{},
+		Execute:     deviceLoginAdapter.Execute,
+	}
+	registry.RegisterTool(deviceLoginDef)
+
+	// Register logout tool
+	logoutAdapter := cli.NewMCPToolAdapter(logoutTool)
+	logoutDef := &cli.ToolDefinition{
+		Name:        "logout",
+		Description: "Remove stored credentials for a Bluesky account",
+		ArgsType:    &cli.LogoutArgs{},
+		Execute:     logoutAdapter.Execute,
+	}
+	registry.RegisterTool(logoutDef)
+
+	// Register accounts tool
+	accountsAdapter := cli.NewMCPToolAdapter(accountsTool)
+	accountsDef := &cli.ToolDefinition{
+		Name:        "accounts",
+		Description: "List authenticated accounts and manage default account",
+		ArgsType:    &cli.AccountsArgs{},
+		Execute:     accountsAdapter.Execute,
+	}
+	registry.RegisterTool(accountsDef)
+
 	// Create and run CLI runner
 	runner := cli.NewRunner(registry)
 	runner.RegisterToolCommand(profileDef)
 	runner.RegisterToolCommand(searchDef)
+	runner.RegisterToolCommand(loginDef)
+	runner.RegisterToolCommand(oauthLoginDef) // OAuth with PKCE and DPoP
+	runner.RegisterToolCommand(deviceLoginDef) // Shows implementation status
+	runner.RegisterToolCommand(logoutDef)
+	runner.RegisterToolCommand(accountsDef)
 
 	ctx := context.Background()
 	if err := runner.Run(ctx, os.Args[1:]); err != nil {
@@ -69,7 +144,7 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
 }
 
 // runMCPMode starts the MCP server
-func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
+func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool, logoutTool *tools.LogoutTool, accountsTool *tools.AccountsTool, oauthLoginTool *tools.OAuthLoginTool, deviceLoginTool *tools.DeviceLoginTool) {
 	// Create MCP server
 	server, err := mcp.NewServer()
 	if err != nil {
@@ -79,6 +154,11 @@ func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *
 	// Register tools
 	server.RegisterTool("profile", profileTool)
 	server.RegisterTool("search", searchTool)
+	server.RegisterTool("login", loginTool)
+	server.RegisterTool("oauth-login", oauthLoginTool) // Shows implementation status
+	server.RegisterTool("device-login", deviceLoginTool) // Shows implementation status
+	server.RegisterTool("logout", logoutTool)
+	server.RegisterTool("accounts", accountsTool)
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
