@@ -48,7 +48,11 @@ func createLoginCommand() *cobra.Command {
 			case "device":
 				return loginWithDevice(ctx, handle)
 			default:
-				return fmt.Errorf("unsupported authentication method: %s (use password, oauth, or device)", method)
+				return fmt.Errorf("unsupported authentication method: %s\n" +
+					"Supported methods:\n" +
+					"  password - App password authentication (recommended)\n" +
+					"  oauth    - OAuth PKCE flow (not yet fully implemented)\n" +
+					"  device   - Device authorization (not yet fully implemented)", method)
 			}
 		},
 	}
@@ -101,143 +105,45 @@ func loginWithPassword(ctx context.Context, handle string) error {
 
 // loginWithOAuth performs OAuth 2.0 PKCE authorization code flow
 func loginWithOAuth(ctx context.Context, handle string) error {
-	client := auth.NewOAuthClient()
+	// NOTE: Full AT Protocol OAuth implementation requires:
+	// 1. DID resolution and PDS discovery for the handle
+	// 2. PAR (Pushed Authorization Request) to the authorization server
+	// 3. DPoP proof generation and signing
+	// 4. Dynamic OAuth metadata discovery
+	//
+	// The current OAuth client provides basic PKCE primitives but does not
+	// implement the complete AT Protocol OAuth flow. For production use,
+	// consider using app passwords until full OAuth is implemented.
 	
-	// Start authorization flow
-	req := &auth.AuthorizationRequest{
-		Handle:       handle,
-		CallbackPort: 8472, // Local callback port
-	}
-	
-	resp, err := client.StartAuthorizationFlow(req)
-	if err != nil {
-		return fmt.Errorf("failed to start authorization flow: %w", err)
-	}
-	
-	fmt.Println("🔐 OAuth Authorization Required")
-	fmt.Println()
-	fmt.Printf("  Please open this URL in your browser:\n  %s\n", resp.AuthURL)
-	fmt.Println()
-	fmt.Print("Waiting for authorization...")
-	
-	// TODO: Implement local callback server to receive authorization code
-	// For now, prompt user to paste the code manually
-	fmt.Println()
-	fmt.Print("Authorization code: ")
-	var code string
-	fmt.Scanln(&code)
-	
-	// Exchange code for tokens
-	tokenReq := &auth.TokenRequest{
-		Code:         code,
-		CodeVerifier: resp.CodeVerifier,
-	}
-	
-	tokens, err := client.ExchangeCodeForToken(ctx, tokenReq)
-	if err != nil {
-		return fmt.Errorf("failed to exchange code for token: %w", err)
-	}
-	
-	// Store credentials
-	cm, err := auth.NewCredentialManager()
-	if err != nil {
-		return fmt.Errorf("failed to create credential manager: %w", err)
-	}
-	
-	creds := &auth.Credentials{
-		AccessToken:  tokens.AccessToken,
-		RefreshToken: tokens.RefreshToken,
-		DPoPKey:      "", // TODO: Generate DPoP key
-		ExpiresAt:    tokens.ExpiresAt,
-	}
-	
-	if err := cm.StoreCredentials(ctx, handle, creds); err != nil {
-		return fmt.Errorf("failed to store credentials: %w", err)
-	}
-	
-	if err := cm.SetDefaultAccount(ctx, handle); err != nil {
-		return fmt.Errorf("failed to set default account: %w", err)
-	}
-	
-	fmt.Printf("\n✓ Successfully authenticated @%s via OAuth\n", handle)
-	fmt.Println("  Credentials stored securely in system keyring")
-	
-	return nil
-}
+	return fmt.Errorf("OAuth PKCE flow not yet fully implemented for AT Protocol.\n" +
+		"AT Protocol OAuth requires additional components:\n" +
+		"  - DID resolution and PDS discovery\n" +
+		"  - PAR (Pushed Authorization Request)\n" +
+		"  - DPoP proof generation\n" +
+		"  - OAuth metadata discovery\n\n" +
+		"Please use --method password (app passwords) for now.\n" +
+		"See docs/12-auth-implementation-plan.md for implementation details.")
 
 // loginWithDevice performs device authorization grant flow
 func loginWithDevice(ctx context.Context, handle string) error {
-	client := auth.NewOAuthClient()
+	// NOTE: Full AT Protocol Device Flow implementation requires:
+	// 1. DID resolution and PDS discovery for the handle
+	// 2. Device authorization endpoint discovery
+	// 3. DPoP proof generation for token requests
+	// 4. Proper polling with OAuth server metadata
+	//
+	// The current implementation provides basic device flow primitives but
+	// does not implement the complete AT Protocol device authorization.
+	// For production use, use app passwords until full implementation.
 	
-	// Start device flow
-	req := &auth.DeviceAuthorizationRequest{
-		Handle: handle,
-	}
-	
-	device, err := client.StartDeviceFlow(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to start device flow: %w", err)
-	}
-	
-	fmt.Println("🔐 Device Authorization Required")
-	fmt.Println()
-	fmt.Printf("  1. Visit: %s\n", device.VerificationURI)
-	fmt.Printf("  2. Enter code: %s\n", device.UserCode)
-	fmt.Println()
-	fmt.Println("Waiting for authorization (this may take a few minutes)...")
-	
-	// Poll for completion
-	pollReq := &auth.PollDeviceTokenRequest{
-		DeviceCode: device.DeviceCode,
-	}
-	
-	interval := time.Duration(device.Interval) * time.Second
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			tokens, err := client.PollDeviceToken(ctx, pollReq)
-			if err == auth.ErrAuthorizationPending {
-				continue // Keep polling
-			} else if err == auth.ErrSlowDown {
-				// Increase interval
-				ticker.Reset(interval + 5*time.Second)
-				continue
-			} else if err != nil {
-				return fmt.Errorf("device authorization failed: %w", err)
-			}
-			
-			// Success! Store credentials
-			cm, err := auth.NewCredentialManager()
-			if err != nil {
-				return fmt.Errorf("failed to create credential manager: %w", err)
-			}
-			
-			creds := &auth.Credentials{
-				AccessToken:  tokens.AccessToken,
-				RefreshToken: tokens.RefreshToken,
-				DPoPKey:      "", // TODO: Generate DPoP key
-				ExpiresAt:    tokens.ExpiresAt,
-			}
-			
-			if err := cm.StoreCredentials(ctx, handle, creds); err != nil {
-				return fmt.Errorf("failed to store credentials: %w", err)
-			}
-			
-			if err := cm.SetDefaultAccount(ctx, handle); err != nil {
-				return fmt.Errorf("failed to set default account: %w", err)
-			}
-			
-			fmt.Printf("\n✓ Successfully authenticated @%s via device flow\n", handle)
-			fmt.Println("  Credentials stored securely in system keyring")
-			
-			return nil
-		}
-	}
+	return fmt.Errorf("Device authorization flow not yet fully implemented for AT Protocol.\n" +
+		"AT Protocol device flow requires additional components:\n" +
+		"  - DID resolution and PDS discovery\n" +
+		"  - Device authorization endpoint discovery\n" +
+		"  - DPoP proof generation\n" +
+		"  - OAuth metadata discovery\n\n" +
+		"Please use --method password (app passwords) for now.\n" +
+		"See docs/12-auth-implementation-plan.md for implementation details.")
 }
 
 // createAccountsCommand creates the accounts list command

@@ -150,7 +150,14 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         "password" | "" => login_with_password(&handle).await,
         "oauth" => login_with_oauth(&handle).await,
         "device" => login_with_device(&handle).await,
-        _ => Err(anyhow::anyhow!("Unsupported authentication method: {} (use password, oauth, or device)", args.method))
+        _ => Err(anyhow::anyhow!(
+            "Unsupported authentication method: {}\n\
+            Supported methods:\n\
+              password - App password authentication (recommended)\n\
+              oauth    - OAuth PKCE flow (not yet fully implemented)\n\
+              device   - Device authorization (not yet fully implemented)", 
+            args.method
+        ))
     }
 }
 
@@ -182,114 +189,50 @@ async fn login_with_password(handle: &str) -> Result<String> {
 
 /// Login with OAuth PKCE flow
 async fn login_with_oauth(handle: &str) -> Result<String> {
-    use std::io::{self, Write};
+    // NOTE: Full AT Protocol OAuth implementation requires:
+    // 1. DID resolution and PDS discovery for the handle
+    // 2. PAR (Pushed Authorization Request) to the authorization server
+    // 3. DPoP proof generation and signing
+    // 4. Dynamic OAuth metadata discovery
+    //
+    // The current OAuth client provides basic PKCE primitives but does not
+    // implement the complete AT Protocol OAuth flow. For production use,
+    // consider using app passwords until full OAuth is implemented.
     
-    let mut client = auth::OAuthClient::new();
-    
-    // Start authorization flow
-    let req = auth::AuthorizationRequest {
-        handle: Some(handle.to_string()),
-        redirect_port: Some(8472),
-        pkce_params: None,
-        state: None,
-    };
-    
-    let resp = client.start_authorization_flow(req)?;
-    
-    println!("🔐 OAuth Authorization Required\n");
-    println!("  Please open this URL in your browser:");
-    println!("  {}\n", resp.auth_url);
-    print!("Waiting for authorization...\n");
-    
-    // TODO: Implement local callback server to receive authorization code
-    // For now, prompt user to paste the code manually
-    print!("Authorization code: ");
-    io::stdout().flush()?;
-    let mut code = String::new();
-    io::stdin().read_line(&mut code)?;
-    let code = code.trim();
-    
-    // Exchange code for tokens
-    let token_req = auth::TokenRequest {
-        code: code.to_string(),
-        code_verifier: resp.code_verifier,
-        redirect_uri: format!("http://localhost:{}/callback", 8472),
-    };
-    
-    let tokens = client.exchange_code_for_token(&token_req).await?;
-    
-    // Store credentials
-    let cm = auth::CredentialManager::new()?;
-    let creds = auth::Credentials {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        dpop_key: String::new(), // TODO: Generate DPoP key
-        expires_at: tokens.expires_at,
-    };
-    
-    cm.store_credentials(handle, &creds)?;
-    cm.set_default_account(handle)?;
-    
-    Ok(format!("\n✓ Successfully authenticated @{} via OAuth\n  Credentials stored securely in system keyring", handle))
+    Err(anyhow::anyhow!(
+        "OAuth PKCE flow not yet fully implemented for AT Protocol.\n\
+        AT Protocol OAuth requires additional components:\n\
+          - DID resolution and PDS discovery\n\
+          - PAR (Pushed Authorization Request)\n\
+          - DPoP proof generation\n\
+          - OAuth metadata discovery\n\n\
+        Please use --method password (app passwords) for now.\n\
+        See docs/12-auth-implementation-plan.md for implementation details."
+    ))
 }
 
 /// Login with device flow
 async fn login_with_device(handle: &str) -> Result<String> {
-    let client = auth::OAuthClient::new();
+    // NOTE: Full AT Protocol Device Flow implementation requires:
+    // 1. DID resolution and PDS discovery for the handle
+    // 2. Device authorization endpoint discovery
+    // 3. DPoP proof generation for token requests
+    // 4. Proper polling with OAuth server metadata
+    //
+    // The current implementation provides basic device flow primitives but
+    // does not implement the complete AT Protocol device authorization.
+    // For production use, use app passwords until full implementation.
     
-    // Start device flow
-    let req = auth::DeviceAuthorizationRequest {
-        handle: Some(handle.to_string()),
-    };
-    
-    let device = client.start_device_flow(&req).await?;
-    
-    println!("🔐 Device Authorization Required\n");
-    println!("  1. Visit: {}", device.verification_uri);
-    println!("  2. Enter code: {}\n", device.user_code);
-    println!("Waiting for authorization (this may take a few minutes)...");
-    
-    // Poll for completion
-    let poll_req = auth::PollDeviceTokenRequest {
-        device_code: device.device_code.clone(),
-    };
-    
-    let interval = std::time::Duration::from_secs(device.interval as u64);
-    let mut current_interval = interval;
-    
-    loop {
-        tokio::time::sleep(current_interval).await;
-        
-        match client.poll_device_token(&poll_req).await {
-            Ok(tokens) => {
-                // Success! Store credentials
-                let cm = auth::CredentialManager::new()?;
-                let creds = auth::Credentials {
-                    access_token: tokens.access_token,
-                    refresh_token: tokens.refresh_token,
-                    dpop_key: String::new(), // TODO: Generate DPoP key
-                    expires_at: tokens.expires_at,
-                };
-                
-                cm.store_credentials(handle, &creds)?;
-                cm.set_default_account(handle)?;
-                
-                return Ok(format!("\n✓ Successfully authenticated @{} via device flow\n  Credentials stored securely in system keyring", handle));
-            }
-            Err(auth::AuthError::AuthorizationPending) => {
-                // Keep polling
-                continue;
-            }
-            Err(auth::AuthError::SlowDown) => {
-                // Increase interval
-                current_interval += std::time::Duration::from_secs(5);
-                continue;
-            }
-            Err(e) => {
-                return Err(anyhow::anyhow!("Device authorization failed: {}", e));
-            }
-        }
-    }
+    Err(anyhow::anyhow!(
+        "Device authorization flow not yet fully implemented for AT Protocol.\n\
+        AT Protocol device flow requires additional components:\n\
+          - DID resolution and PDS discovery\n\
+          - Device authorization endpoint discovery\n\
+          - DPoP proof generation\n\
+          - OAuth metadata discovery\n\n\
+        Please use --method password (app passwords) for now.\n\
+        See docs/12-auth-implementation-plan.md for implementation details."
+    ))
 }
 
 /// Execute accounts command
