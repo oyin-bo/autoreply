@@ -30,6 +30,12 @@ pub enum Commands {
     Profile(ProfileArgs),
     /// Search posts within a user's repository
     Search(SearchArgs),
+    /// Authenticate with BlueSky
+    Login(LoginArgs),
+    /// Remove stored credentials
+    Logout(LogoutArgs),
+    /// Manage authenticated accounts
+    Accounts(AccountsArgs),
 }
 
 /// Profile tool arguments
@@ -58,6 +64,56 @@ pub struct SearchArgs {
     #[arg(short = 'l', long)]
     #[schemars(description = "Maximum number of results (default 50, max 200)")]
     pub limit: Option<usize>,
+}
+
+/// Login command arguments
+#[derive(Parser, Debug)]
+pub struct LoginArgs {
+    /// Handle (alice.bsky.social)
+    #[arg(short = 'u', long)]
+    pub handle: Option<String>,
+    
+    /// App password (for app password authentication)
+    #[arg(short = 'p', long)]
+    pub password: Option<String>,
+    
+    /// Service URL (defaults to https://bsky.social)
+    #[arg(short = 's', long)]
+    pub service: Option<String>,
+    
+    /// Use OAuth with browser redirect
+    #[arg(long, conflicts_with_all = ["password", "device"])]
+    pub oauth: bool,
+    
+    /// Use OAuth device flow (for headless environments)
+    #[arg(long, conflicts_with_all = ["password", "oauth"])]
+    pub device: bool,
+}
+
+/// Logout command arguments
+#[derive(Parser, Debug)]
+pub struct LogoutArgs {
+    /// Handle to logout (defaults to current/default account)
+    #[arg(short = 'u', long)]
+    pub handle: Option<String>,
+}
+
+/// Accounts management arguments
+#[derive(Parser, Debug)]
+pub struct AccountsArgs {
+    #[command(subcommand)]
+    pub command: AccountsCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AccountsCommands {
+    /// List all stored accounts
+    List,
+    /// Set default account
+    Default {
+        /// Handle to set as default
+        handle: String,
+    },
 }
 
 #[cfg(test)]

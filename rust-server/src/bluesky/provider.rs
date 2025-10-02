@@ -30,7 +30,7 @@ impl RepositoryProvider {
             .map_err(|e| AppError::HttpClientInitialization(e.to_string()))?;
         
         let cache_dir = dirs::cache_dir()
-            .unwrap_or_else(|| std::env::temp_dir())
+            .unwrap_or_else(std::env::temp_dir)
             .join("autoreply")
             .join("repos");
         

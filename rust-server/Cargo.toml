@@ -58,5 +58,21 @@ serde_cbor = "0.11"
 unsigned-varint = "0.7"
 thiserror = "1.0"
 
+# Authentication and credential storage
+keyring = "2.3"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+
+# OAuth dependencies (using 0.12 for Rust 1.89 compatibility)
+atproto-oauth = "0.12"
+atproto-client = "0.12"
+atproto-identity = "0.12"
+axum = "0.7"
+tower = "0.5"
+webbrowser = "1.0"
+rand = "0.8"
+sha2 = "0.10"
+urlencoding = "2.1"
+
 [dev-dependencies]
 tempfile = "3.23"
