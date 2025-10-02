@@ -26,6 +26,18 @@ const (
 	
 	// ErrCodeAuthExpired indicates token expired and refresh failed
 	ErrCodeAuthExpired ErrorCode = "auth_expired"
+	
+	// ErrCodeAuthorizationPending indicates device authorization is still pending
+	ErrCodeAuthorizationPending ErrorCode = "authorization_pending"
+	
+	// ErrCodeSlowDown indicates polling too frequently
+	ErrCodeSlowDown ErrorCode = "slow_down"
+	
+	// ErrCodeExpiredToken indicates the device code has expired
+	ErrCodeExpiredToken ErrorCode = "expired_token"
+	
+	// ErrCodeAccessDenied indicates the user denied authorization
+	ErrCodeAccessDenied ErrorCode = "access_denied"
 )
 
 // AuthError represents an authentication error
@@ -56,3 +68,18 @@ func NewAuthError(code ErrorCode, message string, err error) *AuthError {
 		Err:     err,
 	}
 }
+
+// Sentinel errors for device flow polling
+var (
+	// ErrAuthorizationPending is returned when device authorization is still pending
+	ErrAuthorizationPending = NewAuthError(ErrCodeAuthorizationPending, "authorization pending", nil)
+	
+	// ErrSlowDown is returned when polling too frequently
+	ErrSlowDown = NewAuthError(ErrCodeSlowDown, "slow down", nil)
+	
+	// ErrExpiredToken is returned when the device code has expired
+	ErrExpiredToken = NewAuthError(ErrCodeExpiredToken, "device code expired", nil)
+	
+	// ErrAccessDenied is returned when the user denies authorization
+	ErrAccessDenied = NewAuthError(ErrCodeAccessDenied, "access denied", nil)
+)

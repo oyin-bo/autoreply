@@ -1,6 +1,69 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::time::{Duration, SystemTime};
+
+/// Authentication errors
+#[derive(Debug)]
+pub enum AuthError {
+    /// Account not found
+    AccountNotFound(String),
+    /// Invalid credentials
+    InvalidCredentials(String),
+    /// Keyring unavailable
+    KeyringUnavailable(String),
+    /// Configuration error
+    ConfigError(String),
+    /// Network error
+    NetworkError(String),
+    /// OAuth error
+    OAuthError(String),
+    /// Parse error
+    ParseError(String),
+    /// Authorization pending (device flow)
+    AuthorizationPending,
+    /// Slow down (polling too fast)
+    SlowDown,
+    /// Token expired
+    ExpiredToken,
+    /// Access denied by user
+    AccessDenied,
+    /// IO error
+    IoError(std::io::Error),
+}
+
+impl fmt::Display for AuthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AuthError::AccountNotFound(msg) => write!(f, "Account not found: {}", msg),
+            AuthError::InvalidCredentials(msg) => write!(f, "Invalid credentials: {}", msg),
+            AuthError::KeyringUnavailable(msg) => write!(f, "Keyring unavailable: {}", msg),
+            AuthError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
+            AuthError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            AuthError::OAuthError(msg) => write!(f, "OAuth error: {}", msg),
+            AuthError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+            AuthError::AuthorizationPending => write!(f, "Authorization pending"),
+            AuthError::SlowDown => write!(f, "Slow down polling"),
+            AuthError::ExpiredToken => write!(f, "Token expired"),
+            AuthError::AccessDenied => write!(f, "Access denied"),
+            AuthError::IoError(e) => write!(f, "IO error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for AuthError {}
+
+impl From<std::io::Error> for AuthError {
+    fn from(error: std::io::Error) -> Self {
+        AuthError::IoError(error)
+    }
+}
+
+impl From<keyring::Error> for AuthError {
+    fn from(error: keyring::Error) -> Self {
+        AuthError::KeyringUnavailable(error.to_string())
+    }
+}
 
 /// Credentials represents stored authentication credentials for a BlueSky account
 #[derive(Debug, Clone, Serialize, Deserialize)]
