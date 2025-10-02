@@ -180,3 +180,11 @@ func (d *MetadataDiscovery) fetchAuthorizationServerMetadata(ctx context.Context
 
 	return &metadata, nil
 }
+
+// DiscoverServerMetadataFromHandle is a convenience function for discovering server metadata from a handle
+func DiscoverServerMetadataFromHandle(ctx context.Context, handle string) (*AuthorizationServerMetadata, error) {
+	discovery := NewMetadataDiscovery()
+	metadata, _, err := discovery.DiscoverFromHandle(ctx, handle)
+	return metadata, err
+}
+

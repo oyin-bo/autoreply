@@ -4,6 +4,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/auth"
 	"github.com/oyin-bo/autoreply/go-server/internal/mcp"
@@ -41,67 +42,220 @@ func (t *OAuthLoginTool) InputSchema() mcp.InputSchema {
 	return mcp.InputSchema{
 		Type: "object",
 		Properties: map[string]mcp.PropertySchema{
-			"client_id": {
+			"handle": {
 				Type:        "string",
-				Description: "OAuth client ID (optional, uses default if not provided)",
+				Description: "Bluesky handle (e.g. alice.bsky.social)",
 			},
 			"port": {
 				Type:        "integer",
 				Description: "Local callback server port (default: 8080)",
 			},
 		},
-		Required: []string{},
+		Required: []string{"handle"},
 	}
 }
 
 // Call executes the OAuth login tool
 func (t *OAuthLoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
-	// Note: This implementation requires a publicly accessible client_id URL
-	// For now, return an error with instructions
-	message := `# OAuth Login Not Yet Fully Configured
+	// Get port (default 8080)
+	port := 8080
+	if portVal, ok := args["port"]; ok {
+		if portFloat, ok := portVal.(float64); ok {
+			port = int(portFloat)
+		}
+	}
 
-## Implementation Status
+	// Get handle for login hint
+	handle := ""
+	if handleVal, ok := args["handle"]; ok {
+		if handleStr, ok := handleVal.(string); ok {
+			handle = handleStr
+		}
+	}
 
-The AT Protocol OAuth infrastructure has been implemented per the official specification:
+	// If no handle provided, ask user
+	if handle == "" {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: "Error: handle is required for OAuth login. Please provide a handle (e.g., alice.bsky.social)",
+				},
+			},
+			IsError: true,
+		}, nil
+	}
 
-✅ Server metadata discovery (/.well-known endpoints)
-✅ Handle and DID resolution (did:plc, did:web)
-✅ PAR (Pushed Authorization Request) 
-✅ PKCE with S256
-✅ DPoP with server nonces
-✅ Token exchange with proper verification
+	// Setup redirect URI based on port
+	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
-## What's Missing
+	// Discover server metadata from handle
+	metadata, err := auth.DiscoverServerMetadataFromHandle(ctx, handle)
+	if err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: fmt.Sprintf("Error: Failed to discover OAuth server for %s: %v", handle, err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
 
-OAuth requires a **publicly accessible client_id URL** where client metadata is hosted.
+	// Setup OAuth config with loopback client
+	config := &auth.OAuthConfig{
+		ClientID:       redirectURI, // Use loopback URI as client_id for native apps
+		RedirectURI:    redirectURI,
+		Scope:          "atproto transition:generic",
+		ServerMetadata: metadata,
+	}
 
-For example:
-- client_id: https://autoreply.example.com/client-metadata.json
-- This URL must serve the client metadata JSON
-- The URL itself becomes the client_id
+	// Create OAuth flow
+	flow, err := auth.NewOAuthFlow(config)
+	if err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: fmt.Sprintf("Error: Failed to initialize OAuth flow: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
 
-## For Now
+	// Push authorization request (PAR)
+	requestURI, err := flow.PushAuthorizationRequest(ctx, handle)
+	if err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: fmt.Sprintf("Error: Failed to push authorization request: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
 
-Use app password authentication:
-` + "```bash\nautoreply login\n```" + `
+	// Get authorization URL
+	authURL := flow.GetAuthorizationURL(requestURI)
 
-This will prompt for your handle and app password.
+	// Start callback server and wait for authorization
+	callbackServer := auth.NewCallbackServer(port)
+	if err := callbackServer.Start(); err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: fmt.Sprintf("Error: Failed to start callback server: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+	defer callbackServer.Stop(ctx)
+	
+	result := fmt.Sprintf(`
+OAuth Login Initiated
 
-## Future Work
+1. Open this URL in your browser:
+   %s
 
-To enable OAuth:
-1. Host client metadata at a public HTTPS URL
-2. Configure the client_id in the OAuth flow
-3. Update the tool to use the hosted metadata
+2. Authorize the application in your browser
 
-See: https://docs.bsky.app/docs/advanced-guides/oauth-client
-`
+3. Waiting for authorization callback on http://127.0.0.1:%d/callback
+
+The server will automatically receive the authorization code and complete the login.
+`, authURL, port)
+
+	// Print to stderr for CLI users
+	fmt.Fprint(os.Stderr, result)
+
+	// Wait for callback result
+	callbackResult, err := callbackServer.WaitForCallback(ctx)
+	if err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: result + fmt.Sprintf("\n\nError: Authorization failed: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	if callbackResult.Error != "" {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: result + fmt.Sprintf("\n\nError: Authorization failed: %s", callbackResult.Error),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Exchange code for tokens
+	creds, err := flow.ExchangeCode(ctx, callbackResult.Code, callbackResult.State)
+	if err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: result + fmt.Sprintf("\n\nError: Token exchange failed: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Resolve DID to handle
+	identity, err := auth.ResolveDID(ctx, creds.DID)
+	if err != nil {
+		// Store with DID only
+		creds.Handle = creds.DID
+	} else {
+		creds.Handle = auth.ExtractHandleFromDID(identity)
+		if creds.Handle == "" {
+			creds.Handle = creds.DID
+		}
+	}
+
+	// Store credentials
+	if err := t.credStore.Save(creds); err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: result + fmt.Sprintf("\n\nError: Failed to store credentials: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Set as default
+	if err := t.credStore.SetDefault(creds.Handle); err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{
+				{
+					Type: "text",
+					Text: result + fmt.Sprintf("\n\nWarning: Failed to set default handle: %v", err),
+				},
+			},
+		}, nil
+	}
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{
 			{
 				Type: "text",
-				Text: message,
+				Text: fmt.Sprintf("Successfully authenticated as @%s using OAuth 2.0!\n\nCredentials stored securely. Access token expires at: %s",
+					creds.Handle, creds.ExpiresAt.Format("2006-01-02 15:04:05")),
 			},
 		},
 	}, nil

@@ -200,3 +200,14 @@ func ResolvePDSFromDID(ctx context.Context, did string) (string, error) {
 
 	return "", fmt.Errorf("no PDS service found in DID document")
 }
+
+// ExtractHandleFromDID extracts the atproto handle from a DID document's alsoKnownAs field
+func ExtractHandleFromDID(doc *DIDDocument) string {
+	for _, aka := range doc.AlsoKnownAs {
+		if strings.HasPrefix(aka, "at://") {
+			return strings.TrimPrefix(aka, "at://")
+		}
+	}
+	return ""
+}
+

@@ -87,13 +87,13 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 	}
 	registry.RegisterTool(loginDef)
 
-	// Register OAuth login tool (shows implementation status)
-	oauthLoginAdapter := cli.NewMCPToolAdapter(oauthLoginTool)
+	// Register OAuth login tool with interactive prompting
+	oauthLoginInteractiveAdapter := cli.NewInteractiveOAuthLoginAdapter(oauthLoginTool)
 	oauthLoginDef := &cli.ToolDefinition{
 		Name:        "oauth-login",
-		Description: "Show AT Protocol OAuth implementation status",
+		Description: "Authenticate with Bluesky using OAuth 2.0 with PKCE and DPoP (most secure)",
 		ArgsType:    &cli.OAuthLoginArgs{},
-		Execute:     oauthLoginAdapter.Execute,
+		Execute:     oauthLoginInteractiveAdapter.Execute,
 	}
 	registry.RegisterTool(oauthLoginDef)
 
@@ -132,7 +132,7 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 	runner.RegisterToolCommand(profileDef)
 	runner.RegisterToolCommand(searchDef)
 	runner.RegisterToolCommand(loginDef)
-	runner.RegisterToolCommand(oauthLoginDef) // Shows implementation status
+	runner.RegisterToolCommand(oauthLoginDef) // OAuth with PKCE and DPoP
 	runner.RegisterToolCommand(deviceLoginDef) // Shows implementation status
 	runner.RegisterToolCommand(logoutDef)
 	runner.RegisterToolCommand(accountsDef)

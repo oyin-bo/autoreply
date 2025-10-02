@@ -32,8 +32,8 @@ type AccountsArgs struct {
 
 // OAuthLoginArgs defines arguments for the OAuth login tool
 type OAuthLoginArgs struct {
-	ClientID string `json:"client_id,omitempty" jsonschema:"description=OAuth client ID (optional uses default if not provided)" short:"c" long:"client-id"`
-	Port     int    `json:"port,omitempty" jsonschema:"description=Local callback server port (default: 8080)" short:"p" long:"port"`
+	Handle string `json:"handle,omitempty" jsonschema:"description=Bluesky handle (e.g. alice.bsky.social) (optional - will prompt if not provided)" short:"u" long:"handle"`
+	Port   int    `json:"port,omitempty" jsonschema:"description=Local callback server port (default: 8080)" short:"p" long:"port"`
 }
 
 // DeviceLoginArgs defines arguments for the device login tool
