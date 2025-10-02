@@ -187,7 +187,7 @@ impl PostRecord {
         if !self.uri.is_empty() {
             let post_url = format!("https://bsky.app/profile/{}/post/{}", 
                 handle, 
-                self.uri.split('/').last().unwrap_or("")
+                self.uri.split('/').next_back().unwrap_or("")
             );
             markdown.push_str(&format!("**URI:** [{}]({})\n", self.uri, post_url));
         }
@@ -216,7 +216,7 @@ impl PostRecord {
         if !link_lines.is_empty() {
             markdown.push_str("**Links:**\n");
             for line in link_lines { markdown.push_str(&line); }
-            markdown.push_str("\n");
+            markdown.push('\n');
         }
 
         // Add images alt text (no URLs in scope)
@@ -229,7 +229,7 @@ impl PostRecord {
                         let alt_text = img.alt.as_deref().unwrap_or(&default_alt);
                         markdown.push_str(&format!("- {}\n", alt_text));
                     }
-                    markdown.push_str("\n");
+                    markdown.push('\n');
                 }
             }
         }

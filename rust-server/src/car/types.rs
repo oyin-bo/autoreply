@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct Cid {
@@ -12,11 +13,15 @@ pub struct Cid {
     pub digest: Vec<u8>,
 }
 
-impl Cid {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for Cid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Use hex encoding of the digest for internal HashMap keys
-        hex::encode(&self.digest)
+        write!(f, "{}", hex::encode(&self.digest))
     }
+}
+
+impl Cid {
+    
 }
 
 #[derive(Debug)]

@@ -64,11 +64,11 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
         search_args.account.strip_prefix('@').unwrap_or(&search_args.account).to_string()
     };
 
-    debug!("Resolved {} to DID: {}", search_args.account, did);
+    debug!("Resolved {} to DID: {:?}", search_args.account, did);
 
     // Get posts using streaming iterator
     let provider = RepositoryProvider::new()?;
-    let records = provider.records(&did).await?;
+    let records = provider.records(did.as_ref().ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?).await?;
     
     // Stream through records and collect posts
     let posts: Vec<PostRecord> = records
@@ -81,8 +81,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
             }
             
             // Decode CBOR data to extract post fields
-            if let Ok(post_value) = serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data) {
-                if let serde_cbor::Value::Map(post_map) = post_value {
+            if let Ok(serde_cbor::Value::Map(post_map)) = serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data) {
                     let text = match post_map.get(&serde_cbor::Value::Text("text".to_string())) {
                         Some(serde_cbor::Value::Text(t)) => t.clone(),
                         _ => return None,
@@ -96,7 +95,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
                     // For now, we'll use a placeholder for rkey - we'd need to extract it from the MST key
                     // This is a limitation of the current approach vs the specialized get_posts method
                     Some(PostRecord {
-                        uri: format!("at://{}/app.bsky.feed.post/unknown", did),
+                        uri: format!("at://{}/app.bsky.feed.post/unknown", did.as_deref().unwrap_or("unknown")),
                         cid: "unknown".to_string(), // Would need CID from CAR entry
                         text,
                         created_at,
@@ -106,9 +105,6 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
                 } else {
                     None
                 }
-            } else {
-                None
-            }
         })
         .collect();
     
@@ -144,7 +140,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
             let mut pr = p.clone();
             // URI format: at://{did}/app.bsky.feed.post/{rkey}
             if !pr.uri.is_empty() && !pr.uri.starts_with("at://") {
-                pr.uri = format!("at://{}/app.bsky.feed.post/{}", did, pr.uri);
+                pr.uri = format!("at://{}/app.bsky.feed.post/{}", did.as_deref().unwrap_or("unknown"), pr.uri);
             }
             pr
         })

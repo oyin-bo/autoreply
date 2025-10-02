@@ -16,6 +16,9 @@ pub enum AppError {
     CacheError(String),
     HttpClientInitialization(String),
     NetworkError(String),
+    Authentication(String),
+    ConfigError(String),
+    ParseError(String),
     Internal(String),
 }
 
@@ -31,6 +34,9 @@ impl fmt::Display for AppError {
             AppError::CacheError(msg) => write!(f, "Cache error: {}", msg),
             AppError::HttpClientInitialization(msg) => write!(f, "HTTP client initialization failed: {}", msg),
             AppError::NetworkError(msg) => write!(f, "Network error: {}", msg),
+            AppError::Authentication(msg) => write!(f, "Authentication error: {}", msg),
+            AppError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
+            AppError::ParseError(msg) => write!(f, "Parse error: {}", msg),
             AppError::Internal(msg) => write!(f, "Internal error: {}", msg),
         }
     }
@@ -51,6 +57,9 @@ impl AppError {
             AppError::CacheError(_) => "cache_error",
             AppError::HttpClientInitialization(_) => "http_client_initialization",
             AppError::NetworkError(_) => "network_error",
+            AppError::Authentication(_) => "authentication_error",
+            AppError::ConfigError(_) => "config_error",
+            AppError::ParseError(_) => "parse_error",
             AppError::Internal(_) => "internal_error",
         }
     }
@@ -109,16 +118,15 @@ pub fn validate_account(account: &str) -> Result<(), AppError> {
     }
 
     // Check if it's a DID
-    if account.starts_with("did:plc:") {
-        if account.len() != 32 || !account[8..].chars().all(|c| c.is_ascii_alphanumeric()) {
+    if let Some(stripped) = account.strip_prefix("did:plc:") {
+        if account.len() != 32 || !stripped.chars().all(|c| c.is_ascii_alphanumeric()) {
             return Err(AppError::InvalidInput("Invalid DID format".to_string()));
         }
         return Ok(());
     }
-    if account.starts_with("did:web:") {
+    if let Some(rest) = account.strip_prefix("did:web:") {
         // Basic structural validation for did:web
         // did:web:<host>[:<path segments separated by ':'>]
-        let rest = &account[8..];
         if rest.is_empty() {
             return Err(AppError::InvalidInput("Invalid did:web format".to_string()));
         }
@@ -346,7 +354,7 @@ mod tests {
         ];
         
         for query in valid_queries {
-            assert!(validate_query(&query).is_ok());
+            assert!(validate_query(query).is_ok());
         }
     }
 

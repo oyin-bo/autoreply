@@ -66,16 +66,16 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
         profile_args.account.strip_prefix('@').unwrap_or(&profile_args.account).to_string()
     };
 
-    debug!("Resolved {} to DID: {}", profile_args.account, did);
+    debug!("Resolved {} to DID: {:?}", profile_args.account, did);
 
         // Use true streaming to process CAR blocks one by one (like Go version)
     let provider = RepositoryProvider::new()?;
     
-    debug!("Starting streaming CAR block processing for {}", did);
+    debug!("Starting streaming CAR block processing for {:?}", did);
     use crate::bluesky::records::ProfileRecord;
     
     // Use the new iterator-based streaming approach
-    let mut records = provider.records(&did).await?;
+    let mut records = provider.records(did.as_ref().ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?).await?;
     let profile = records
         .find_map(|record_result| {
             let (record_type, cbor_data) = record_result.ok()?;
@@ -86,8 +86,7 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
                 debug!("Found profile record!");
                 
                 // Decode CBOR data to ProfileRecord
-                if let Ok(profile_value) = serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data) {
-                    if let serde_cbor::Value::Map(profile_map) = profile_value {
+                if let Ok(serde_cbor::Value::Map(profile_map)) = serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data) {
                         // Use helper function to avoid string allocations
                         let display_name = get_cbor_string_field(&profile_map, "displayName");
                         let description = get_cbor_string_field(&profile_map, "description");
@@ -103,7 +102,6 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
                             banner,
                             created_at,
                         });
-                    }
                 }
             }
             None
@@ -122,7 +120,7 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
     debug!("Found profile record");
 
     // Convert to markdown
-    let markdown = profile.to_markdown(&display_handle, &did);
+    let markdown = profile.to_markdown(&display_handle, did.as_ref().ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?);
     
     info!("Profile request completed for: {}", profile_args.account);
 

@@ -1,6 +1,5 @@
 use crate::car::{CarError, CarHeader, CarEntry, Cid};
 
-use serde_cbor;
 
 pub struct SyncByteReader<'a> {
     buf: &'a [u8],
@@ -301,7 +300,7 @@ impl Iterator for CarRecords {
         
         // Stream through CAR entries one by one
         if let Some(ref mut reader) = self.car_reader {
-            while let Some(entry_result) = reader.next() {
+            for entry_result in reader.by_ref() {
                 let entry = match entry_result {
                     Ok(entry) => entry,
                     Err(e) => return Some(Err(e)),
@@ -310,8 +309,7 @@ impl Iterator for CarRecords {
                 self.processed_count += 1;
                 
                 // Try to decode CBOR and check if it's an AT Protocol record
-                if let Ok(cbor_value) = serde_cbor::from_slice::<serde_cbor::Value>(&entry.bytes) {
-                    if let serde_cbor::Value::Map(ref cbor_map) = cbor_value {
+                if let Ok(serde_cbor::Value::Map(ref cbor_map)) = serde_cbor::from_slice::<serde_cbor::Value>(&entry.bytes) {
                         // Look for $type field to identify AT Protocol records
                         for (key, value) in cbor_map.iter() {
                             if let serde_cbor::Value::Text(key_str) = key {
@@ -323,7 +321,6 @@ impl Iterator for CarRecords {
                                 }
                             }
                         }
-                    }
                 }
                 // This CAR block wasn't an AT Protocol record, continue to next
             }
