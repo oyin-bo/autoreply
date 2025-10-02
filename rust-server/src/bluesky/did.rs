@@ -350,7 +350,7 @@ fn did_web_to_did_document_url(did: &str) -> Option<String> {
     // did:web:example.com          => https://example.com/.well-known/did.json
     // did:web:example.com:foo:bar  => https://example.com/foo/bar/did.json
     let parts: Vec<&str> = rest.split(':').collect();
-    let host = parts.get(0)?.to_string();
+    let host = parts.first()?.to_string();
     if parts.len() == 1 {
         Some(format!("https://{}/.well-known/did.json", host))
     } else {

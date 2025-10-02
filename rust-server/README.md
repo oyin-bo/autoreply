@@ -9,9 +9,11 @@ This application supports two operational modes:
 1. **MCP Server Mode** (default): Model Context Protocol server using stdio
 2. **CLI Mode**: Command-line utility for direct tool execution
 
-Both modes implement the same two tools:
+Both modes implement the same tools:
 - `profile(account)` - Retrieve user profile information  
 - `search(account, query)` - Search posts within a user's repository
+
+Authentication support via app passwords allows storing and managing credentials for future authenticated operations.
 
 ## Features
 
@@ -19,6 +21,16 @@ Both modes implement the same two tools:
 - JSON-RPC 2.0 compliant
 - Stdio communication
 - Proper error handling with MCP error codes
+
+✅ **Authentication & Credential Management**
+- OAuth Browser Flow - Interactive OAuth with PKCE and callback server (fully implemented)
+- OAuth Device Flow - Secure OAuth for headless/CLI environments (fully implemented)
+- App password authentication via AT Protocol
+- Secure credential storage (OS keyring with file fallback)
+- Multi-account support with default selection
+- Token refresh and lifecycle management
+- CLI commands: `login`, `logout`, `accounts list`, `accounts default`
+- Support for multiple authentication methods: `--device`, `--oauth`, or app passwords
 
 ✅ **Bluesky Integration**
 - DID resolution (handle → DID)
@@ -36,7 +48,7 @@ Both modes implement the same two tools:
 - System proxy support via environment variables (HTTP(S)_PROXY, NO_PROXY)
 
 ✅ **Quality Assurance**
-- Comprehensive test suite with 101+ tests
+- Comprehensive test suite with 110+ tests
 - Full error handling and edge case coverage
 - Performance optimized for ~2s repo processing
 
@@ -68,13 +80,32 @@ autoreply profile --account alice.bsky.social
 # Search posts
 autoreply search --account bob.bsky.social --query "rust programming" --limit 10
 
+# Authentication commands
+
+# OAuth browser flow (recommended for desktop - fully functional!)
+autoreply login --oauth --handle alice.bsky.social
+
+# OAuth device flow (recommended for CLI/remote)
+autoreply login --device --handle alice.bsky.social
+
+# App password authentication (traditional)
+autoreply login --handle alice.bsky.social --password app-password-here
+
+# Account management
+autoreply logout --handle alice.bsky.social
+autoreply accounts list
+autoreply accounts default alice.bsky.social
+
 # Get help
 autoreply --help
 autoreply profile --help
 autoreply search --help
+autoreply login --help
 ```
 
 For complete CLI usage documentation, see [CLI-USAGE.md](./CLI-USAGE.md).
+
+For authentication details and examples, see [src/auth/README.md](./src/auth/README.md).
 
 ### Proxy support
 
