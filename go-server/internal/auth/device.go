@@ -103,8 +103,8 @@ func (f *DeviceAuthFlow) PollForToken(ctx context.Context, deviceCode string, in
 		case <-ctx.Done():
 			return nil, fmt.Errorf("polling cancelled: %w", ctx.Err())
 		case <-ticker.C:
-			// Create DPoP proof for token endpoint
-			dpopProof, err := f.dpopKey.CreateDPoPProof("POST", f.config.TokenEndpoint, "")
+			// Create DPoP proof for token endpoint (with empty nonce for now)
+			dpopProof, err := f.dpopKey.CreateDPoPProof("POST", f.config.TokenEndpoint, "", "")
 			if err != nil {
 				return nil, fmt.Errorf("failed to create DPoP proof: %w", err)
 			}

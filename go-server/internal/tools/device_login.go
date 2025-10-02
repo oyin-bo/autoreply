@@ -4,11 +4,9 @@ package tools
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/auth"
 	"github.com/oyin-bo/autoreply/go-server/internal/mcp"
-	"github.com/oyin-bo/autoreply/go-server/pkg/errors"
 )
 
 // DeviceLoginTool implements the device authorization login tool
@@ -54,92 +52,44 @@ func (t *DeviceLoginTool) InputSchema() mcp.InputSchema {
 
 // Call executes the device login tool
 func (t *DeviceLoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
-	// Extract client ID (use default if not provided)
-	clientID := "autoreply-cli"
-	if clientIDRaw, ok := args["client_id"]; ok {
-		if clientIDStr, ok := clientIDRaw.(string); ok && clientIDStr != "" {
-			clientID = clientIDStr
-		}
-	}
+	// Note: This implementation requires proper AT Protocol OAuth infrastructure
+	message := `# Device Authorization Login Not Yet Fully Configured
 
-	// TODO: Get device auth configuration from BlueSky
-	// For now, use placeholder endpoints
-	config := &auth.DeviceAuthConfig{
-		DeviceAuthorizationEndpoint: "https://bsky.social/oauth/device/code",
-		TokenEndpoint:               "https://bsky.social/oauth/token",
-		ClientID:                    clientID,
-		Scope:                       "atproto transition:generic",
-	}
+## Implementation Status
 
-	// Create device auth flow
-	flow, err := auth.NewDeviceAuthFlow(config)
-	if err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to create device auth flow")
-	}
+The AT Protocol OAuth infrastructure has been implemented per the official specification, including:
 
-	// Request device code
-	deviceResp, err := flow.RequestDeviceCode(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to request device code")
-	}
+✅ Server metadata discovery
+✅ Identity resolution
+✅ PAR, PKCE, and DPoP support
 
-	// Calculate expiration time
-	expiresAt := time.Now().Add(time.Duration(deviceResp.ExpiresIn) * time.Second)
+## What's Missing
 
-	// Format instructions message
-	message := fmt.Sprintf("# Device Authorization\n\n"+
-		"To authenticate, please visit the following URL in your browser:\n\n"+
-		"**%s**\n\n"+
-		"And enter this code:\n\n"+
-		"## %s\n\n"+
-		"Or scan this direct link:\n%s\n\n"+
-		"Code expires at: %s\n\n"+
-		"Waiting for authorization (polling every %d seconds)...\n",
-		deviceResp.VerificationURI,
-		deviceResp.UserCode,
-		deviceResp.VerificationURIComplete,
-		expiresAt.Format("15:04:05"),
-		deviceResp.Interval)
+Device Authorization Grant requires:
+1. A publicly accessible client_id URL hosting client metadata
+2. Proper OAuth server support for device authorization flow
+3. The device authorization endpoint from server metadata
 
-	// Poll for token with timeout
-	pollCtx, cancel := context.WithTimeout(ctx, time.Duration(deviceResp.ExpiresIn)*time.Second)
-	defer cancel()
+## For Now
 
-	creds, err := flow.PollForToken(pollCtx, deviceResp.DeviceCode, deviceResp.Interval)
-	if err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to obtain authorization")
-	}
+Use app password authentication:
+` + "```bash\nautoreply login\n```" + `
 
-	// TODO: Get user handle and DID from token or make additional API call
-	// For now, we need to make a call to get the session info
-	// This would require using the access token with DPoP
+This will prompt for your handle and app password securely.
 
-	// Store credentials
-	if creds.Handle == "" {
-		creds.Handle = "device-user" // Placeholder until we can get real handle
-	}
-	if err := t.credStore.Save(creds); err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to store credentials")
-	}
+## Alternative
 
-	// Set as default handle
-	if err := t.credStore.SetDefault(creds.Handle); err != nil {
-		fmt.Printf("Warning: Failed to set default handle: %v\n", err)
-	}
+For browser-based OAuth (when client_id is configured):
+` + "```bash\nautoreply oauth-login\n```" + `
 
-	// Format success message
-	successMsg := fmt.Sprintf("# Device Login Successful\n\n"+
-		"Successfully authenticated via device authorization!\n\n"+
-		"**Handle:** @%s\n"+
-		"**DID:** `%s`\n\n"+
-		"Credentials have been securely stored and will be used for authenticated operations.\n",
-		creds.Handle, creds.DID)
+See: https://docs.bsky.app/docs/advanced-guides/oauth-client
+`
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{
 			{
 				Type: "text",
-				Text: message + "\n\n" + successMsg,
+				Text: message,
 			},
 		},
 	}, nil

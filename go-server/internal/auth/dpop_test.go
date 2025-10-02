@@ -40,8 +40,8 @@ func TestCreateDPoPProof(t *testing.T) {
 		t.Fatalf("Failed to generate DPoP key: %v", err)
 	}
 
-	// Create DPoP proof without access token
-	proof, err := key.CreateDPoPProof("POST", "https://example.com/token", "")
+	// Create DPoP proof without access token (no nonce)
+	proof, err := key.CreateDPoPProof("POST", "https://example.com/token", "", "")
 	if err != nil {
 		t.Fatalf("Failed to create DPoP proof: %v", err)
 	}
@@ -70,9 +70,9 @@ func TestCreateDPoPProofWithAccessToken(t *testing.T) {
 		t.Fatalf("Failed to generate DPoP key: %v", err)
 	}
 
-	// Create DPoP proof with access token
+	// Create DPoP proof with access token (no nonce)
 	accessToken := "test-access-token"
-	proof, err := key.CreateDPoPProof("GET", "https://example.com/api", accessToken)
+	proof, err := key.CreateDPoPProof("GET", "https://example.com/api", accessToken, "")
 	if err != nil {
 		t.Fatalf("Failed to create DPoP proof: %v", err)
 	}

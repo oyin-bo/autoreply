@@ -4,11 +4,9 @@ package tools
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/auth"
 	"github.com/oyin-bo/autoreply/go-server/internal/mcp"
-	"github.com/oyin-bo/autoreply/go-server/pkg/errors"
 )
 
 // OAuthLoginTool implements the OAuth login tool
@@ -58,116 +56,52 @@ func (t *OAuthLoginTool) InputSchema() mcp.InputSchema {
 
 // Call executes the OAuth login tool
 func (t *OAuthLoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
-	// Extract client ID (use default if not provided)
-	clientID := "autoreply-cli"
-	if clientIDRaw, ok := args["client_id"]; ok {
-		if clientIDStr, ok := clientIDRaw.(string); ok && clientIDStr != "" {
-			clientID = clientIDStr
-		}
-	}
+	// Note: This implementation requires a publicly accessible client_id URL
+	// For now, return an error with instructions
+	message := `# OAuth Login Not Yet Fully Configured
 
-	// Extract port (use default if not provided)
-	port := 8080
-	if portRaw, ok := args["port"]; ok {
-		switch v := portRaw.(type) {
-		case float64:
-			port = int(v)
-		case int:
-			port = v
-		}
-	}
+## Implementation Status
 
-	// TODO: Get OAuth configuration from BlueSky
-	// For now, use placeholder endpoints
-	config := &auth.OAuthConfig{
-		AuthorizationEndpoint: "https://bsky.social/oauth/authorize",
-		TokenEndpoint:         "https://bsky.social/oauth/token",
-		ClientID:              clientID,
-		RedirectURI:           auth.GetRedirectURIWithPort(port),
-		Scope:                 "atproto transition:generic",
-	}
+The AT Protocol OAuth infrastructure has been implemented per the official specification:
 
-	// Create OAuth flow
-	flow, err := auth.NewOAuthFlow(config)
-	if err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to create OAuth flow")
-	}
+✅ Server metadata discovery (/.well-known endpoints)
+✅ Handle and DID resolution (did:plc, did:web)
+✅ PAR (Pushed Authorization Request) 
+✅ PKCE with S256
+✅ DPoP with server nonces
+✅ Token exchange with proper verification
 
-	// Start callback server
-	callbackServer := auth.NewCallbackServer(port)
-	if err := callbackServer.Start(); err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to start callback server")
-	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		callbackServer.Stop(shutdownCtx)
-	}()
+## What's Missing
 
-	// Get authorization URL
-	authURL := flow.GetAuthorizationURL()
+OAuth requires a **publicly accessible client_id URL** where client metadata is hosted.
 
-	// Return instructions to user
-	message := fmt.Sprintf("# OAuth Login\n\n"+
-		"To authenticate, please visit this URL in your browser:\n\n"+
-		"**%s**\n\n"+
-		"After authorizing, you will be redirected back and the authentication will complete automatically.\n\n"+
-		"Waiting for authorization...\n",
-		authURL)
+For example:
+- client_id: https://autoreply.example.com/client-metadata.json
+- This URL must serve the client metadata JSON
+- The URL itself becomes the client_id
 
-	// For CLI use, we need to wait for the callback
-	// For MCP use, we return the URL and wait in background
-	// This is a simplified implementation - in production, you'd want to handle this better
+## For Now
 
-	// Wait for callback with timeout
-	callbackCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
+Use app password authentication:
+` + "```bash\nautoreply login\n```" + `
 
-	result, err := callbackServer.WaitForCallback(callbackCtx)
-	if err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to receive OAuth callback")
-	}
+This will prompt for your handle and app password.
 
-	if result.Error != "" {
-		return nil, errors.NewMCPError(errors.InternalError, fmt.Sprintf("OAuth authorization failed: %s", result.Error))
-	}
+## Future Work
 
-	// Exchange code for tokens
-	creds, err := flow.ExchangeCode(ctx, result.Code, result.State)
-	if err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to exchange authorization code")
-	}
+To enable OAuth:
+1. Host client metadata at a public HTTPS URL
+2. Configure the client_id in the OAuth flow
+3. Update the tool to use the hosted metadata
 
-	// TODO: Get user handle and DID from token or make additional API call
-	// For now, we need to make a call to get the session info
-	// This would require using the access token with DPoP
-
-	// Store credentials
-	if creds.Handle == "" {
-		creds.Handle = "oauth-user" // Placeholder until we can get real handle
-	}
-	if err := t.credStore.Save(creds); err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to store credentials")
-	}
-
-	// Set as default handle
-	if err := t.credStore.SetDefault(creds.Handle); err != nil {
-		fmt.Printf("Warning: Failed to set default handle: %v\n", err)
-	}
-
-	// Format success message
-	successMsg := fmt.Sprintf("# OAuth Login Successful\n\n"+
-		"Successfully authenticated via OAuth!\n\n"+
-		"**Handle:** @%s\n"+
-		"**DID:** `%s`\n\n"+
-		"Credentials have been securely stored and will be used for authenticated operations.\n",
-		creds.Handle, creds.DID)
+See: https://docs.bsky.app/docs/advanced-guides/oauth-client
+`
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{
 			{
 				Type: "text",
-				Text: message + "\n\n" + successMsg,
+				Text: message,
 			},
 		},
 	}, nil

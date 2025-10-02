@@ -87,29 +87,25 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 	}
 	registry.RegisterTool(loginDef)
 
-	// TODO: OAuth and Device login temporarily disabled - need proper AT Protocol OAuth discovery
-	// These methods require actual BlueSky OAuth endpoints, not placeholder URLs
-	// See docs/12-auth-plan.md for implementation requirements
-	
-	// Register OAuth login tool
-	// oauthLoginAdapter := cli.NewMCPToolAdapter(oauthLoginTool)
-	// oauthLoginDef := &cli.ToolDefinition{
-	// 	Name:        "oauth-login",
-	// 	Description: "Authenticate with Bluesky using OAuth 2.0 with PKCE and DPoP",
-	// 	ArgsType:    &cli.OAuthLoginArgs{},
-	// 	Execute:     oauthLoginAdapter.Execute,
-	// }
-	// registry.RegisterTool(oauthLoginDef)
+	// Register OAuth login tool (shows implementation status)
+	oauthLoginAdapter := cli.NewMCPToolAdapter(oauthLoginTool)
+	oauthLoginDef := &cli.ToolDefinition{
+		Name:        "oauth-login",
+		Description: "Show AT Protocol OAuth implementation status",
+		ArgsType:    &cli.OAuthLoginArgs{},
+		Execute:     oauthLoginAdapter.Execute,
+	}
+	registry.RegisterTool(oauthLoginDef)
 
-	// Register device login tool
-	// deviceLoginAdapter := cli.NewMCPToolAdapter(deviceLoginTool)
-	// deviceLoginDef := &cli.ToolDefinition{
-	// 	Name:        "device-login",
-	// 	Description: "Authenticate with Bluesky using Device Authorization Grant",
-	// 	ArgsType:    &cli.DeviceLoginArgs{},
-	// 	Execute:     deviceLoginAdapter.Execute,
-	// }
-	// registry.RegisterTool(deviceLoginDef)
+	// Register device login tool (shows implementation status)
+	deviceLoginAdapter := cli.NewMCPToolAdapter(deviceLoginTool)
+	deviceLoginDef := &cli.ToolDefinition{
+		Name:        "device-login",
+		Description: "Show Device Authorization Grant implementation status",
+		ArgsType:    &cli.DeviceLoginArgs{},
+		Execute:     deviceLoginAdapter.Execute,
+	}
+	registry.RegisterTool(deviceLoginDef)
 
 	// Register logout tool
 	logoutAdapter := cli.NewMCPToolAdapter(logoutTool)
@@ -136,8 +132,8 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 	runner.RegisterToolCommand(profileDef)
 	runner.RegisterToolCommand(searchDef)
 	runner.RegisterToolCommand(loginDef)
-	// runner.RegisterToolCommand(oauthLoginDef) // Disabled - needs proper OAuth endpoints
-	// runner.RegisterToolCommand(deviceLoginDef) // Disabled - needs proper OAuth endpoints
+	runner.RegisterToolCommand(oauthLoginDef) // Shows implementation status
+	runner.RegisterToolCommand(deviceLoginDef) // Shows implementation status
 	runner.RegisterToolCommand(logoutDef)
 	runner.RegisterToolCommand(accountsDef)
 
@@ -159,8 +155,8 @@ func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *
 	server.RegisterTool("profile", profileTool)
 	server.RegisterTool("search", searchTool)
 	server.RegisterTool("login", loginTool)
-	// server.RegisterTool("oauth-login", oauthLoginTool) // Disabled - needs proper OAuth endpoints
-	// server.RegisterTool("device-login", deviceLoginTool) // Disabled - needs proper OAuth endpoints
+	server.RegisterTool("oauth-login", oauthLoginTool) // Shows implementation status
+	server.RegisterTool("device-login", deviceLoginTool) // Shows implementation status
 	server.RegisterTool("logout", logoutTool)
 	server.RegisterTool("accounts", accountsTool)
 

@@ -29,11 +29,3 @@ func GeneratePKCEChallenge() (verifier, challenge string, err error) {
 	return verifier, challenge, nil
 }
 
-// GenerateState generates a random state parameter for OAuth
-func GenerateState() (string, error) {
-	stateBytes := make([]byte, 32)
-	if _, err := rand.Read(stateBytes); err != nil {
-		return "", fmt.Errorf("failed to generate state: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(stateBytes), nil
-}
