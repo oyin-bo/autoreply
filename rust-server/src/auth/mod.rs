@@ -11,11 +11,13 @@ pub mod credentials;
 pub mod session;
 pub mod storage;
 pub mod oauth;
+pub mod oauth_atproto;
 
 pub use credentials::Credentials;
 pub use session::{Session, SessionManager};
 pub use storage::{CredentialStorage, StorageBackend};
 pub use oauth::{OAuthManager, OAuthConfig};
+pub use oauth_atproto::{AtProtoOAuthManager, AtProtoOAuthConfig, BrowserFlowState};
 
 use crate::error::AppError;
 
