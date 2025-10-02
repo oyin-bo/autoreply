@@ -73,8 +73,11 @@ Should login be a separate tool in MCP server? Research need to consider and off
 
 ## Next Steps
 
--   Research the specifics of BlueSky's OAuth or other authentication mechanisms.
--   Identify and evaluate concrete libraries for both Go and Rust to handle OAuth flows and OS credential storage.
--   Draft a detailed technical spec based on this wishlist and the research findings.
+-   ~~Research the specifics of BlueSky's OAuth or other authentication mechanisms.~~ ✓
+-   ~~Identify and evaluate concrete libraries for both Go and Rust to handle OAuth flows and OS credential storage.~~ ✓
 -   Create a Proof of Concept (PoC) in `go-server` and `rust-server`.
+
+## Implementation Plan
+
+Research findings and implementation guidance: **[Authentication Implementation Plan](./12-auth-plan.md)**
 

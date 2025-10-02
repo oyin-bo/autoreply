@@ -17,23 +17,35 @@ import (
 func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
-	
+
 	// Create tools
 	profileTool := tools.NewProfileTool()
 	searchTool := tools.NewSearchTool()
+	loginTool, err := tools.NewLoginTool()
+	if err != nil {
+		log.Fatalf("Failed to create login tool: %v", err)
+	}
+	logoutTool, err := tools.NewLogoutTool()
+	if err != nil {
+		log.Fatalf("Failed to create logout tool: %v", err)
+	}
+	accountsTool, err := tools.NewAccountsTool()
+	if err != nil {
+		log.Fatalf("Failed to create accounts tool: %v", err)
+	}
 
 	// Detect mode: CLI if args present, MCP server otherwise
 	if len(os.Args) > 1 {
 		// CLI Mode
-		runCLIMode(profileTool, searchTool)
+		runCLIMode(profileTool, searchTool, loginTool, logoutTool, accountsTool)
 	} else {
 		// MCP Server Mode
-		runMCPMode(cfg, profileTool, searchTool)
+		runMCPMode(cfg, profileTool, searchTool, loginTool, logoutTool, accountsTool)
 	}
 }
 
 // runCLIMode executes the tool in CLI mode
-func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
+func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool, logoutTool *tools.LogoutTool, accountsTool *tools.AccountsTool) {
 	// Create registry
 	registry := cli.NewRegistry()
 
@@ -57,10 +69,43 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
 	}
 	registry.RegisterTool(searchDef)
 
+	// Register unified login tool with interactive prompting
+	loginInteractiveAdapter := cli.NewInteractiveLoginAdapter(loginTool)
+	loginDef := &cli.ToolDefinition{
+		Name:        "login",
+		Description: "Authenticate with Bluesky (OAuth by default, or app password with -p/--password)",
+		ArgsType:    &cli.LoginArgs{},
+		Execute:     loginInteractiveAdapter.Execute,
+	}
+	registry.RegisterTool(loginDef)
+
+	// Register logout tool
+	logoutAdapter := cli.NewMCPToolAdapter(logoutTool)
+	logoutDef := &cli.ToolDefinition{
+		Name:        "logout",
+		Description: "Remove stored credentials for a Bluesky account",
+		ArgsType:    &cli.LogoutArgs{},
+		Execute:     logoutAdapter.Execute,
+	}
+	registry.RegisterTool(logoutDef)
+
+	// Register accounts tool
+	accountsAdapter := cli.NewMCPToolAdapter(accountsTool)
+	accountsDef := &cli.ToolDefinition{
+		Name:        "accounts",
+		Description: "List authenticated accounts and manage default account",
+		ArgsType:    &cli.AccountsArgs{},
+		Execute:     accountsAdapter.Execute,
+	}
+	registry.RegisterTool(accountsDef)
+
 	// Create and run CLI runner
 	runner := cli.NewRunner(registry)
 	runner.RegisterToolCommand(profileDef)
 	runner.RegisterToolCommand(searchDef)
+	runner.RegisterToolCommand(loginDef)
+	runner.RegisterToolCommand(logoutDef)
+	runner.RegisterToolCommand(accountsDef)
 
 	ctx := context.Background()
 	if err := runner.Run(ctx, os.Args[1:]); err != nil {
@@ -69,7 +114,7 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
 }
 
 // runMCPMode starts the MCP server
-func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool) {
+func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool, logoutTool *tools.LogoutTool, accountsTool *tools.AccountsTool) {
 	// Create MCP server
 	server, err := mcp.NewServer()
 	if err != nil {
@@ -79,6 +124,9 @@ func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *
 	// Register tools
 	server.RegisterTool("profile", profileTool)
 	server.RegisterTool("search", searchTool)
+	server.RegisterTool("login", loginTool)
+	server.RegisterTool("logout", logoutTool)
+	server.RegisterTool("accounts", accountsTool)
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -95,12 +143,12 @@ func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *
 	}()
 
 	// Start the server in stdio mode
-	log.Printf("Starting autoreply server with config: Cache TTL=%dh, Profile TTL=%dh", 
+	log.Printf("Starting autoreply server with config: Cache TTL=%dh, Profile TTL=%dh",
 		cfg.CacheTTLHours, cfg.ProfileTTLHours)
-	
+
 	if err := server.ServeStdio(ctx); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
-	
+
 	log.Println("Server shut down gracefully")
 }
