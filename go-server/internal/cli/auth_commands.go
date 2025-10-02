@@ -3,10 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/auth"
+	"github.com/oyin-bo/autoreply/go-server/internal/bluesky"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -105,24 +108,156 @@ func loginWithPassword(ctx context.Context, handle string) error {
 
 // loginWithOAuth performs OAuth 2.0 PKCE authorization code flow
 func loginWithOAuth(ctx context.Context, handle string) error {
-	// NOTE: Full AT Protocol OAuth implementation requires:
-	// 1. DID resolution and PDS discovery for the handle
-	// 2. PAR (Pushed Authorization Request) to the authorization server
-	// 3. DPoP proof generation and signing
-	// 4. Dynamic OAuth metadata discovery
-	//
-	// The current OAuth client provides basic PKCE primitives but does not
-	// implement the complete AT Protocol OAuth flow. For production use,
-	// consider using app passwords until full OAuth is implemented.
+	fmt.Printf("Starting OAuth PKCE flow for @%s...\n", handle)
 	
-	return fmt.Errorf("OAuth PKCE flow not yet fully implemented for AT Protocol.\n" +
-		"AT Protocol OAuth requires additional components:\n" +
-		"  - DID resolution and PDS discovery\n" +
-		"  - PAR (Pushed Authorization Request)\n" +
-		"  - DPoP proof generation\n" +
-		"  - OAuth metadata discovery\n\n" +
-		"Please use --method password (app passwords) for now.\n" +
-		"See docs/12-auth-implementation-plan.md for implementation details.")
+	// Step 1: Resolve handle to DID and discover PDS
+	fmt.Println("⏳ Resolving handle to DID and discovering PDS...")
+	
+	// Import DID resolver
+	didResolver := bluesky.NewDIDResolver()
+	did, err := didResolver.ResolveHandle(ctx, handle)
+	if err != nil {
+		return fmt.Errorf("failed to resolve handle to DID: %w", err)
+	}
+	fmt.Printf("✓ Resolved DID: %s\n", did)
+	
+	pds, err := didResolver.ResolvePDSEndpoint(ctx, did)
+	if err != nil {
+		return fmt.Errorf("failed to discover PDS: %w", err)
+	}
+	if pds == "" {
+		return fmt.Errorf("no PDS endpoint found for user")
+	}
+	fmt.Printf("✓ Discovered PDS: %s\n", pds)
+	
+	// Step 2: Discover OAuth metadata
+	fmt.Println("⏳ Discovering OAuth server metadata...")
+	client := auth.NewAtProtoOAuthClient("autoreply-mcp-client")
+	metadata, err := client.DiscoverMetadata(ctx, pds)
+	if err != nil {
+		return fmt.Errorf("failed to discover OAuth metadata: %w", err)
+	}
+	fmt.Printf("✓ OAuth server: %s\n", metadata.Issuer)
+	
+	// Step 3: Generate PKCE and DPoP key pair
+	fmt.Println("⏳ Generating PKCE challenge and DPoP key pair...")
+	pkce, err := auth.GeneratePKCE()
+	if err != nil {
+		return fmt.Errorf("failed to generate PKCE parameters: %w", err)
+	}
+	
+	dpopKeyPair, err := auth.GenerateDPoPKeyPair()
+	if err != nil {
+		return fmt.Errorf("failed to generate DPoP key pair: %w", err)
+	}
+	fmt.Println("✓ Generated security parameters")
+	
+	// Step 4: Send PAR (Pushed Authorization Request)
+	fmt.Println("⏳ Sending Pushed Authorization Request...")
+	parResponse, err := client.SendPAR(ctx, metadata, pkce, dpopKeyPair, handle)
+	if err != nil {
+		return fmt.Errorf("failed to send PAR: %w", err)
+	}
+	fmt.Printf("✓ Received request URI (expires in %ds)\n", parResponse.ExpiresIn)
+	
+	// Step 5: Build authorization URL
+	authURL := client.BuildAuthorizationURL(metadata, parResponse)
+	
+	// Step 6: Start callback server
+	fmt.Println("⏳ Starting OAuth callback server on port 8080...")
+	callbackServer := auth.NewOAuthCallbackServer(8080)
+	
+	// Step 7: Open browser
+	fmt.Println("\n╔══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  Please authorize in your browser:                          ║")
+	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
+	fmt.Printf("║  %s  ║\n", authURL)
+	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	
+	// Try to open browser
+	if err := openBrowser(authURL); err != nil {
+		fmt.Printf("⚠  Could not open browser automatically: %v\n", err)
+		fmt.Println("   Please open the URL above manually.")
+	}
+	
+	// Step 8: Wait for callback with timeout
+	callbackCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	
+	fmt.Println("⏳ Waiting for authorization callback...")
+	callbackResult, err := callbackServer.WaitForCallback(callbackCtx)
+	if err != nil {
+		return fmt.Errorf("failed to receive OAuth callback: %w", err)
+	}
+	fmt.Println("✓ Received authorization code")
+	
+	// Step 9: Exchange code for tokens
+	fmt.Println("⏳ Exchanging authorization code for access token...")
+	tokens, err := client.ExchangeCodeForTokens(
+		ctx,
+		metadata,
+		callbackResult.Code,
+		pkce.CodeVerifier,
+		dpopKeyPair,
+		"http://127.0.0.1:8080/callback",
+	)
+	if err != nil {
+		return fmt.Errorf("failed to exchange code for tokens: %w", err)
+	}
+	fmt.Printf("✓ Received access token (expires in %ds)\n", tokens.ExpiresIn)
+	
+	// Step 10: Store credentials
+	fmt.Println("⏳ Storing credentials securely...")
+	cm, err := auth.NewCredentialManager()
+	if err != nil {
+		return fmt.Errorf("failed to create credential manager: %w", err)
+	}
+	
+	dpopKeyPEM, err := dpopKeyPair.ToPEM()
+	if err != nil {
+		return fmt.Errorf("failed to export DPoP key: %w", err)
+	}
+	
+	creds := &auth.Credentials{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		DPoPKey:      dpopKeyPEM,
+		ExpiresAt:    tokens.ExpiresAt,
+	}
+	
+	if err := cm.StoreCredentials(ctx, handle, creds); err != nil {
+		return fmt.Errorf("failed to store credentials: %w", err)
+	}
+	
+	if err := cm.SetDefaultAccount(ctx, handle); err != nil {
+		return fmt.Errorf("failed to set default account: %w", err)
+	}
+	
+	fmt.Printf("✓ Successfully authenticated @%s\n", handle)
+	fmt.Printf("  DID: %s\n", did)
+	fmt.Printf("  PDS: %s\n", pds)
+	fmt.Println("  Credentials stored securely in system keyring")
+	
+	return nil
+}
+
+// openBrowser opens a URL in the default browser
+func openBrowser(url string) error {
+	var cmd string
+	var args []string
+	
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "cmd"
+		args = []string{"/c", "start"}
+	case "darwin":
+		cmd = "open"
+	default: // "linux", "freebsd", "openbsd", "netbsd"
+		cmd = "xdg-open"
+	}
+	args = append(args, url)
+	return exec.Command(cmd, args...).Start()
 }
 
 // loginWithDevice performs device authorization grant flow

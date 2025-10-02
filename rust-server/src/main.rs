@@ -17,7 +17,7 @@ mod cli;
 mod car;
 mod auth;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
 use tracing::info;
@@ -188,28 +188,108 @@ async fn login_with_password(handle: &str) -> Result<String> {
 }
 
 /// Login with OAuth PKCE flow
-#[allow(dead_code)] // Will be used when OAuth is fully implemented
-async fn login_with_oauth(_handle: &str) -> Result<String> {
-    // NOTE: Full AT Protocol OAuth implementation requires:
-    // 1. DID resolution and PDS discovery for the handle
-    // 2. PAR (Pushed Authorization Request) to the authorization server
-    // 3. DPoP proof generation and signing
-    // 4. Dynamic OAuth metadata discovery
-    //
-    // The current OAuth client provides basic PKCE primitives but does not
-    // implement the complete AT Protocol OAuth flow. For production use,
-    // consider using app passwords until full OAuth is implemented.
+async fn login_with_oauth(handle: &str) -> Result<String> {
+    use crate::auth::{AtProtoOAuthClient, CredentialManager, DPoPKeyPair, PKCEParams, OAuthCallbackServer};
+    use crate::bluesky::did::DidResolver;
     
-    Err(anyhow::anyhow!(
-        "OAuth PKCE flow not yet fully implemented for AT Protocol.\n\
-        AT Protocol OAuth requires additional components:\n\
-          - DID resolution and PDS discovery\n\
-          - PAR (Pushed Authorization Request)\n\
-          - DPoP proof generation\n\
-          - OAuth metadata discovery\n\n\
-        Please use --method password (app passwords) for now.\n\
-        See docs/12-auth-implementation-plan.md for implementation details."
-    ))
+    println!("Starting OAuth PKCE flow for @{}...", handle);
+    
+    // Step 1: Resolve handle to DID and discover PDS
+    println!("⏳ Resolving handle to DID and discovering PDS...");
+    let resolver = DidResolver::new();
+    let did = resolver.resolve_handle(handle).await
+        .context("Failed to resolve handle to DID")?;
+    println!("✓ Resolved DID: {}", did);
+    
+    let pds = resolver.discover_pds(&did).await
+        .context("Failed to discover PDS")?
+        .ok_or_else(|| anyhow::anyhow!("No PDS endpoint found for user"))?;
+    println!("✓ Discovered PDS: {}", pds);
+    
+    // Step 2: Discover OAuth metadata
+    println!("⏳ Discovering OAuth server metadata...");
+    let client = AtProtoOAuthClient::new("autoreply-mcp-client".to_string());
+    let metadata = client.discover_metadata(&pds).await
+        .context("Failed to discover OAuth metadata")?;
+    println!("✓ OAuth server: {}", metadata.issuer);
+    
+    // Step 3: Generate PKCE and DPoP key pair
+    println!("⏳ Generating PKCE challenge and DPoP key pair...");
+    let pkce = PKCEParams::generate()
+        .context("Failed to generate PKCE parameters")?;
+    let dpop_keypair = DPoPKeyPair::generate()
+        .context("Failed to generate DPoP key pair")?;
+    println!("✓ Generated security parameters");
+    
+    // Step 4: Send PAR (Pushed Authorization Request)
+    println!("⏳ Sending Pushed Authorization Request...");
+    let par_response = client.send_par(&metadata, &pkce, &dpop_keypair, handle).await
+        .context("Failed to send PAR")?;
+    println!("✓ Received request URI (expires in {}s)", par_response.expires_in);
+    
+    // Step 5: Build authorization URL
+    let auth_url = client.build_authorization_url(&metadata, &par_response);
+    
+    // Step 6: Start callback server
+    println!("⏳ Starting OAuth callback server on port 8080...");
+    let mut callback_server = OAuthCallbackServer::new(8080);
+    
+    // Step 7: Open browser
+    println!("\n╔══════════════════════════════════════════════════════════════╗");
+    println!("║  Please authorize in your browser:                          ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║  {}  ║", auth_url);
+    println!("╚══════════════════════════════════════════════════════════════╝\n");
+    
+    if let Err(e) = open::that(&auth_url) {
+        eprintln!("⚠  Could not open browser automatically: {}", e);
+        eprintln!("   Please open the URL above manually.");
+    }
+    
+    // Step 8: Wait for callback
+    println!("⏳ Waiting for authorization callback...");
+    let callback_result = callback_server.wait_for_callback().await
+        .context("Failed to receive OAuth callback")?;
+    println!("✓ Received authorization code");
+    
+    // Step 9: Exchange code for tokens
+    println!("⏳ Exchanging authorization code for access token...");
+    let tokens = client.exchange_code_for_tokens(
+        &metadata,
+        &callback_result.code,
+        &pkce.code_verifier,
+        &dpop_keypair,
+        "http://127.0.0.1:8080/callback",
+    ).await.context("Failed to exchange code for tokens")?;
+    println!("✓ Received access token (expires in {}s)", tokens.expires_in);
+    
+    // Step 10: Store credentials
+    println!("⏳ Storing credentials securely...");
+    let cm = CredentialManager::new()
+        .context("Failed to create credential manager")?;
+    
+    let dpop_key_pem = dpop_keypair.to_pem()
+        .context("Failed to export DPoP key")?;
+    
+    let creds = crate::auth::Credentials {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token.clone(),
+        dpop_key: dpop_key_pem,
+        expires_at: tokens.expires_at,
+    };
+    
+    cm.store_credentials(handle, &creds)
+        .context("Failed to store credentials")?;
+    
+    cm.set_default_account(handle)
+        .context("Failed to set default account")?;
+    
+    println!("✓ Successfully authenticated @{}", handle);
+    println!("  DID: {}", did);
+    println!("  PDS: {}", pds);
+    println!("  Credentials stored securely in system keyring");
+    
+    Ok(format!("✓ Successfully authenticated @{}", handle))
 }
 
 /// Login with device flow

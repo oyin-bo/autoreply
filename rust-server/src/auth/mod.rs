@@ -4,6 +4,7 @@ pub mod dpop;
 pub mod keyring;
 pub mod manager;
 pub mod oauth;
+pub mod oauth_callback;
 pub mod types;
 
 pub use atproto_oauth::{AtProtoOAuthClient, OAuthServerMetadata, PARResponse};
@@ -19,5 +20,6 @@ pub use oauth::{
     DeviceAuthorizationResponse, OAuthClient, PKCEParams, PollDeviceTokenRequest,
     TokenRequest, TokenResponse,
 };
+pub use oauth_callback::{OAuthCallbackResult, OAuthCallbackServer};
 #[allow(unused_imports)] // Public API exports for external use
 pub use types::{Account, AuthError, Config, Credentials, Settings};
