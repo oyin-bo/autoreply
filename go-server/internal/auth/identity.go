@@ -32,8 +32,14 @@ func ResolveHandle(ctx context.Context, handle string) (string, error) {
 	handle = strings.TrimPrefix(handle, "@")
 	handle = strings.ToLower(handle)
 
-	// Try HTTPS resolution first (most common)
-	did, err := resolveHandleHTTPS(ctx, handle)
+	// Try XRPC API resolution first (works for all Bluesky handles)
+	did, err := resolveHandleXRPC(ctx, handle)
+	if err == nil {
+		return did, nil
+	}
+
+	// Fallback to direct HTTPS resolution (for self-hosted handles)
+	did, err = resolveHandleHTTPS(ctx, handle)
 	if err == nil {
 		// Verify bidirectional resolution
 		if err := verifyHandleDID(ctx, handle, did); err != nil {
@@ -42,8 +48,66 @@ func ResolveHandle(ctx context.Context, handle string) (string, error) {
 		return did, nil
 	}
 
-	// Could add DNS resolution as fallback, but HTTPS is sufficient for most cases
 	return "", fmt.Errorf("failed to resolve handle %s: %w", handle, err)
+}
+
+// resolveHandleXRPC resolves a handle using the Bluesky XRPC API
+func resolveHandleXRPC(ctx context.Context, handle string) (string, error) {
+	// Try multiple public resolvers
+	endpoints := []string{
+		"https://api.bsky.app/xrpc/com.atproto.identity.resolveHandle",
+		"https://bsky.social/xrpc/com.atproto.identity.resolveHandle",
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	
+	var lastErr error
+	for _, endpoint := range endpoints {
+		url := fmt.Sprintf("%s?handle=%s", endpoint, handle)
+		
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, endpoint)
+			continue
+		}
+
+		var result struct {
+			DID string `json:"did"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&result)
+		resp.Body.Close()
+		
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if result.DID == "" {
+			lastErr = fmt.Errorf("empty DID in response")
+			continue
+		}
+
+		return result.DID, nil
+	}
+
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("failed to resolve handle via XRPC")
 }
 
 // resolveHandleHTTPS resolves a handle using HTTPS well-known endpoint

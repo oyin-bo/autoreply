@@ -4,17 +4,21 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 )
 
 // CallbackServer handles OAuth callback requests
 type CallbackServer struct {
 	server      *http.Server
+	listener    net.Listener
 	resultChan  chan *CallbackResult
 	mu          sync.Mutex
 	isListening bool
+	readyChan   chan struct{}
 }
 
 // CallbackResult contains the result of the OAuth callback
@@ -28,8 +32,9 @@ type CallbackResult struct {
 func NewCallbackServer(port int) *CallbackServer {
 	return &CallbackServer{
 		resultChan: make(chan *CallbackResult, 1),
+		readyChan:  make(chan struct{}),
 		server: &http.Server{
-			Addr: fmt.Sprintf(":%d", port),
+			Addr: fmt.Sprintf("127.0.0.1:%d", port),
 		},
 	}
 }
@@ -48,14 +53,41 @@ func (s *CallbackServer) Start() error {
 	mux.HandleFunc("/callback", s.handleCallback)
 	s.server.Handler = mux
 
+	// Create listener first to ensure port is bound
+	listener, err := net.Listen("tcp", s.server.Addr)
+	if err != nil {
+		s.mu.Lock()
+		s.isListening = false
+		s.mu.Unlock()
+		return fmt.Errorf("failed to bind to %s: %w", s.server.Addr, err)
+	}
+	s.listener = listener
+
+	// Start server in goroutine
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		// Signal that server is ready
+		close(s.readyChan)
+		
+		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			// Send error to result channel
-			s.resultChan <- &CallbackResult{Error: err.Error()}
+			select {
+			case s.resultChan <- &CallbackResult{Error: err.Error()}:
+			default:
+			}
 		}
 	}()
 
-	return nil
+	// Wait for server to be ready with timeout
+	select {
+	case <-s.readyChan:
+		return nil
+	case <-time.After(2 * time.Second):
+		listener.Close()
+		s.mu.Lock()
+		s.isListening = false
+		s.mu.Unlock()
+		return fmt.Errorf("timeout waiting for server to start")
+	}
 }
 
 // Stop stops the callback server

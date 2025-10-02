@@ -33,12 +33,21 @@ func GenerateDPoPKey() (*DPoPKey, error) {
 
 // CreateDPoPProof creates a DPoP proof JWT for a request
 func (k *DPoPKey) CreateDPoPProof(htm, htu string, accessToken string, nonce string) (string, error) {
-	// Create JWK thumbprint
+	// Create JWK with properly padded coordinates (32 bytes for P-256)
+	xBytes := k.PublicKey.X.Bytes()
+	yBytes := k.PublicKey.Y.Bytes()
+	
+	// Pad to 32 bytes if needed
+	xPadded := make([]byte, 32)
+	yPadded := make([]byte, 32)
+	copy(xPadded[32-len(xBytes):], xBytes)
+	copy(yPadded[32-len(yBytes):], yBytes)
+	
 	jwk := map[string]interface{}{
 		"kty": "EC",
 		"crv": "P-256",
-		"x":   base64.RawURLEncoding.EncodeToString(k.PublicKey.X.Bytes()),
-		"y":   base64.RawURLEncoding.EncodeToString(k.PublicKey.Y.Bytes()),
+		"x":   base64.RawURLEncoding.EncodeToString(xPadded),
+		"y":   base64.RawURLEncoding.EncodeToString(yPadded),
 	}
 
 	// Create header
@@ -91,8 +100,15 @@ func (k *DPoPKey) CreateDPoPProof(htm, htu string, accessToken string, nonce str
 		return "", fmt.Errorf("failed to sign DPoP proof: %w", err)
 	}
 
-	// Encode signature
-	signature := append(r.Bytes(), s.Bytes()...)
+	// Encode signature in IEEE P1363 format (concatenated r and s, 32 bytes each for P-256)
+	signature := make([]byte, 64)
+	rBytes := r.Bytes()
+	sBytes := s.Bytes()
+	
+	// Pad r and s to 32 bytes if needed
+	copy(signature[32-len(rBytes):32], rBytes)
+	copy(signature[64-len(sBytes):64], sBytes)
+	
 	signatureB64 := base64.RawURLEncoding.EncodeToString(signature)
 
 	// Create JWT
@@ -110,11 +126,20 @@ func generateJTI() string {
 
 // JWKThumbprint calculates the JWK thumbprint for the public key
 func (k *DPoPKey) JWKThumbprint() (string, error) {
+	// Pad coordinates to 32 bytes for P-256
+	xBytes := k.PublicKey.X.Bytes()
+	yBytes := k.PublicKey.Y.Bytes()
+	
+	xPadded := make([]byte, 32)
+	yPadded := make([]byte, 32)
+	copy(xPadded[32-len(xBytes):], xBytes)
+	copy(yPadded[32-len(yBytes):], yBytes)
+	
 	jwk := map[string]interface{}{
 		"crv": "P-256",
 		"kty": "EC",
-		"x":   base64.RawURLEncoding.EncodeToString(k.PublicKey.X.Bytes()),
-		"y":   base64.RawURLEncoding.EncodeToString(k.PublicKey.Y.Bytes()),
+		"x":   base64.RawURLEncoding.EncodeToString(xPadded),
+		"y":   base64.RawURLEncoding.EncodeToString(yPadded),
 	}
 
 	jwkJSON, err := json.Marshal(jwk)

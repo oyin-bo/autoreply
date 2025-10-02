@@ -4,6 +4,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/auth"
@@ -103,9 +104,13 @@ func (t *OAuthLoginTool) Call(ctx context.Context, args map[string]interface{}) 
 		}, nil
 	}
 
-	// Setup OAuth config with loopback client
+	// Setup OAuth config with localhost development client
+	// Per AT Protocol OAuth spec, use http://localhost with redirect_uri in query param
+	clientID := fmt.Sprintf("http://localhost?redirect_uri=%s&scope=atproto%%20transition:generic", 
+		url.QueryEscape(redirectURI))
+	
 	config := &auth.OAuthConfig{
-		ClientID:       redirectURI, // Use loopback URI as client_id for native apps
+		ClientID:       clientID,
 		RedirectURI:    redirectURI,
 		Scope:          "atproto transition:generic",
 		ServerMetadata: metadata,
