@@ -195,18 +195,26 @@ impl CredentialStorage {
     pub fn store_session(&self, handle: &str, session: Session) -> Result<(), AppError> {
         match self.backend {
             StorageBackend::Keyring => {
-                // For keyring, store session separately
+                // For keyring, attempt to store session; on failure, fall back to file storage
                 let session_key = format!("{}_session", handle);
                 let entry = keyring::Entry::new(SERVICE_NAME, &session_key)
                     .map_err(|e| AppError::ConfigError(format!("Failed to create keyring entry: {}", e)))?;
-                
+
                 let data = serde_json::to_string(&session)
                     .map_err(|e| AppError::ConfigError(format!("Failed to serialize session: {}", e)))?;
-                
-                entry.set_password(&data)
-                    .map_err(|e| AppError::ConfigError(format!("Failed to store session: {}", e)))?;
-                
-                Ok(())
+
+                match entry.set_password(&data) {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        // On keyring failure, log and attempt file fallback
+                        tracing::warn!("Keyring session storage failed: {}, falling back to file storage", e);
+                        let file_storage = Self {
+                            backend: StorageBackend::File,
+                            file_path: Some(Self::get_storage_file_path()?),
+                        };
+                        file_storage.store_session(handle, session)
+                    }
+                }
             }
             StorageBackend::File => {
                 let mut storage = self.read_file_storage()?;
