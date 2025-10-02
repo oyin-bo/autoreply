@@ -77,7 +77,7 @@ pub struct LoginArgs {
     #[arg(short = 'p', long)]
     pub password: Option<String>,
     
-    /// Service URL (defaults to https://bsky.social)
+    /// Service URL (defaults to <https://bsky.social>)
     #[arg(short = 's', long)]
     pub service: Option<String>,
     

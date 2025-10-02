@@ -11,7 +11,7 @@ pub struct Credentials {
     /// App password
     pub password: String,
     
-    /// Service URL (defaults to https://bsky.social)
+    /// Service URL (defaults to <https://bsky.social>)
     #[serde(default = "default_service")]
     pub service: String,
 }

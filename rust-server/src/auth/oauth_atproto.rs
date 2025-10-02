@@ -1,8 +1,8 @@
 //! AT Protocol OAuth implementation following the official specification
 //!
 //! This module implements OAuth 2.0 for AT Protocol as specified in:
-//! - https://atproto.com/specs/auth
-//! - https://docs.bsky.app/docs/advanced-guides/oauth-client
+//! - <https://atproto.com/specs/auth>
+//! - <https://docs.bsky.app/docs/advanced-guides/oauth-client>
 //!
 //! Key requirements:
 //! - Identity resolution: handle → DID → PDS → Auth Server
