@@ -124,10 +124,9 @@ pub fn validate_account(account: &str) -> Result<(), AppError> {
         }
         return Ok(());
     }
-    if account.starts_with("did:web:") {
+    if let Some(rest) = account.strip_prefix("did:web:") {
         // Basic structural validation for did:web
         // did:web:<host>[:<path segments separated by ':'>]
-        let rest = &account[8..];
         if rest.is_empty() {
             return Err(AppError::InvalidInput("Invalid did:web format".to_string()));
         }

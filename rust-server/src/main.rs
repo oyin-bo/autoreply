@@ -21,7 +21,6 @@ use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
 use tracing::info;
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -129,7 +128,7 @@ async fn execute_search_cli(args: cli::SearchArgs) -> Result<String> {
 
 /// Execute login command in CLI mode
 async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
-    use auth::{Credentials, CredentialStorage, SessionManager, OAuthManager, OAuthConfig};
+    use auth::{Credentials, CredentialStorage, SessionManager};
     use std::io::{self, Write};
     
     let storage = CredentialStorage::new()?;
@@ -160,7 +159,7 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         // OAuth browser flow with proper atproto identity resolution
         info!("Starting atproto OAuth browser flow...");
         
-        use auth::{AtProtoOAuthManager, AtProtoOAuthConfig, CallbackServer, CallbackResult};
+        use auth::{AtProtoOAuthManager, CallbackServer, CallbackResult};
         
         // Create OAuth manager
         let oauth_manager = AtProtoOAuthManager::new()?;
@@ -242,7 +241,7 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         let session = manager.login(&credentials).await?;
         
         // Store credentials for app password method
-        storage.add_account(&handle, credentials)?;
+        storage.store_credentials_with_fallback(&handle, credentials)?;
         
         session
     };

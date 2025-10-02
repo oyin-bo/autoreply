@@ -1,6 +1,5 @@
 use crate::car::{CarError, CarHeader, CarEntry, Cid};
 
-use serde_cbor;
 
 pub struct SyncByteReader<'a> {
     buf: &'a [u8],
@@ -301,7 +300,7 @@ impl Iterator for CarRecords {
         
         // Stream through CAR entries one by one
         if let Some(ref mut reader) = self.car_reader {
-            while let Some(entry_result) = reader.next() {
+            for entry_result in reader.by_ref() {
                 let entry = match entry_result {
                     Ok(entry) => entry,
                     Err(e) => return Some(Err(e)),

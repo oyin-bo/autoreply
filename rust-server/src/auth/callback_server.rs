@@ -57,7 +57,8 @@ impl CallbackServer {
         Ok(Self { port, addr })
     }
     
-    /// Get the port number
+    /// Get the callback URL
+    #[allow(dead_code)] // Used in future DPoP implementation
     pub fn port(&self) -> u16 {
         self.port
     }

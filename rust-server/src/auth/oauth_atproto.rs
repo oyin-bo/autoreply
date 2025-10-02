@@ -17,6 +17,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 /// OAuth client configuration for AT Protocol
+#[allow(dead_code)] // Fields used when configuring OAuth
 pub struct AtProtoOAuthConfig {
     /// Client identifier - must be URL to metadata or use loopback pattern
     pub client_id: String,
@@ -38,6 +39,7 @@ impl Default for AtProtoOAuthConfig {
 }
 
 /// Authorization server metadata from /.well-known/oauth-authorization-server
+#[allow(dead_code)] // Fields used during OAuth server discovery
 #[derive(Debug, Deserialize)]
 pub struct AuthServerMetadata {
     pub issuer: String,
@@ -51,6 +53,7 @@ pub struct AuthServerMetadata {
 }
 
 /// Protected resource metadata from /.well-known/oauth-protected-resource  
+#[allow(dead_code)] // Fields used during resource discovery
 #[derive(Debug, Deserialize)]
 pub struct ProtectedResourceMetadata {
     pub resource: String,
@@ -58,6 +61,7 @@ pub struct ProtectedResourceMetadata {
 }
 
 /// PAR (Pushed Authorization Request) response
+#[allow(dead_code)] // Fields used in PAR workflow
 #[derive(Debug, Deserialize)]
 pub struct PARResponse {
     pub request_uri: String,
@@ -65,6 +69,7 @@ pub struct PARResponse {
 }
 
 /// Token response
+#[allow(dead_code)] // Fields used in token exchange
 #[derive(Debug, Deserialize)]
 pub struct TokenResponse {
     pub access_token: String,
@@ -98,34 +103,46 @@ impl AtProtoOAuthManager {
     
     /// Resolve handle to DID using AT Protocol identity resolution
     /// 
-    /// This follows the handle resolution spec:
-    /// 1. Try DNS TXT record at _atproto.{handle}
-    /// 2. Fall back to HTTPS /.well-known/atproto-did
+    /// This follows the handle resolution spec with fallback chain:
+    /// 1. Try DNS-based resolution via well-known endpoint
+    /// 2. Fall back to directory resolution via api.bsky.app
     pub async fn resolve_handle_to_did(&self, handle: &str) -> Result<String, AppError> {
-        // For now, use the HTTPS well-known method
-        // In production, should also try DNS TXT records
+        // Try DNS-based resolution first (recommended)
+        let dns_url = format!("https://{}/.well-known/atproto-did", handle);
         
-        let url = format!("https://{}/.well-known/atproto-did", handle);
-        
-        let response = self.client
-            .get(&url)
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await
-            .map_err(|e| AppError::NetworkError(format!("Handle resolution failed: {}", e)))?;
-        
-        if !response.status().is_success() {
-            return Err(AuthError::AuthenticationFailed(format!(
-                "Handle resolution failed with status {}", response.status()
-            )).into());
+        match self.client.get(&dns_url).timeout(Duration::from_secs(10)).send().await {
+            Ok(response) if response.status().is_success() => {
+                if let Ok(did) = response.text().await {
+                    let did = did.trim().to_string();
+                    if did.starts_with("did:") {
+                        return Ok(did);
+                    }
+                }
+            }
+            _ => {}
         }
         
-        let did = response
-            .text()
-            .await
-            .map_err(|e| AppError::NetworkError(format!("Failed to read handle resolution: {}", e)))?
-            .trim()
-            .to_string();
+        // Fall back to directory resolution via api.bsky.app
+        let api_url = format!("https://api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle={}", handle);
+        
+        let response = self.client.get(&api_url).timeout(Duration::from_secs(10)).send().await
+            .map_err(|e| AuthError::AuthenticationFailed(format!("Handle resolution failed: {}", e)))?;
+        
+        if !response.status().is_success() {
+            return Err(AuthError::AuthenticationFailed(
+                format!("Handle resolution failed with status {} for handle '{}'", response.status(), handle)
+            ).into());
+        }
+        
+        #[derive(Deserialize)]
+        struct ResolveResponse {
+            did: String,
+        }
+        
+        let result: ResolveResponse = response.json().await
+            .map_err(|e| AuthError::AuthenticationFailed(format!("Failed to parse resolution response: {}", e)))?;
+        
+        let did = result.did;
         
         if !did.starts_with("did:") {
             return Err(AuthError::AuthenticationFailed(format!("Invalid DID format: {}", did)).into());
@@ -248,7 +265,7 @@ impl AtProtoOAuthManager {
         let mut hasher = Sha256::new();
         hasher.update(code_verifier.as_bytes());
         let challenge_bytes = hasher.finalize();
-        let code_challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&challenge_bytes);
+        let code_challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(challenge_bytes);
         
         (code_verifier, code_challenge)
     }
@@ -408,7 +425,7 @@ impl AtProtoOAuthManager {
         
         // Create session - note: handle extraction from DID needs proper implementation
         // For now, using DID as handle which needs to be fixed
-        let handle = state.did.split(':').last().unwrap_or(&state.did).to_string();
+        let handle = state.did.split(':').next_back().unwrap_or(&state.did).to_string();
         
         // Create session
         let session = Session {

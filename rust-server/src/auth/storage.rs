@@ -129,7 +129,11 @@ impl CredentialStorage {
                     .map_err(|e| AppError::ConfigError(format!("Failed to serialize credentials: {}", e)))?;
                 
                 entry.set_password(&data)
-                    .map_err(|e| AppError::ConfigError(format!("Failed to store credentials: {}", e)))?;
+                    .map_err(|e| {
+                        // If keyring fails, fall back to file storage
+                        tracing::warn!("Keyring storage failed: {}, falling back to file storage", e);
+                        AppError::ConfigError(format!("Platform secure storage failure: {}", e))
+                    })?;
                 
                 Ok(())
             }
@@ -144,6 +148,23 @@ impl CredentialStorage {
                 );
                 self.write_file_storage(&storage)
             }
+        }
+    }
+    
+    /// Store credentials with automatic fallback
+    pub fn store_credentials_with_fallback(&self, handle: &str, credentials: Credentials) -> Result<(), AppError> {
+        match self.store_credentials(handle, credentials.clone()) {
+            Ok(()) => Ok(()),
+            Err(e) if self.backend == StorageBackend::Keyring => {
+                // If keyring fails, try file storage
+                tracing::warn!("Keyring failed ({}), falling back to file storage", e);
+                let file_storage = Self {
+                    backend: StorageBackend::File,
+                    file_path: Some(Self::get_storage_file_path()?),
+                };
+                file_storage.store_credentials(handle, credentials)
+            }
+            Err(e) => Err(e),
         }
     }
     
