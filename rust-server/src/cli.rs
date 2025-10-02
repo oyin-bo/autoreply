@@ -73,17 +73,14 @@ pub struct LoginArgs {
     #[arg(short = 'u', long)]
     pub handle: Option<String>,
     
-    /// App password (for app password authentication)
-    #[arg(short = 'p', long)]
+    /// App password (use this to skip OAuth and authenticate with app password)
+    /// If provided without value, will prompt on console
+    #[arg(short = 'p', long, num_args = 0..=1, default_missing_value = "")]
     pub password: Option<String>,
     
     /// Service URL (defaults to <https://bsky.social>)
     #[arg(short = 's', long)]
     pub service: Option<String>,
-    
-    /// Use OAuth with browser redirect
-    #[arg(long, conflicts_with = "password")]
-    pub oauth: bool,
 }
 
 /// Logout command arguments

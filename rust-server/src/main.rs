@@ -126,6 +126,75 @@ async fn execute_search_cli(args: cli::SearchArgs) -> Result<String> {
     }
 }
 
+/// Try OAuth login flow
+async fn try_oauth_login(handle: &str, storage: &auth::CredentialStorage) -> Result<auth::Session> {
+    use auth::{AtProtoOAuthManager, CallbackServer, CallbackResult, Credentials};
+    
+    info!("Starting atproto OAuth browser flow...");
+    
+    // Start local callback server first to get the port
+    let callback_server = CallbackServer::new()
+        .map_err(|e| anyhow::anyhow!("Failed to start callback server: {}", e))?;
+    
+    // Create OAuth manager and set the dynamic redirect_uri
+    let mut oauth_manager = AtProtoOAuthManager::new()?;
+    oauth_manager.set_redirect_uri(callback_server.callback_url());
+    
+    // Start the flow - this does identity resolution and PAR
+    info!("Resolving handle and discovering authorization server...");
+    let flow_state = oauth_manager.start_browser_flow(handle).await?;
+    
+    info!("OAuth callback server started on {}", callback_server.callback_url());
+    info!("Authorization URL: {}", flow_state.auth_url);
+    
+    // Open browser
+    if webbrowser::open(&flow_state.auth_url).is_ok() {
+        info!("Opened browser for authorization");
+    } else {
+        eprintln!("\nPlease visit this URL in your browser:");
+        eprintln!("{}\n", flow_state.auth_url);
+    }
+    
+    // Wait for callback (5 minute timeout)
+    info!("Waiting for authorization callback...");
+    let callback_result = callback_server
+        .wait_for_callback(std::time::Duration::from_secs(300))
+        .await
+        .map_err(|e| anyhow::anyhow!("OAuth callback failed: {}", e))?;
+    
+    // Handle callback result
+    match callback_result {
+        CallbackResult::Success { code, state } => {
+            // Verify state matches
+            if state != flow_state.state {
+                return Err(anyhow::anyhow!("State parameter mismatch - possible CSRF attack"));
+            }
+            
+            info!("Authorization successful, exchanging code for tokens...");
+            
+            // Exchange code for tokens
+            let session = oauth_manager.complete_flow(&code, &flow_state).await?;
+            
+            info!("OAuth authentication successful!");
+            
+            // Store OAuth credentials using the refresh token
+            // The refresh token is what we'd use to restore the session
+            let oauth_credentials = Credentials::with_service(
+                &session.did,           // Use DID as identifier for OAuth
+                &session.refresh_jwt,   // Store refresh token as "password"
+                &session.service,
+            );
+            storage.store_credentials_with_fallback(handle, oauth_credentials)?;
+            
+            Ok(session)
+        }
+        CallbackResult::Error { error, description } => {
+            let desc = description.unwrap_or_else(|| "No description provided".to_string());
+            Err(anyhow::anyhow!("OAuth authorization failed: {} - {}", error, desc))
+        }
+    }
+}
+
 /// Execute login command in CLI mode
 async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
     use auth::{Credentials, CredentialStorage, SessionManager};
@@ -149,84 +218,20 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
     }
     
     // Determine authentication method
-    let session = if args.oauth {
-        // OAuth browser flow with proper atproto identity resolution
-        info!("Starting atproto OAuth browser flow...");
-        
-        use auth::{AtProtoOAuthManager, CallbackServer, CallbackResult};
-        
-        // Start local callback server first to get the port
-        let callback_server = CallbackServer::new()
-            .map_err(|e| anyhow::anyhow!("Failed to start callback server: {}", e))?;
-        
-        // Create OAuth manager and set the dynamic redirect_uri
-        let mut oauth_manager = AtProtoOAuthManager::new()?;
-        oauth_manager.set_redirect_uri(callback_server.callback_url());
-        
-        // Start the flow - this does identity resolution and PAR
-        info!("Resolving handle and discovering authorization server...");
-        let flow_state = oauth_manager.start_browser_flow(&handle).await?;
-        
-        info!("OAuth callback server started on {}", callback_server.callback_url());
-        info!("Authorization URL: {}", flow_state.auth_url);
-        
-        // Open browser
-        if webbrowser::open(&flow_state.auth_url).is_ok() {
-            info!("Opened browser for authorization");
-        } else {
-            eprintln!("\nPlease visit this URL in your browser:");
-            eprintln!("{}\n", flow_state.auth_url);
-        }
-        
-        // Wait for callback (5 minute timeout)
-        info!("Waiting for authorization callback...");
-        let callback_result = callback_server
-            .wait_for_callback(std::time::Duration::from_secs(300))
-            .await
-            .map_err(|e| anyhow::anyhow!("OAuth callback failed: {}", e))?;
-        
-        // Handle callback result
-        match callback_result {
-            CallbackResult::Success { code, state } => {
-                // Verify state matches
-                if state != flow_state.state {
-                    return Err(anyhow::anyhow!("State parameter mismatch - possible CSRF attack"));
-                }
-                
-                info!("Authorization successful, exchanging code for tokens...");
-                
-                // Exchange code for tokens
-                let session = oauth_manager.complete_flow(&code, &flow_state).await?;
-                
-                info!("OAuth authentication successful!");
-                
-                // Store OAuth credentials using the refresh token
-                // The refresh token is what we'd use to restore the session
-                let oauth_credentials = Credentials::with_service(
-                    &session.did,           // Use DID as identifier for OAuth
-                    &session.refresh_jwt,   // Store refresh token as "password"
-                    &session.service,
-                );
-                storage.store_credentials_with_fallback(&handle, oauth_credentials)?;
-                
-                session
+    // If password is provided, use app password authentication
+    // Otherwise, try OAuth first, fall back to app password on failure
+    let session = if args.password.is_some() {
+        // App password authentication explicitly requested
+        let password = match args.password.as_deref() {
+            Some("") | None => {
+                // Prompt for password
+                print!("App password: ");
+                io::stdout().flush()?;
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                input.trim().to_string()
             }
-            CallbackResult::Error { error, description } => {
-                let desc = description.unwrap_or_else(|| "No description provided".to_string());
-                return Err(anyhow::anyhow!("OAuth authorization failed: {} - {}", error, desc));
-            }
-        }
-    } else {
-        // App password authentication (default)
-        let password = if let Some(p) = args.password {
-            p
-        } else {
-            // Use rpassword crate if available, otherwise just read from stdin
-            print!("App password: ");
-            io::stdout().flush()?;
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-            input.trim().to_string()
+            Some(p) => p.to_string(),
         };
         
         if password.is_empty() {
@@ -249,6 +254,45 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         storage.store_credentials_with_fallback(&handle, credentials)?;
         
         session
+    } else {
+        // Try OAuth first (default)
+        match try_oauth_login(&handle, &storage).await {
+            Ok(session) => session,
+            Err(oauth_error) => {
+                // OAuth failed, fall back to app password
+                tracing::warn!("OAuth authentication failed: {}", oauth_error);
+                eprintln!("OAuth authentication failed: {}", oauth_error);
+                eprintln!("Falling back to app password authentication...\n");
+                
+                // Prompt for password
+                print!("App password: ");
+                io::stdout().flush()?;
+                let mut password = String::new();
+                io::stdin().read_line(&mut password)?;
+                let password = password.trim().to_string();
+                
+                if password.is_empty() {
+                    return Err(anyhow::anyhow!("Password is required for app password authentication"));
+                }
+                
+                // Create credentials
+                let credentials = if let Some(service) = args.service {
+                    Credentials::with_service(&handle, &password, service)
+                } else {
+                    Credentials::new(&handle, &password)
+                };
+                
+                // Authenticate
+                info!("Authenticating with app password...");
+                let manager = SessionManager::new()?;
+                let session = manager.login(&credentials).await?;
+                
+                // Store credentials
+                storage.store_credentials_with_fallback(&handle, credentials)?;
+                
+                session
+            }
+        }
     };
     
     // Store session
@@ -260,10 +304,10 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
         storage.set_default_account(&handle)?;
     }
     
-    let auth_method = if args.oauth {
-        "OAuth (browser)"
-    } else {
+    let auth_method = if args.password.is_some() {
         "app password"
+    } else {
+        "OAuth (browser)"
     };
     
     Ok(format!(
