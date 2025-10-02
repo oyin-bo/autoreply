@@ -53,7 +53,7 @@ impl Default for Settings {
     }
 }
 
-/// Config represents the authentication configuration
+/// Configuration for the authentication system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub version: String,
@@ -78,12 +78,12 @@ impl Config {
     pub fn get_account(&self, handle: &str) -> Option<&Account> {
         self.accounts.iter().find(|a| a.handle == handle)
     }
-    
+
     /// Get a mutable reference to an account by handle
     pub fn get_account_mut(&mut self, handle: &str) -> Option<&mut Account> {
         self.accounts.iter_mut().find(|a| a.handle == handle)
     }
-    
+
     /// Add or update an account
     pub fn add_account(&mut self, account: Account) {
         if let Some(existing) = self.get_account_mut(&account.handle) {
@@ -92,21 +92,155 @@ impl Config {
             self.accounts.push(account);
         }
     }
-    
-    /// Remove an account
+
+    /// Remove an account by handle
     pub fn remove_account(&mut self, handle: &str) -> bool {
-        if let Some(pos) = self.accounts.iter().position(|a| a.handle == handle) {
-            self.accounts.remove(pos);
-            true
-        } else {
-            false
-        }
+        let initial_len = self.accounts.len();
+        self.accounts.retain(|a| a.handle != handle);
+        self.accounts.len() < initial_len
     }
-    
+
     /// Update the last used timestamp for an account
     pub fn update_last_used(&mut self, handle: &str) {
         if let Some(account) = self.get_account_mut(handle) {
             account.last_used = SystemTime::now();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_credentials_needs_refresh_expired() {
+        let creds = Credentials {
+            access_token: "test_token".to_string(),
+            refresh_token: "test_refresh".to_string(),
+            dpop_key: "test_key".to_string(),
+            expires_at: SystemTime::now() - Duration::from_secs(300),
+        };
+        assert!(creds.needs_refresh(5));
+    }
+
+    #[test]
+    fn test_credentials_needs_refresh_within_threshold() {
+        let creds = Credentials {
+            access_token: "test_token".to_string(),
+            refresh_token: "test_refresh".to_string(),
+            dpop_key: "test_key".to_string(),
+            expires_at: SystemTime::now() + Duration::from_secs(180),
+        };
+        assert!(creds.needs_refresh(5));
+    }
+
+    #[test]
+    fn test_credentials_needs_refresh_outside_threshold() {
+        let creds = Credentials {
+            access_token: "test_token".to_string(),
+            refresh_token: "test_refresh".to_string(),
+            dpop_key: "test_key".to_string(),
+            expires_at: SystemTime::now() + Duration::from_secs(600),
+        };
+        assert!(!creds.needs_refresh(5));
+    }
+
+    #[test]
+    fn test_config_default() {
+        let config = Config::default();
+        assert_eq!(config.version, "2.0");
+        assert_eq!(config.accounts.len(), 0);
+        assert!(config.default_account.is_none());
+        assert!(config.settings.auto_refresh);
+        assert_eq!(config.settings.refresh_threshold_minutes, 5);
+    }
+
+    #[test]
+    fn test_config_get_account() {
+        let mut config = Config::default();
+        assert!(config.get_account("test.bsky.social").is_none());
+        
+        let account = Account {
+            handle: "test.bsky.social".to_string(),
+            did: "did:plc:test123".to_string(),
+            pds: "https://bsky.social".to_string(),
+            storage_ref: "keyring".to_string(),
+            created_at: SystemTime::now(),
+            last_used: SystemTime::now(),
+            metadata: HashMap::new(),
+        };
+        config.add_account(account);
+        
+        let found = config.get_account("test.bsky.social");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().handle, "test.bsky.social");
+    }
+
+    #[test]
+    fn test_config_add_account() {
+        let mut config = Config::default();
+        
+        let account = Account {
+            handle: "alice.bsky.social".to_string(),
+            did: "did:plc:alice123".to_string(),
+            pds: "https://bsky.social".to_string(),
+            storage_ref: "keyring".to_string(),
+            created_at: SystemTime::now(),
+            last_used: SystemTime::now(),
+            metadata: HashMap::new(),
+        };
+        
+        config.add_account(account.clone());
+        assert_eq!(config.accounts.len(), 1);
+        
+        let mut updated = account.clone();
+        updated.did = "did:plc:alice456".to_string();
+        config.add_account(updated);
+        
+        assert_eq!(config.accounts.len(), 1);
+        let found = config.get_account("alice.bsky.social");
+        assert_eq!(found.unwrap().did, "did:plc:alice456");
+    }
+
+    #[test]
+    fn test_config_remove_account() {
+        let mut config = Config::default();
+        
+        let account = Account {
+            handle: "test.bsky.social".to_string(),
+            did: "did:plc:test123".to_string(),
+            pds: "https://bsky.social".to_string(),
+            storage_ref: "keyring".to_string(),
+            created_at: SystemTime::now(),
+            last_used: SystemTime::now(),
+            metadata: HashMap::new(),
+        };
+        config.add_account(account);
+        
+        assert!(config.remove_account("test.bsky.social"));
+        assert_eq!(config.accounts.len(), 0);
+        assert!(!config.remove_account("nonexistent.bsky.social"));
+    }
+
+    #[test]
+    fn test_config_update_last_used() {
+        let mut config = Config::default();
+        
+        let old_time = SystemTime::now() - Duration::from_secs(3600);
+        let account = Account {
+            handle: "test.bsky.social".to_string(),
+            did: "did:plc:test123".to_string(),
+            pds: "https://bsky.social".to_string(),
+            storage_ref: "keyring".to_string(),
+            created_at: old_time,
+            last_used: old_time,
+            metadata: HashMap::new(),
+        };
+        config.add_account(account);
+        
+        config.update_last_used("test.bsky.social");
+        
+        let updated = config.get_account("test.bsky.social").unwrap();
+        assert!(updated.last_used > old_time);
     }
 }
