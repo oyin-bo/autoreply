@@ -28,7 +28,7 @@ Authentication support via app passwords allows storing and managing credentials
 - Secure credential storage (OS keyring with file fallback)
 - Multi-account support with default selection
 - Token refresh and lifecycle management
-- CLI commands: `login`, `logout`, `accounts list`, `accounts default`
+- CLI commands: `login` (with subcommands: `list`, `default <handle>`, `delete`)
 - Defaults to OAuth and allows for app passwords
 
 ✅ **Bluesky Integration**
