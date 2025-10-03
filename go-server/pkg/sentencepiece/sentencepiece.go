@@ -6,6 +6,8 @@ import (
     "fmt"
     "os"
     "sync"
+
+    spb "github.com/oyin-bo/autoreply/go-server/pkg/sentencepiece/proto"
 )
 
 // ErrModelInvalid is returned when the provided SentencePiece model cannot be parsed.
@@ -34,14 +36,20 @@ type ProcessorConfig struct {
 // Processor performs SentencePiece tokenisation using a loaded model.
 type Processor struct {
     cfg        ProcessorConfig
-    model      *ModelProto
-    normalizer normalizer
+    model      *spb.ModelProto
+    trainer    *spb.TrainerSpec
+    normalizer *normalizer
     trie       *doubleArrayTrie
     pieceIndex map[string]int32
-    idToPiece  []Piece
+    idToPiece  []string
 
     tokensPool sync.Pool
     piecesPool sync.Pool
+    runePool   sync.Pool
+
+    unkID       int32
+    unkPiece    string
+    byteFallback bool
 }
 
 // LoadProcessor reads a serialized SentencePiece model from disk and constructs a Processor.
@@ -62,7 +70,7 @@ func NewProcessorFromModel(data []byte, opts ...Option) (*Processor, error) {
     return newProcessorFromModelProto(mp, opts...)
 }
 
-func newProcessorFromModelProto(mp *ModelProto, opts ...Option) (*Processor, error) {
+func newProcessorFromModelProto(mp *spb.ModelProto, opts ...Option) (*Processor, error) {
     if mp == nil {
         return nil, ErrModelInvalid
     }
@@ -74,27 +82,40 @@ func newProcessorFromModelProto(mp *ModelProto, opts ...Option) (*Processor, err
         }
     }
 
-    trie, err := buildTrie(mp.Pieces)
+    pieces := mp.GetPieces()
+
+    trie, err := buildTrie(pieces)
     if err != nil {
         return nil, err
     }
 
-    pieceIndex := make(map[string]int32, len(mp.Pieces))
-    idToPiece := make([]Piece, len(mp.Pieces))
-    for i, p := range mp.Pieces {
-        pieceIndex[p.Piece] = int32(i)
-        idToPiece[i] = p
+    pieceIndex := make(map[string]int32, len(pieces))
+    idToPiece := make([]string, len(pieces))
+    for i, p := range pieces {
+        piece := p.GetPiece()
+        pieceIndex[piece] = int32(i)
+        idToPiece[i] = piece
+    }
+
+    trainer := mp.GetTrainerSpec()
+    if trainer == nil {
+        trainer = &spb.TrainerSpec{}
     }
 
     proc := &Processor{
-        cfg:        cfg,
-        model:      mp,
-        normalizer: newNormalizer(mp.NormalizerSpec, mp.TrainerSpec),
-        trie:       trie,
-        pieceIndex: pieceIndex,
-        idToPiece:  idToPiece,
-        tokensPool: sync.Pool{New: func() any { return make([]int32, 0, 64) }},
-        piecesPool: sync.Pool{New: func() any { return make([]string, 0, 64) }},
+        cfg:         cfg,
+        model:       mp,
+        trainer:     trainer,
+        normalizer:  newNormalizer(mp.GetNormalizerSpec(), trainer),
+        trie:        trie,
+        pieceIndex:  pieceIndex,
+        idToPiece:   idToPiece,
+        tokensPool:  sync.Pool{New: func() any { return make([]int32, 0, 64) }},
+        piecesPool:  sync.Pool{New: func() any { return make([]string, 0, 64) }},
+        runePool:    sync.Pool{New: func() any { return make([]rune, 0, 128) }},
+        unkID:       trainer.GetUnkId(),
+        unkPiece:    trainer.GetUnkPiece(),
+        byteFallback: trainer.GetByteFallback(),
     }
 
     return proc, nil
@@ -102,90 +123,99 @@ func newProcessorFromModelProto(mp *ModelProto, opts ...Option) (*Processor, err
 
 // Encode returns token ids for the provided input string.
 func (p *Processor) Encode(ctx context.Context, input string) ([]int32, error) {
-    if p == nil {
-        return nil, ErrModelInvalid
-    }
-    if err := ctx.Err(); err != nil {
+    tokens, _, err := p.tokenize(ctx, input, false)
+    if err != nil {
         return nil, err
     }
-
-    normalized := p.normalizer.normalize(input)
-    runes := []rune(normalized)
-
-    tokens := p.tokensPool.Get().([]int32)
-    tokens = tokens[:0]
-
-    for pos := 0; pos < len(runes); {
-        if err := ctx.Err(); err != nil {
-            p.tokensPool.Put(tokens[:0])
-            return nil, err
-        }
-
-        id, span := p.trie.longestMatch(runes, pos)
-        if span == 0 {
-            if !p.cfg.AllowFallback {
-                p.tokensPool.Put(tokens[:0])
-                return nil, fmt.Errorf("sentencepiece: no match at position %d", pos)
-            }
-            tokens = append(tokens, p.model.TrainerSpec.UnkID)
-            pos++
-            continue
-        }
-
-        tokens = append(tokens, id)
-        pos += span
-
-        if p.cfg.TokenLimit > 0 && len(tokens) > p.cfg.TokenLimit {
-            p.tokensPool.Put(tokens[:0])
-            return nil, ErrEncodeOverflow
-        }
-    }
-
-    out := make([]int32, len(tokens))
-    copy(out, tokens)
-    p.tokensPool.Put(tokens[:0])
-    return out, nil
+    return tokens, nil
 }
 
 // EncodePieces mirrors Encode but returns the surface pieces instead of ids.
 func (p *Processor) EncodePieces(ctx context.Context, input string) ([]string, error) {
-    if p == nil {
-        return nil, ErrModelInvalid
-    }
-    if err := ctx.Err(); err != nil {
+    _, pieces, err := p.tokenize(ctx, input, true)
+    if err != nil {
         return nil, err
     }
+    return pieces, nil
+}
 
-    normalized := p.normalizer.normalize(input)
-    runes := []rune(normalized)
+func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool) ([]int32, []string, error) {
+    if p == nil {
+        return nil, nil, ErrModelInvalid
+    }
+    if err := ctx.Err(); err != nil {
+        return nil, nil, err
+    }
 
-    pieces := p.piecesPool.Get().([]string)
-    pieces = pieces[:0]
+    runeBuf := p.runePool.Get().([]rune)
+    runeBuf = runeBuf[:0]
+    runes := p.normalizer.normalize(input, runeBuf)
+
+    tokensTmp := p.tokensPool.Get().([]int32)
+    tokensTmp = tokensTmp[:0]
+
+    var piecesTmp []string
+    if wantPieces {
+        piecesTmp = p.piecesPool.Get().([]string)
+        piecesTmp = piecesTmp[:0]
+    }
 
     for pos := 0; pos < len(runes); {
         if err := ctx.Err(); err != nil {
-            p.piecesPool.Put(pieces[:0])
-            return nil, err
+            p.tokensPool.Put(tokensTmp[:0])
+            if wantPieces {
+                p.piecesPool.Put(piecesTmp[:0])
+            }
+            p.runePool.Put(runes[:0])
+            return nil, nil, err
         }
 
         id, span := p.trie.longestMatch(runes, pos)
         if span == 0 {
             if !p.cfg.AllowFallback {
-                p.piecesPool.Put(pieces[:0])
-                return nil, fmt.Errorf("sentencepiece: no match at position %d", pos)
+                p.tokensPool.Put(tokensTmp[:0])
+                if wantPieces {
+                    p.piecesPool.Put(piecesTmp[:0])
+                }
+                p.runePool.Put(runes[:0])
+                return nil, nil, fmt.Errorf("sentencepiece: no match at position %d", pos)
             }
-            pieces = append(pieces, p.model.TrainerSpec.UnkPiece)
+            tokensTmp = append(tokensTmp, p.unkID)
+            if wantPieces {
+                piecesTmp = append(piecesTmp, p.unkPiece)
+            }
             pos++
             continue
         }
 
-        pieces = append(pieces, p.idToPiece[id].Piece)
+        tokensTmp = append(tokensTmp, id)
+        if wantPieces {
+            piecesTmp = append(piecesTmp, p.idToPiece[int(id)])
+        }
         pos += span
+
+        if p.cfg.TokenLimit > 0 && len(tokensTmp) > p.cfg.TokenLimit {
+            p.tokensPool.Put(tokensTmp[:0])
+            if wantPieces {
+                p.piecesPool.Put(piecesTmp[:0])
+            }
+            p.runePool.Put(runes[:0])
+            return nil, nil, ErrEncodeOverflow
+        }
     }
 
-    out := make([]string, len(pieces))
-    copy(out, pieces)
-    p.piecesPool.Put(pieces[:0])
-    return out, nil
+    outTokens := make([]int32, len(tokensTmp))
+    copy(outTokens, tokensTmp)
+    p.tokensPool.Put(tokensTmp[:0])
+
+    var outPieces []string
+    if wantPieces {
+        outPieces = make([]string, len(piecesTmp))
+        copy(outPieces, piecesTmp)
+        p.piecesPool.Put(piecesTmp[:0])
+    }
+
+    p.runePool.Put(runes[:0])
+    return outTokens, outPieces, nil
 }
 

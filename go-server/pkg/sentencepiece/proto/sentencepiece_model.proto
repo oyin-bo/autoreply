@@ -7,6 +7,8 @@ option optimize_for = LITE_RUNTIME;
 
 package sentencepiece;
 
+option go_package = "github.com/oyin-bo/autoreply/go-server/pkg/sentencepiece/proto";
+
 message TrainerSpec {
   repeated string input = 1;
   optional string input_format = 7;
