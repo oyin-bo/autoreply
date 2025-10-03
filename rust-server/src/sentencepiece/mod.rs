@@ -4,3 +4,6 @@ pub mod proto {
 }
 
 pub mod loader;
+pub mod normalizer;
+pub mod trie;
+pub mod tokenizer;

@@ -4,7 +4,7 @@ use std::{fs, io};
 
 use thiserror::Error;
 
-use super::proto::{model_proto::SentencePiece, ModelProto};
+use super::proto::{self, model_proto, ModelProto};
 
 #[derive(Debug, Error)]
 pub enum SentencePieceError {
@@ -18,12 +18,15 @@ pub enum SentencePieceError {
     MissingNormalizerSpec,
     #[error("model has empty vocabulary")]
     EmptyVocabulary,
+    #[error("piece '{0}' is empty")]
+    EmptyPiece(String),
 }
 
 #[derive(Debug, Clone)]
 pub struct VocabularyPiece {
     pub id: u32,
     pub piece: String,
+    pub chars: Vec<char>,
     pub score: f32,
     pub kind: SentencePieceType,
 }
@@ -38,9 +41,9 @@ pub enum SentencePieceType {
     Unused,
 }
 
-impl From<SentencePiece::Type> for SentencePieceType {
-    fn from(value: SentencePiece::Type) -> Self {
-        use SentencePiece::Type;
+impl From<model_proto::sentence_piece::Type> for SentencePieceType {
+    fn from(value: model_proto::sentence_piece::Type) -> Self {
+        use model_proto::sentence_piece::Type;
         match value {
             Type::Normal => SentencePieceType::Normal,
             Type::Unknown => SentencePieceType::Unknown,
@@ -52,7 +55,7 @@ impl From<SentencePiece::Type> for SentencePieceType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SentencePieceModel {
     pub proto: ModelProto,
     pub vocab: Vec<VocabularyPiece>,
@@ -101,6 +104,28 @@ impl SentencePieceModel {
             pad_id,
         })
     }
+
+    pub fn vocab(&self) -> &[VocabularyPiece] {
+        &self.vocab
+    }
+
+    pub fn piece(&self, id: u32) -> Option<&VocabularyPiece> {
+        self.vocab.get(id as usize)
+    }
+
+    pub fn trainer_spec(&self) -> &proto::TrainerSpec {
+        self.proto
+            .trainer_spec
+            .as_ref()
+            .expect("trainer_spec validated during construction")
+    }
+
+    pub fn normalizer_spec(&self) -> &proto::NormalizerSpec {
+        self.proto
+            .normalizer_spec
+            .as_ref()
+            .expect("normalizer_spec validated during construction")
+    }
 }
 
 fn build_vocab(proto: &ModelProto) -> Result<Vec<VocabularyPiece>, SentencePieceError> {
@@ -111,18 +136,28 @@ fn build_vocab(proto: &ModelProto) -> Result<Vec<VocabularyPiece>, SentencePiece
     let mut vocab = Vec::with_capacity(proto.pieces.len());
     for (idx, piece) in proto.pieces.iter().enumerate() {
         let piece_text = piece.piece.clone().unwrap_or_default();
+        if piece_text.is_empty() {
+            return Err(SentencePieceError::EmptyPiece(format!("id {}", idx)));
+        }
+        let chars: Vec<char> = piece_text.chars().collect();
         vocab.push(VocabularyPiece {
             id: idx as u32,
             piece: piece_text,
+            chars,
             score: piece.score.unwrap_or(0.0),
-            kind: piece
-                .r#type
-                .map(SentencePieceType::from)
-                .unwrap_or(SentencePieceType::Normal),
+            kind: piece_kind(piece),
         });
     }
 
     Ok(vocab)
+}
+
+fn piece_kind(piece: &model_proto::SentencePiece) -> SentencePieceType {
+    piece
+        .r#type
+        .and_then(model_proto::sentence_piece::Type::from_i32)
+        .map(SentencePieceType::from)
+        .unwrap_or(SentencePieceType::Normal)
 }
 
 fn build_piece_index(vocab: &[VocabularyPiece]) -> HashMap<String, u32> {
@@ -140,31 +175,32 @@ fn option_id(raw: Option<i32>) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proto::{NormalizerSpec, TrainerSpec};
 
     fn dummy_proto() -> ModelProto {
         ModelProto {
             pieces: vec![
-                SentencePiece {
+                model_proto::SentencePiece {
                     piece: Some("<unk>".to_string()),
                     score: Some(0.0),
-                    r#type: Some(SentencePiece::Type::Unknown as i32),
+                    r#type: Some(model_proto::sentence_piece::Type::Unknown as i32),
                     ..Default::default()
                 },
-                SentencePiece {
+                model_proto::SentencePiece {
                     piece: Some("hello".to_string()),
                     score: Some(-1.0),
-                    r#type: Some(SentencePiece::Type::Normal as i32),
+                    r#type: Some(model_proto::sentence_piece::Type::Normal as i32),
                     ..Default::default()
                 },
             ],
-            trainer_spec: Some(super::super::proto::TrainerSpec {
+            trainer_spec: Some(TrainerSpec {
                 unk_id: Some(0),
                 bos_id: Some(1),
                 eos_id: Some(2),
                 pad_id: Some(-1),
                 ..Default::default()
             }),
-            normalizer_spec: Some(super::super::proto::NormalizerSpec::default()),
+            normalizer_spec: Some(NormalizerSpec::default()),
             ..Default::default()
         }
     }
@@ -186,7 +222,7 @@ mod tests {
         let mut proto = dummy_proto();
         proto.trainer_spec = None;
         let err = SentencePieceModel::from_proto(proto).unwrap_err();
-        matches!(err, SentencePieceError::MissingTrainerSpec);
+        assert!(matches!(err, SentencePieceError::MissingTrainerSpec));
     }
 
     #[test]
@@ -194,7 +230,7 @@ mod tests {
         let mut proto = dummy_proto();
         proto.normalizer_spec = None;
         let err = SentencePieceModel::from_proto(proto).unwrap_err();
-        matches!(err, SentencePieceError::MissingNormalizerSpec);
+        assert!(matches!(err, SentencePieceError::MissingNormalizerSpec));
     }
 
     #[test]
@@ -202,6 +238,14 @@ mod tests {
         let mut proto = dummy_proto();
         proto.pieces.clear();
         let err = SentencePieceModel::from_proto(proto).unwrap_err();
-        matches!(err, SentencePieceError::EmptyVocabulary);
+        assert!(matches!(err, SentencePieceError::EmptyVocabulary));
+    }
+
+    #[test]
+    fn rejects_empty_piece_text() {
+        let mut proto = dummy_proto();
+        proto.pieces[1].piece = Some(String::new());
+        let err = SentencePieceModel::from_proto(proto).unwrap_err();
+        assert!(matches!(err, SentencePieceError::EmptyPiece(_)));
     }
 }
