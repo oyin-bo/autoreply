@@ -2,7 +2,7 @@
 //!
 //! Provides authentication functionality including:
 //! - App password authentication via com.atproto.server.createSession
-//! - OAuth 2.0 with PKCE and DPoP (browser-based and device flows)
+//! - OAuth 2.0 with PKCE and DPoP (browser-based flow)
 //! - Credential storage with OS keyring and file fallback
 //! - Token refresh and lifecycle management
 //! - Multi-account support

@@ -1,5 +1,12 @@
 # Changelog
 
+
+## [0.3.1] - 2025-10-03
+
+### Fixed
+- Documentation: Removed or clarified references to the unimplemented OAuth Device Flow and synchronized CLI docs to reflect `login` subcommands (`list`, `default`, `delete`).
+- README: Corrected CLI command examples and descriptions for consistency with the implemented CLI.
+
 ## [0.3.0] - 2025-10-03
 
 ### Added

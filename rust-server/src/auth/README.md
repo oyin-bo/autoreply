@@ -306,7 +306,6 @@ cargo test auth::storage::
 - User-friendly authorization pages
 
 ### 📋 Planned for Future Releases
-- OAuth Device Flow (for headless/CLI environments)
 - DPoP token binding (advanced security feature)
 - Token rotation and automatic session management
 - MCP tool for authentication in server mode

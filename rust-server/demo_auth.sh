@@ -40,17 +40,17 @@ echo "Command: autoreply login --help"
 echo
 $AUTOREPLY login --help
 
-# 3. Show accounts help
-section "3. Accounts Management Help"
-echo "Command: autoreply accounts --help"
+# 3. Accounts management (help + listing)
+section "3. Accounts Management"
+echo "Command: autoreply login --help"
 echo
-$AUTOREPLY accounts --help
+$AUTOREPLY login --help
 
 # 4. Try listing accounts (should show none initially)
 section "4. Listing Accounts (Initially Empty)"
-echo "Command: autoreply accounts list"
+echo "Command: autoreply login list"
 echo
-$AUTOREPLY accounts list || true
+$AUTOREPLY login list || true
 
 # 5. Show profile command
 section "5. Profile Query (No Authentication Required)"
@@ -71,8 +71,8 @@ echo "... (truncated)"
 section "Summary"
 echo "✓ Authentication commands available:"
 echo "  - autoreply login        : Authenticate with BlueSky"
-echo "  - autoreply logout       : Remove credentials"
-echo "  - autoreply accounts list: List stored accounts"
+echo "  - autoreply login list   : List stored accounts"
+echo "  - autoreply login delete : Remove credentials"
 echo
 echo "✓ Current features work without authentication:"
 echo "  - autoreply profile      : Query public profiles"
