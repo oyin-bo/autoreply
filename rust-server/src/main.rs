@@ -65,12 +65,6 @@ async fn run_cli_mode() -> Result<()> {
         Some(Commands::Login(args)) => {
             execute_login_cli(args).await
         }
-        Some(Commands::Logout(args)) => {
-            execute_logout_cli(args).await
-        }
-        Some(Commands::Accounts(args)) => {
-            execute_accounts_cli(args).await
-        }
         None => {
             eprintln!("Error: No command specified. Use --help for usage information.");
             std::process::exit(1);
@@ -196,11 +190,62 @@ async fn try_oauth_login(handle: &str, storage: &auth::CredentialStorage) -> Res
 }
 
 /// Execute login command in CLI mode
-async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
+async fn execute_login_cli(args: cli::LoginCommand) -> Result<String> {
     use auth::{Credentials, CredentialStorage, SessionManager};
     use std::io::{self, Write};
     
     let storage = CredentialStorage::new()?;
+    
+    // Handle subcommands first
+    match args.command {
+        Some(cli::LoginSubcommands::List) => {
+            let accounts = storage.list_accounts()?;
+            let default_account = storage.get_default_account()?;
+            
+            if accounts.is_empty() {
+                return Ok("No accounts stored. Use 'autoreply login' to add an account.".to_string());
+            }
+            
+            let mut output = format!("Authenticated accounts ({}):\n", accounts.len());
+            for account in accounts {
+                let marker = if Some(&account) == default_account.as_ref() {
+                    " (default)"
+                } else {
+                    ""
+                };
+                output.push_str(&format!("  • @{}{}\n", account, marker));
+            }
+            
+            return Ok(output);
+        }
+        Some(cli::LoginSubcommands::Default { handle }) => {
+            // Verify account exists
+            storage.get_credentials(&handle)?;
+            
+            // Set as default
+            storage.set_default_account(&handle)?;
+            
+            return Ok(format!("✓ Set @{} as default account", handle));
+        }
+        Some(cli::LoginSubcommands::Delete { handle }) => {
+            // Determine which account to delete
+            let handle_to_delete = if let Some(h) = handle {
+                h
+            } else {
+                // Use default account
+                storage.get_default_account()?
+                    .ok_or_else(|| anyhow::anyhow!("No default account set. Specify --handle"))?
+            };
+            
+            // Remove credentials
+            storage.remove_account(&handle_to_delete)?;
+            
+            return Ok(format!("✓ Deleted account @{}", handle_to_delete));
+        }
+        None => {
+            // No subcommand means add/authenticate
+        }
+    }
     
     // Get handle - prompt if not provided
     let handle = if let Some(h) = args.handle {
@@ -320,66 +365,6 @@ async fn execute_login_cli(args: cli::LoginArgs) -> Result<String> {
             auth::StorageBackend::File => "file",
         }
     ))
-}
-
-/// Execute logout command in CLI mode
-async fn execute_logout_cli(args: cli::LogoutArgs) -> Result<String> {
-    use auth::CredentialStorage;
-    
-    let storage = CredentialStorage::new()?;
-    
-    // Determine which account to logout
-    let handle = if let Some(h) = args.handle {
-        h
-    } else {
-        // Use default account
-        storage.get_default_account()?
-            .ok_or_else(|| anyhow::anyhow!("No default account set. Specify --handle"))?
-    };
-    
-    // Remove credentials
-    storage.remove_account(&handle)?;
-    
-    Ok(format!("✓ Logged out from @{}", handle))
-}
-
-/// Execute accounts command in CLI mode
-async fn execute_accounts_cli(args: cli::AccountsArgs) -> Result<String> {
-    use auth::CredentialStorage;
-    
-    let storage = CredentialStorage::new()?;
-    
-    match args.command {
-        cli::AccountsCommands::List => {
-            let accounts = storage.list_accounts()?;
-            let default_account = storage.get_default_account()?;
-            
-            if accounts.is_empty() {
-                return Ok("No accounts stored. Use 'autoreply login' to add an account.".to_string());
-            }
-            
-            let mut output = format!("Authenticated accounts ({}):\n", accounts.len());
-            for account in accounts {
-                let marker = if Some(&account) == default_account.as_ref() {
-                    " (default)"
-                } else {
-                    ""
-                };
-                output.push_str(&format!("  • @{}{}\n", account, marker));
-            }
-            
-            Ok(output)
-        }
-        cli::AccountsCommands::Default { handle } => {
-            // Verify account exists
-            storage.get_credentials(&handle)?;
-            
-            // Set as default
-            storage.set_default_account(&handle)?;
-            
-            Ok(format!("✓ Set @{} as default account", handle))
-        }
-    }
 }
 
 /// Map AppError to exit code

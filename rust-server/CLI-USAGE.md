@@ -8,8 +8,9 @@ This guide covers all CLI commands and options for the autoreply Rust server.
 - [Global Options](#global-options)
 - [Authentication Commands](#authentication-commands)
   - [login](#login)
-  - [logout](#logout)
-  - [accounts](#accounts)
+  - [login list](#login-list)
+  - [login default](#login-default)
+  - [login delete](#login-delete)
 - [Data Commands](#data-commands)
   - [profile](#profile)
   - [search](#search)
@@ -44,65 +45,38 @@ autoreply --quiet search --account bob.bsky.social --query rust
 
 ### login
 
-Authenticate with BlueSky using app passwords or OAuth.
+Authenticate with BlueSky using app passwords or OAuth. Also includes subcommands for account management.
 
 **Usage:**
 ```bash
 autoreply login [OPTIONS]
+autoreply login <SUBCOMMAND>
 ```
 
-**Options:**
+**Options (for authentication):**
 ```
 -u, --handle <HANDLE>        Handle (e.g., alice.bsky.social)
 -p, --password <PASSWORD>    App password (for app password authentication)
 -s, --service <SERVICE>      Service URL (defaults to https://bsky.social)
-    --oauth                  Use OAuth with browser redirect
-    --device                 Use OAuth device flow (for headless environments)
 ```
+
+**Subcommands:**
+```
+list                         List all stored accounts
+default <HANDLE>             Set default account
+delete [OPTIONS]             Remove stored credentials
+```
+
+**Note:** OAuth browser flow is the default authentication method when no password is provided.
 
 **Authentication Methods:**
 
-#### OAuth Device Flow (Recommended for CLI)
-
-Secure OAuth authentication for headless or remote environments:
-
-```bash
-autoreply login --device --handle alice.bsky.social
-```
-
-The CLI will:
-1. Display a verification URL to visit on any device
-2. Show a user code to enter on that device
-3. Wait while you complete authorization
-4. Automatically store tokens when you approve
-
-**Example output:**
-```
-Device authorization started
-Please visit: https://bsky.social/oauth/device
-And enter code: ABCD-1234
-
-Or visit: https://bsky.social/oauth/device?code=ABCD-1234
-
-Waiting for authorization...
-✓ Successfully authenticated as @alice.bsky.social
-  DID: did:plc:abc123...
-  Method: OAuth (device flow)
-  Storage: OS keyring
-```
-
-**Advantages:**
-- More secure than app passwords
-- Works on remote/headless servers
-- Tokens revocable per-application
-- No password storage needed
-
-#### OAuth Browser Flow (Recommended for Desktop)
+#### OAuth Browser Flow (Default & Recommended)
 
 Interactive OAuth with automatic browser opening:
 
 ```bash
-autoreply login --oauth --handle alice.bsky.social
+autoreply login --handle alice.bsky.social
 ```
 
 **Example workflow:**
@@ -129,6 +103,8 @@ Received authorization code, exchanging for tokens
 - Most secure OAuth flow (PKCE + CSRF protection)
 - Perfect for desktop environments
 - Tokens revocable per-application
+- More secure than app passwords
+- No password storage needed
 
 **Security features:**
 - PKCE S256 code challenge
@@ -174,59 +150,13 @@ autoreply login --handle alice.bsky.social --service https://custom.pds.example
 
 ---
 
-### logout
-
-Remove stored credentials for an account.
-
-**Usage:**
-```bash
-autoreply logout [OPTIONS]
-```
-
-**Options:**
-```
--u, --handle <HANDLE>    Handle to logout (defaults to current/default account)
-```
-
-**Examples:**
-
-Logout from default account:
-```bash
-autoreply logout
-```
-
-Logout from specific account:
-```bash
-autoreply logout --handle alice.bsky.social
-```
-
-**Output:**
-```
-✓ Logged out from @alice.bsky.social
-```
-
----
-
-### accounts
-
-Manage authenticated accounts.
-
-**Usage:**
-```bash
-autoreply accounts <COMMAND>
-```
-
-**Subcommands:**
-- `list` - List all stored accounts
-- `default <HANDLE>` - Set default account
-
-#### accounts list
+### login list
 
 List all authenticated accounts.
 
 **Usage:**
 ```bash
-autoreply accounts list
+autoreply login list
 ```
 
 **Example output:**
@@ -236,23 +166,58 @@ Authenticated accounts (2):
   • @bob.bsky.social
 ```
 
-#### accounts default
+---
+
+### login default
 
 Set the default account to use.
 
 **Usage:**
 ```bash
-autoreply accounts default <HANDLE>
+autoreply login default <HANDLE>
 ```
 
 **Examples:**
 ```bash
-autoreply accounts default alice.bsky.social
+autoreply login default alice.bsky.social
 ```
 
 **Output:**
 ```
 ✓ Set @alice.bsky.social as default account
+```
+
+---
+
+### login delete
+
+Remove stored credentials for an account.
+
+**Usage:**
+```bash
+autoreply login delete [OPTIONS]
+```
+
+**Options:**
+```
+-u, --handle <HANDLE>    Handle to delete (defaults to current/default account)
+```
+
+**Examples:**
+
+Delete default account:
+```bash
+autoreply login delete
+```
+
+Delete specific account:
+```bash
+autoreply login delete --handle alice.bsky.social
+```
+
+**Output:**
+```
+✓ Deleted account @alice.bsky.social
 ```
 
 ---
@@ -396,7 +361,7 @@ autoreply login --handle alice.bsky.social --password app-password-xyz
 
 2. **View your stored accounts:**
 ```bash
-autoreply accounts list
+autoreply login list
 ```
 
 3. **Query a profile:**
@@ -416,12 +381,12 @@ autoreply login --handle charlie.bsky.social --password another-password
 
 6. **Switch default account:**
 ```bash
-autoreply accounts default charlie.bsky.social
+autoreply login default charlie.bsky.social
 ```
 
-7. **Logout when done:**
+7. **Delete account when done:**
 ```bash
-autoreply logout --handle alice.bsky.social
+autoreply login delete --handle alice.bsky.social
 ```
 
 ### Scripting Examples

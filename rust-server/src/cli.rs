@@ -30,12 +30,8 @@ pub enum Commands {
     Profile(ProfileArgs),
     /// Search posts within a user's repository
     Search(SearchArgs),
-    /// Authenticate with BlueSky
-    Login(LoginArgs),
-    /// Remove stored credentials
-    Logout(LogoutArgs),
-    /// Manage authenticated accounts
-    Accounts(AccountsArgs),
+    /// Manage authentication and accounts
+    Login(LoginCommand),
 }
 
 /// Profile tool arguments
@@ -66,46 +62,40 @@ pub struct SearchArgs {
     pub limit: Option<usize>,
 }
 
-/// Login command arguments
+/// Login command with subcommands for account management
 #[derive(Parser, Debug)]
-pub struct LoginArgs {
-    /// Handle (alice.bsky.social)
-    #[arg(short = 'u', long)]
+pub struct LoginCommand {
+    #[command(subcommand)]
+    pub command: Option<LoginSubcommands>,
+    
+    /// Handle (alice.bsky.social) - for add operation
+    #[arg(short = 'u', long, global = true)]
     pub handle: Option<String>,
     
     /// App password (use this to skip OAuth and authenticate with app password)
     /// If provided without value, will prompt on console
-    #[arg(short = 'p', long, num_args = 0..=1, default_missing_value = "")]
+    #[arg(short = 'p', long, num_args = 0..=1, default_missing_value = "", global = true)]
     pub password: Option<String>,
     
     /// Service URL (defaults to <https://bsky.social>)
-    #[arg(short = 's', long)]
+    #[arg(short = 's', long, global = true)]
     pub service: Option<String>,
 }
 
-/// Logout command arguments
-#[derive(Parser, Debug)]
-pub struct LogoutArgs {
-    /// Handle to logout (defaults to current/default account)
-    #[arg(short = 'u', long)]
-    pub handle: Option<String>,
-}
-
-/// Accounts management arguments
-#[derive(Parser, Debug)]
-pub struct AccountsArgs {
-    #[command(subcommand)]
-    pub command: AccountsCommands,
-}
-
 #[derive(Subcommand, Debug)]
-pub enum AccountsCommands {
+pub enum LoginSubcommands {
     /// List all stored accounts
     List,
     /// Set default account
     Default {
         /// Handle to set as default
         handle: String,
+    },
+    /// Remove stored credentials
+    Delete {
+        /// Handle to delete (defaults to current/default account)
+        #[arg(short = 'u', long)]
+        handle: Option<String>,
     },
 }
 

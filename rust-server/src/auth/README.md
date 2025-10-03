@@ -4,7 +4,7 @@ This module provides comprehensive authentication support for the BlueSky AT Pro
 
 ## Features
 
-- **OAuth Browser Flow**: Interactive OAuth with automatic browser redirect (✅ fully implemented)
+- **OAuth Browser Flow**: Interactive OAuth with automatic browser redirect and PKCE (✅ fully implemented)
 - **App Password Authentication**: Uses `com.atproto.server.createSession` XRPC endpoint (✅ fully implemented)
 - **Credential Storage**: OS keyring (primary) with file fallback (✅ fully implemented)
 - **Token Management**: Automatic token refresh and expiry checking (✅ fully implemented)
@@ -25,13 +25,13 @@ The module automatically selects the best available storage backend:
 
 ## CLI Usage
 
-### Login - OAuth Browser Flow (Recommended for Desktop)
+### Login - OAuth Browser Flow (Default & Recommended)
 
 For interactive OAuth with automatic browser opening:
 
 ```bash
-# OAuth browser flow (fully functional!)
-autoreply login --oauth --handle alice.bsky.social
+# OAuth browser flow (default - fully functional!)
+autoreply login --handle alice.bsky.social
 ```
 
 The CLI will:
@@ -86,28 +86,22 @@ autoreply login --handle alice.bsky.social --service https://custom.pds.example
 
 **Note**: Create app passwords in BlueSky Settings → App Passwords
 
-### Logout
+### Account Management
 
-Remove stored credentials:
-
-```bash
-# Logout from default account
-autoreply logout
-
-# Logout from specific account
-autoreply logout --handle alice.bsky.social
-```
-
-### Manage Accounts
-
-List and manage authenticated accounts:
+List, switch, and delete authenticated accounts:
 
 ```bash
 # List all authenticated accounts
-autoreply accounts list
+autoreply login list
 
 # Set default account
-autoreply accounts default alice.bsky.social
+autoreply login default alice.bsky.social
+
+# Delete specific account
+autoreply login delete --handle alice.bsky.social
+
+# Delete default account
+autoreply login delete
 ```
 
 ## Programmatic Usage
@@ -312,7 +306,7 @@ cargo test auth::storage::
 - User-friendly authorization pages
 
 ### 📋 Planned for Future Releases
-- OAuth Device Flow (not yet in AT Protocol OAuth spec)
+- OAuth Device Flow (for headless/CLI environments)
 - DPoP token binding (advanced security feature)
 - Token rotation and automatic session management
 - MCP tool for authentication in server mode

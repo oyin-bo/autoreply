@@ -1,20 +1,23 @@
 # Changelog
 
-## [0.3.0] - 2025-10-02
+## [0.3.0] - 2025-10-03
 
 ### Added
-- **Authentication**: Implemented multiple authentication methods.
-  - App password authentication.
-  - Secure credential storage using OS keyring with a file-based fallback.
-  - Support for multiple accounts, including listing and setting a default account.
+- **Authentication**: Implemented comprehensive authentication support.
+  - OAuth Browser Flow with PKCE and automatic browser redirect.
+  - App password authentication via AT Protocol.
+  - Secure credential storage using OS keyring with file-based fallback.
+  - Support for multiple accounts with default account selection.
+  - Automatic token refresh and lifecycle management.
 - **CLI**: Added new commands for authentication:
-  - `autoreply login`: Authenticate using an app password.
-  - `autoreply logout`: Remove stored credentials.
-  - `autoreply accounts list`: List all authenticated accounts.
-  - `autoreply accounts default`: Set the default account for commands.
+  - `autoreply login`: Authenticate using OAuth (default) or app password.
+  - `autoreply login list`: List all authenticated accounts.
+  - `autoreply login default <handle>`: Set the default account for commands.
+  - `autoreply login delete`: Remove stored credentials.
 
 ### Changed
-- Updated dependencies to support authentication features.
+- Updated dependencies to support authentication features (atproto-oauth, keyring, etc.).
+- OAuth browser flow is now the default authentication method (falls back to app password on failure).
 
 ## [0.2.0] - 2024-09-30
 
