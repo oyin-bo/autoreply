@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "autoreply": {
+      "type": "stdio",
+      "command": "./target/release/autoreply",
+      "args": [],
+      "cwd": ".",
+      "timeout": 30000,
+      "trust": true
+    }
+  },
+  "allowMCPServers": ["autoreply"]
+}
