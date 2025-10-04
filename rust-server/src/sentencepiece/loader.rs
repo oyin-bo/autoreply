@@ -126,6 +126,10 @@ impl SentencePieceModel {
             .as_ref()
             .expect("normalizer_spec validated during construction")
     }
+
+    pub fn self_test_data(&self) -> Option<&proto::SelfTestData> {
+        self.proto.self_test_data.as_ref()
+    }
 }
 
 fn build_vocab(proto: &ModelProto) -> Result<Vec<VocabularyPiece>, SentencePieceError> {
