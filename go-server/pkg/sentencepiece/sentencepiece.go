@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"sync"
+	"unicode/utf8"
 
 	spb "github.com/oyin-bo/autoreply/go-server/pkg/sentencepiece/proto"
 )
@@ -32,6 +34,8 @@ type ProcessorConfig struct {
 	TokenLimit int
 	// AllowFallback controls whether unknown spans are emitted as the configured UNK token.
 	AllowFallback bool
+	// EnableByteFallback forces byte-piece emission when the trie has no match.
+	EnableByteFallback bool
 }
 
 // Processor performs SentencePiece tokenisation using a loaded model.
@@ -44,6 +48,7 @@ type Processor struct {
 	pieceIndex  map[string]int32
 	idToPiece   []string
 	pieceScores []float32
+	bytePieces  [256]int32
 
 	tokensPool  sync.Pool
 	piecesPool  sync.Pool
@@ -52,6 +57,9 @@ type Processor struct {
 	backPosPool sync.Pool
 	backTokPool sync.Pool
 	matchPool   sync.Pool
+	fbStartPool sync.Pool
+	fbLenPool   sync.Pool
+	fbIDsPool   sync.Pool
 
 	unkID        int32
 	unkPiece     string
@@ -91,6 +99,11 @@ func newProcessorFromModelProto(mp *spb.ModelProto, opts ...Option) (*Processor,
 
 	pieces := mp.GetPieces()
 
+	bytePieces := [256]int32{}
+	for i := range bytePieces {
+		bytePieces[i] = -1
+	}
+
 	trie, err := buildTrie(pieces)
 	if err != nil {
 		return nil, err
@@ -104,12 +117,20 @@ func newProcessorFromModelProto(mp *spb.ModelProto, opts ...Option) (*Processor,
 		pieceIndex[piece] = int32(i)
 		idToPiece[i] = piece
 		pieceScores[i] = p.GetScore()
+
+		if p.GetType() == spb.ModelProto_SentencePiece_BYTE {
+			if b, ok := parseBytePiece(piece); ok {
+				bytePieces[b] = int32(i)
+			}
+		}
 	}
 
 	trainer := mp.GetTrainerSpec()
 	if trainer == nil {
 		trainer = &spb.TrainerSpec{}
 	}
+
+	cfg.EnableByteFallback = cfg.EnableByteFallback || trainer.GetByteFallback()
 
 	proc := &Processor{
 		cfg:          cfg,
@@ -120,6 +141,7 @@ func newProcessorFromModelProto(mp *spb.ModelProto, opts ...Option) (*Processor,
 		pieceIndex:   pieceIndex,
 		idToPiece:    idToPiece,
 		pieceScores:  pieceScores,
+		bytePieces:   bytePieces,
 		tokensPool:   sync.Pool{New: func() any { return make([]int32, 0, 64) }},
 		piecesPool:   sync.Pool{New: func() any { return make([]string, 0, 64) }},
 		runePool:     sync.Pool{New: func() any { return make([]rune, 0, 128) }},
@@ -127,6 +149,9 @@ func newProcessorFromModelProto(mp *spb.ModelProto, opts ...Option) (*Processor,
 		backPosPool:  sync.Pool{New: func() any { return make([]int, 0, 128) }},
 		backTokPool:  sync.Pool{New: func() any { return make([]int32, 0, 128) }},
 		matchPool:    sync.Pool{New: func() any { return make([]trieMatch, 0, 16) }},
+		fbStartPool:  sync.Pool{New: func() any { return make([]int, 0, 128) }},
+		fbLenPool:    sync.Pool{New: func() any { return make([]int, 0, 128) }},
+		fbIDsPool:    sync.Pool{New: func() any { return make([]int32, 0, 128) }},
 		unkID:        trainer.GetUnkId(),
 		unkPiece:     trainer.GetUnkPiece(),
 		unkScore:     pieceScoreSafe(pieceScores, trainer.GetUnkId()),
@@ -139,8 +164,11 @@ func newProcessorFromModelProto(mp *spb.ModelProto, opts ...Option) (*Processor,
 const negInf float32 = -math.MaxFloat32
 
 type trieMatch struct {
-	id   int32
-	span int
+	id      int32
+	span    int
+	score   float32
+	fbStart int
+	fbLen   int
 }
 
 // Encode returns token ids for the provided input string.
@@ -171,7 +199,12 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 
 	runeBuf := p.runePool.Get().([]rune)
 	runeBuf = runeBuf[:0]
-	runes := p.normalizer.normalize(input, runeBuf)
+	var runes []rune
+	if p.normalizer != nil {
+		runes = p.normalizer.normalize(input, runeBuf)
+	} else {
+		runes = append(runeBuf[:0], []rune(input)...)
+	}
 
 	n := len(runes)
 
@@ -206,13 +239,31 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 	matchesBuf := p.matchPool.Get().([]trieMatch)
 	matches := matchesBuf[:0]
 
+	fbStartBuf := p.fbStartPool.Get().([]int)
+	if cap(fbStartBuf) < n+1 {
+		fbStartBuf = make([]int, n+1)
+	}
+	backFbStart := fbStartBuf[:n+1]
+	for i := range backFbStart {
+		backFbStart[i] = -1
+	}
+
+	fbLenBuf := p.fbLenPool.Get().([]int)
+	if cap(fbLenBuf) < n+1 {
+		fbLenBuf = make([]int, n+1)
+	}
+	backFbLen := fbLenBuf[:n+1]
+
+	fbIDsBuf := p.fbIDsPool.Get().([]int32)
+	fbIDs := fbIDsBuf[:0]
+
 	unkID := p.unkID
 	unkScore := p.unkScore
 
 	for pos := 0; pos < n; pos++ {
 		if err := ctx.Err(); err != nil {
 			p.releaseRuneBuffer(runes)
-			p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, matchesBuf)
+			p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, backFbStart, backFbLen, matchesBuf, fbIDs)
 			return nil, nil, err
 		}
 
@@ -225,10 +276,14 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 			matches = append(matches, trieMatch{id: id, span: span})
 		})
 
+		if len(matches) == 0 && p.cfg.EnableByteFallback && p.byteFallback {
+			matches = p.appendByteFallbackMatch(runes, pos, matches, &fbIDs)
+		}
+
 		if len(matches) == 0 {
 			if !p.cfg.AllowFallback {
 				p.releaseRuneBuffer(runes)
-				p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, matchesBuf)
+				p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, backFbStart, backFbLen, matchesBuf, fbIDs)
 				return nil, nil, fmt.Errorf("sentencepiece: no match at position %d", pos)
 			}
 			if unkID >= 0 {
@@ -249,7 +304,9 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 				continue
 			}
 			newScore := scores[pos]
-			if int(m.id) < len(p.pieceScores) && m.id >= 0 {
+			if m.fbLen > 0 {
+				newScore += m.score
+			} else if int(m.id) < len(p.pieceScores) && m.id >= 0 {
 				newScore += p.pieceScores[m.id]
 			} else if m.id == unkID {
 				newScore += unkScore
@@ -258,6 +315,13 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 				scores[next] = newScore
 				backPos[next] = pos
 				backTok[next] = m.id
+				if m.fbLen > 0 {
+					backFbStart[next] = m.fbStart
+					backFbLen[next] = m.fbLen
+				} else {
+					backFbStart[next] = -1
+					backFbLen[next] = 0
+				}
 			}
 		}
 	}
@@ -265,7 +329,7 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 	if scores[n] == negInf {
 		if !p.cfg.AllowFallback || unkID < 0 {
 			p.releaseRuneBuffer(runes)
-			p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, matchesBuf)
+			p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, backFbStart, backFbLen, matchesBuf, fbIDs)
 			return nil, nil, fmt.Errorf("sentencepiece: unable to tokenize input")
 		}
 	}
@@ -280,13 +344,32 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 	}
 
 	for pos := n; pos > 0; {
-		id := backTok[pos]
 		prev := backPos[pos]
 		span := pos - prev
+
+		if fbCount := backFbLen[pos]; fbCount > 0 {
+			start := backFbStart[pos]
+			end := start + fbCount
+			for i := end - 1; i >= start; i-- {
+				id := fbIDs[i]
+				tokensTmp = append(tokensTmp, id)
+				if wantPieces {
+					piece := ""
+					if idx := int(id); idx >= 0 && idx < len(p.idToPiece) {
+						piece = p.idToPiece[idx]
+					}
+					piecesTmp = append(piecesTmp, piece)
+				}
+			}
+			pos = prev
+			continue
+		}
+
+		id := backTok[pos]
 		if id < 0 || prev < 0 || span <= 0 {
 			if !p.cfg.AllowFallback || unkID < 0 {
 				p.releaseRuneBuffer(runes)
-				p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, matchesBuf)
+				p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, backFbStart, backFbLen, matchesBuf, fbIDs)
 				p.tokensPool.Put(tokensTmp[:0])
 				if wantPieces {
 					p.piecesPool.Put(piecesTmp[:0])
@@ -311,7 +394,7 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 
 	if p.cfg.TokenLimit > 0 && len(tokensTmp) > p.cfg.TokenLimit {
 		p.releaseRuneBuffer(runes)
-		p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, matchesBuf)
+		p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, backFbStart, backFbLen, matchesBuf, fbIDs)
 		p.tokensPool.Put(tokensTmp[:0])
 		if wantPieces {
 			p.piecesPool.Put(piecesTmp[:0])
@@ -331,7 +414,7 @@ func (p *Processor) tokenize(ctx context.Context, input string, wantPieces bool)
 	}
 
 	p.releaseRuneBuffer(runes)
-	p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, matchesBuf)
+	p.releaseDPBuffers(scoresBuf, backPosBuf, backTokBuf, backFbStart, backFbLen, matchesBuf, fbIDs)
 	return outTokens, outPieces, nil
 }
 
@@ -339,11 +422,43 @@ func (p *Processor) releaseRuneBuffer(runes []rune) {
 	p.runePool.Put(runes[:0])
 }
 
-func (p *Processor) releaseDPBuffers(scores []float32, backPos []int, backTok []int32, matches []trieMatch) {
+func (p *Processor) releaseDPBuffers(scores []float32, backPos []int, backTok []int32, backFbStart []int, backFbLen []int, matches []trieMatch, fbIDs []int32) {
 	p.scoresPool.Put(scores[:0])
 	p.backPosPool.Put(backPos[:0])
 	p.backTokPool.Put(backTok[:0])
+	p.fbStartPool.Put(backFbStart[:0])
+	p.fbLenPool.Put(backFbLen[:0])
 	p.matchPool.Put(matches[:0])
+	p.fbIDsPool.Put(fbIDs[:0])
+}
+
+func (p *Processor) appendByteFallbackMatch(runes []rune, pos int, matches []trieMatch, fbIDs *[]int32) []trieMatch {
+	if pos >= len(runes) {
+		return matches
+	}
+	var encoded [utf8.UTFMax]byte
+	size := utf8.EncodeRune(encoded[:], runes[pos])
+	start := len(*fbIDs)
+	total := float32(0)
+	for i := 0; i < size; i++ {
+		id := p.bytePieces[encoded[i]]
+		if id < 0 || int(id) >= len(p.pieceScores) {
+			*fbIDs = (*fbIDs)[:start]
+			return matches
+		}
+		*fbIDs = append(*fbIDs, id)
+		total += p.pieceScores[id]
+	}
+	if len(*fbIDs) == start {
+		return matches
+	}
+	return append(matches, trieMatch{
+		id:      (*fbIDs)[start],
+		span:    1,
+		score:   total,
+		fbStart: start,
+		fbLen:   len(*fbIDs) - start,
+	})
 }
 
 func reverseInt32(s []int32) {
@@ -363,4 +478,15 @@ func pieceScoreSafe(scores []float32, id int32) float32 {
 		return scores[id]
 	}
 	return 0
+}
+
+func parseBytePiece(piece string) (byte, bool) {
+	if len(piece) != 6 || piece[0] != '<' || (piece[1] != '0' || (piece[2] != 'x' && piece[2] != 'X')) || piece[5] != '>' {
+		return 0, false
+	}
+	value, err := strconv.ParseUint(piece[3:5], 16, 8)
+	if err != nil {
+		return 0, false
+	}
+	return byte(value), true
 }
