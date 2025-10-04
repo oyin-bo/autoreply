@@ -3,6 +3,9 @@ package tools
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	jsonpkg "encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -55,12 +58,15 @@ func (t *LoginTool) InputSchema() mcp.InputSchema {
 				Type:        "string",
 				Description: "App password (generated in Bluesky settings). If this parameter is present (even empty), skips OAuth and uses app password authentication. Omit this parameter to use OAuth.",
 			},
+			"prompt_id": {
+				Type:        "string",
+				Description: "Opaque prompt identifier used by MCP clients to correlate elicitation responses",
+			},
 			"port": {
 				Type:        "integer",
 				Description: "Local callback server port for OAuth (default: 8080)",
 			},
 		},
-		Required: []string{"handle"},
 	}
 }
 
@@ -68,18 +74,22 @@ func (t *LoginTool) InputSchema() mcp.InputSchema {
 func (t *LoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
 	// Extract and validate handle parameter
 	handleRaw, ok := args["handle"]
-	if !ok {
-		return nil, errors.NewMCPError(errors.InvalidInput, "handle parameter is required")
+	// Handle may be omitted for elicitation - treat missing differently from empty string
+	var handle string
+	hasHandle := false
+	if ok {
+		if hs, ok := handleRaw.(string); ok {
+			handle = strings.TrimSpace(strings.TrimPrefix(hs, "@"))
+			hasHandle = true
+		}
 	}
 
-	handle, ok := handleRaw.(string)
-	if !ok {
-		return nil, errors.NewMCPError(errors.InvalidInput, "handle must be a string")
-	}
-
-	handle = strings.TrimSpace(strings.TrimPrefix(handle, "@"))
-	if handle == "" {
-		return nil, errors.NewMCPError(errors.InvalidInput, "handle cannot be empty")
+	// Extract prompt_id if present (MCP clients can pass this to correlate prompts)
+	var promptID string
+	if pidRaw, exists := args["prompt_id"]; exists {
+		if pidStr, ok := pidRaw.(string); ok {
+			promptID = pidStr
+		}
 	}
 
 	// Check if password parameter is present (forces app password mode)
@@ -91,7 +101,54 @@ func (t *LoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp
 		if passwordStr, ok := passwordRaw.(string); ok {
 			password = strings.TrimSpace(passwordStr)
 		}
+
+		// If handle is missing, elicit it instead of proceeding
+		if !hasHandle || handle == "" {
+			// generate prompt id if not provided
+			if promptID == "" {
+				promptID = generatePromptID()
+			}
+			metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"handle","message":"Enter Bluesky handle (e.g., alice.bsky.social)"}`, promptID)
+			return &mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type:     "input_text",
+					Text:     "Enter Bluesky handle (e.g., alice.bsky.social)",
+					Metadata: jsonpkg.RawMessage(metadata),
+				}},
+			}, nil
+		}
+
+		// If password is empty, elicit it
+		if password == "" {
+			if promptID == "" {
+				promptID = generatePromptID()
+			}
+			metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"password","message":"App password for @%s"}`, promptID, handle)
+			return &mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type:     "input_text",
+					Text:     fmt.Sprintf("App password for @%s", handle),
+					Metadata: jsonpkg.RawMessage(metadata),
+				}},
+			}, nil
+		}
+
 		return t.loginWithPassword(ctx, handle, password)
+	}
+
+	// If handle is missing, elicit it (interactive MCP caller)
+	if !hasHandle || handle == "" {
+		if promptID == "" {
+			promptID = generatePromptID()
+		}
+		metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"handle","message":"Enter Bluesky handle (e.g., alice.bsky.social)"}`, promptID)
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{
+				Type:     "input_text",
+				Text:     "Enter Bluesky handle (e.g., alice.bsky.social)",
+				Metadata: jsonpkg.RawMessage(metadata),
+			}},
+		}, nil
 	}
 
 	// Otherwise, try OAuth first
@@ -272,4 +329,16 @@ The server will automatically receive the authorization code and complete the lo
 			},
 		},
 	}, nil
+}
+
+// generatePromptID returns a short opaque identifier similar to the Rust implementation
+// (16 random bytes, hex-encoded -> 32 chars). This is used when MCP elicitation needs
+// an id to correlate prompts and responses.
+func generatePromptID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// fallback to a simple timestamp-based id if crypto rand fails (very unlikely)
+		return fmt.Sprintf("fallback-%d", os.Getpid())
+	}
+	return hex.EncodeToString(b)
 }
