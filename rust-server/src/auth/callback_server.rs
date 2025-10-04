@@ -4,14 +4,9 @@
 //! on localhost. It's designed for native/CLI applications following the OAuth
 //! loopback redirect pattern.
 
-use axum::{
-    extract::Query,
-    response::Html,
-    routing::get,
-    Router,
-};
+use axum::{extract::Query, response::Html, routing::get, Router};
 use serde::Deserialize;
-use std::net::{TcpListener, SocketAddr};
+use std::net::{SocketAddr, TcpListener};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
@@ -50,26 +45,26 @@ impl CallbackServer {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
         let port = addr.port();
-        
+
         // Release the port so axum can bind to it
         drop(listener);
-        
+
         Ok(Self { port, addr })
     }
-    
+
     /// Get the callback URL
     #[allow(dead_code)] // Used in future DPoP implementation
     pub fn port(&self) -> u16 {
         self.port
     }
-    
+
     /// Get the callback URL
     pub fn callback_url(&self) -> String {
         format!("http://127.0.0.1:{}/callback", self.port)
     }
-    
+
     /// Start the server and wait for a callback
-    /// 
+    ///
     /// Returns when either:
     /// - OAuth callback is received
     /// - Timeout occurs
@@ -80,7 +75,7 @@ impl CallbackServer {
     ) -> Result<CallbackResult, String> {
         let (tx, rx) = oneshot::channel();
         let tx = Arc::new(tokio::sync::Mutex::new(Some(tx)));
-        
+
         // Create the callback handler
         let callback_tx = tx.clone();
         let callback_handler = move |Query(params): Query<CallbackParams>| async move {
@@ -97,34 +92,33 @@ impl CallbackServer {
                     description: Some("Missing code or state parameter".to_string()),
                 }
             };
-            
+
             // Send the result through the channel
             if let Some(tx) = callback_tx.lock().await.take() {
                 let _ = tx.send(result);
             }
-            
+
             // Return success page
             Html(SUCCESS_PAGE)
         };
-        
+
         // Build the router
-        let app = Router::new()
-            .route("/callback", get(callback_handler));
-        
+        let app = Router::new().route("/callback", get(callback_handler));
+
         // Start the server
         let listener = tokio::net::TcpListener::bind(self.addr)
             .await
             .map_err(|e| format!("Failed to bind callback server: {}", e))?;
-        
+
         tracing::info!("OAuth callback server listening on {}", self.addr);
-        
+
         // Spawn the server in a separate task
         let server_handle = tokio::spawn(async move {
             axum::serve(listener, app)
                 .await
                 .map_err(|e| format!("Callback server error: {}", e))
         });
-        
+
         // Wait for either callback or timeout
         let result = tokio::select! {
             callback = rx => {
@@ -134,10 +128,10 @@ impl CallbackServer {
                 Err("Timeout waiting for OAuth callback".to_string())
             }
         };
-        
+
         // Shutdown the server
         server_handle.abort();
-        
+
         result
     }
 }

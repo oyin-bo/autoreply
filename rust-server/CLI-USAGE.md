@@ -45,7 +45,7 @@ autoreply --quiet search --account bob.bsky.social --query rust
 
 ### login
 
-Authenticate with BlueSky using app passwords or OAuth. Also includes subcommands for account management.
+Authenticate with BlueSky using app passwords or OAuth. Also includes subcommands for account management. The same command shape is exposed via the MCP `login` tool so MCP clients can reuse these parameters directly.
 
 **Usage:**
 ```bash
@@ -67,7 +67,7 @@ default <HANDLE>             Set default account
 delete [OPTIONS]             Remove stored credentials
 ```
 
-**Note:** OAuth browser flow is the default authentication method when no password is provided.
+**Note:** OAuth browser flow is the default authentication method when no password is provided. When invoked through MCP without a password, the tool returns an `input_text` prompt asking for the app password; respond by resubmitting the `login` call with the provided `prompt_id` and `password` fields.
 
 **Authentication Methods:**
 

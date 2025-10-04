@@ -17,8 +17,10 @@ pub fn client_with_timeout(timeout: Duration) -> Client {
     let mut builder = Client::builder().timeout(timeout);
 
     // Proxy configuration via environment variables
-    let https_proxy = getenv_first(&["HTTPS_PROXY", "https_proxy"]).or_else(|| getenv_first(&["ALL_PROXY", "all_proxy"]));
-    let http_proxy = getenv_first(&["HTTP_PROXY", "http_proxy"]).or_else(|| getenv_first(&["ALL_PROXY", "all_proxy"]));
+    let https_proxy = getenv_first(&["HTTPS_PROXY", "https_proxy"])
+        .or_else(|| getenv_first(&["ALL_PROXY", "all_proxy"]));
+    let http_proxy = getenv_first(&["HTTP_PROXY", "http_proxy"])
+        .or_else(|| getenv_first(&["ALL_PROXY", "all_proxy"]));
     let no_proxy = getenv_first(&["NO_PROXY", "no_proxy"]).unwrap_or_default();
     let no_proxy_rules = parse_no_proxy(&no_proxy);
 
@@ -33,8 +35,14 @@ pub fn client_with_timeout(timeout: Duration) -> Client {
                 return None;
             }
             match url.scheme() {
-                "https" => https_proxy_cl.as_deref().or(http_proxy_cl.as_deref()).map(|p| p.to_string()),
-                "http" => http_proxy_cl.as_deref().or(https_proxy_cl.as_deref()).map(|p| p.to_string()),
+                "https" => https_proxy_cl
+                    .as_deref()
+                    .or(http_proxy_cl.as_deref())
+                    .map(|p| p.to_string()),
+                "http" => http_proxy_cl
+                    .as_deref()
+                    .or(https_proxy_cl.as_deref())
+                    .map(|p| p.to_string()),
                 _ => None,
             }
         });
@@ -61,8 +69,8 @@ fn getenv_first(keys: &[&str]) -> Option<String> {
 #[derive(Debug, Clone)]
 enum NoProxyRule {
     Wildcard,
-    Domain(String),   // matches suffix
-    Exact(String),    // exact host
+    Domain(String), // matches suffix
+    Exact(String),  // exact host
 }
 
 fn parse_no_proxy(val: &str) -> Vec<NoProxyRule> {
@@ -70,14 +78,16 @@ fn parse_no_proxy(val: &str) -> Vec<NoProxyRule> {
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|token| {
-            if token == "*" { return NoProxyRule::Wildcard; }
-            
+            if token == "*" {
+                return NoProxyRule::Wildcard;
+            }
+
             // If starts with dot, it's explicitly a domain suffix rule
             if token.starts_with('.') {
                 let domain = token.trim_start_matches('.').to_ascii_lowercase();
                 return NoProxyRule::Domain(domain);
             }
-            
+
             // Heuristic: if it looks like an IP or localhost, use exact matching
             // Otherwise use domain suffix matching for better compatibility
             let t = token.to_ascii_lowercase();
@@ -91,16 +101,22 @@ fn parse_no_proxy(val: &str) -> Vec<NoProxyRule> {
 }
 
 fn should_bypass_proxy(host: &str, rules: &[NoProxyRule]) -> bool {
-    if host.is_empty() { return false; }
+    if host.is_empty() {
+        return false;
+    }
     let host_lc = host.to_ascii_lowercase();
     for r in rules {
         match r {
             NoProxyRule::Wildcard => return true,
             NoProxyRule::Exact(ex) => {
-                if &host_lc == ex { return true; }
+                if &host_lc == ex {
+                    return true;
+                }
             }
             NoProxyRule::Domain(suf) => {
-                if host_lc == *suf || host_lc.ends_with(&format!(".{}", suf)) { return true; }
+                if host_lc == *suf || host_lc.ends_with(&format!(".{}", suf)) {
+                    return true;
+                }
             }
         }
     }
@@ -116,9 +132,9 @@ mod tests {
     fn test_client_with_timeout_creation() {
         let timeout = Duration::from_secs(30);
         let client = client_with_timeout(timeout);
-        
+
         // Client should be created successfully
-        // Note: reqwest::Client doesn't expose timeout() method, 
+        // Note: reqwest::Client doesn't expose timeout() method,
         // but we can verify the client was built without panic
         assert!(format!("{:?}", client).contains("Client"));
     }
@@ -126,10 +142,10 @@ mod tests {
     #[test]
     fn test_client_user_agent() {
         let client = client_with_timeout(Duration::from_secs(10));
-        
+
         // Should have proper user agent set
         let _user_agent = format!("autoreply/{}", env!("CARGO_PKG_VERSION"));
-        // We can't directly access the user agent from reqwest::Client, 
+        // We can't directly access the user agent from reqwest::Client,
         // but we can verify the client was built successfully with our config
         assert!(format!("{:?}", client).contains("Client"));
     }
@@ -139,10 +155,10 @@ mod tests {
         // Test with environment variables that exist
         std::env::set_var("TEST_VAR_1", "value1");
         std::env::set_var("TEST_VAR_2", "value2");
-        
+
         let result = getenv_first(&["TEST_VAR_NONEXISTENT", "TEST_VAR_1", "TEST_VAR_2"]);
         assert_eq!(result, Some("value1".to_string()));
-        
+
         // Clean up
         std::env::remove_var("TEST_VAR_1");
         std::env::remove_var("TEST_VAR_2");
@@ -159,10 +175,10 @@ mod tests {
         std::env::set_var("EMPTY_VAR", "");
         std::env::set_var("WHITESPACE_VAR", "  ");
         std::env::set_var("VALID_VAR", "value");
-        
+
         let result = getenv_first(&["EMPTY_VAR", "WHITESPACE_VAR", "VALID_VAR"]);
         assert_eq!(result, Some("value".to_string()));
-        
+
         // Clean up
         std::env::remove_var("EMPTY_VAR");
         std::env::remove_var("WHITESPACE_VAR");
@@ -200,7 +216,7 @@ mod tests {
     fn test_parse_no_proxy_ip_address() {
         let rules = parse_no_proxy("127.0.0.1,192.168.1.1");
         assert_eq!(rules.len(), 2);
-        
+
         for rule in &rules {
             match rule {
                 NoProxyRule::Exact(ip) => {
@@ -215,7 +231,7 @@ mod tests {
     fn test_parse_no_proxy_domain_heuristic() {
         let rules = parse_no_proxy("example.com,internal.corp");
         assert_eq!(rules.len(), 2);
-        
+
         for rule in &rules {
             match rule {
                 NoProxyRule::Domain(domain) => {
@@ -230,11 +246,11 @@ mod tests {
     fn test_parse_no_proxy_mixed() {
         let rules = parse_no_proxy("localhost,.example.com,192.168.1.1,internal.corp");
         assert_eq!(rules.len(), 4);
-        
+
         // Verify we have the expected mix of rule types
         let mut exact_count = 0;
         let mut domain_count = 0;
-        
+
         for rule in &rules {
             match rule {
                 NoProxyRule::Exact(_) => exact_count += 1,
@@ -242,7 +258,7 @@ mod tests {
                 NoProxyRule::Wildcard => {}
             }
         }
-        
+
         assert_eq!(exact_count, 2); // localhost, 192.168.1.1
         assert_eq!(domain_count, 2); // .example.com, internal.corp
     }
@@ -251,7 +267,7 @@ mod tests {
     fn test_parse_no_proxy_empty_and_whitespace() {
         let rules = parse_no_proxy("localhost, , example.com,,");
         assert_eq!(rules.len(), 2); // Should skip empty entries
-        
+
         match (&rules[0], &rules[1]) {
             (NoProxyRule::Exact(host), NoProxyRule::Domain(domain)) => {
                 assert_eq!(host, "localhost");
@@ -275,11 +291,11 @@ mod tests {
             NoProxyRule::Exact("localhost".to_string()),
             NoProxyRule::Exact("127.0.0.1".to_string()),
         ];
-        
+
         assert!(should_bypass_proxy("localhost", &rules));
         assert!(should_bypass_proxy("127.0.0.1", &rules));
         assert!(!should_bypass_proxy("example.com", &rules));
-        
+
         // Test case insensitive
         assert!(should_bypass_proxy("LOCALHOST", &rules));
     }
@@ -290,13 +306,13 @@ mod tests {
             NoProxyRule::Domain("example.com".to_string()),
             NoProxyRule::Domain("internal.corp".to_string()),
         ];
-        
+
         assert!(should_bypass_proxy("example.com", &rules));
         assert!(should_bypass_proxy("api.example.com", &rules));
         assert!(should_bypass_proxy("subdomain.example.com", &rules));
         assert!(should_bypass_proxy("internal.corp", &rules));
         assert!(should_bypass_proxy("app.internal.corp", &rules));
-        
+
         assert!(!should_bypass_proxy("notexample.com", &rules));
         assert!(!should_bypass_proxy("example.org", &rules));
         assert!(!should_bypass_proxy("external.com", &rules));
@@ -321,36 +337,36 @@ mod tests {
             NoProxyRule::Exact("localhost".to_string()),
             NoProxyRule::Domain("example.com".to_string()),
         ];
-        
+
         assert!(should_bypass_proxy("LOCALHOST", &rules));
         assert!(should_bypass_proxy("LocalHost", &rules));
         assert!(should_bypass_proxy("EXAMPLE.COM", &rules));
         assert!(should_bypass_proxy("API.EXAMPLE.COM", &rules));
     }
 
-    #[test] 
+    #[test]
     fn test_client_with_proxy_env_vars() {
         // Test that client creation works with various proxy environment combinations
         // We can't easily test the actual proxy behavior without a test proxy server,
         // but we can ensure the client builds successfully with different env var configs
-        
+
         // Save original env vars
         let original_https = std::env::var("HTTPS_PROXY").ok();
         let original_http = std::env::var("HTTP_PROXY").ok();
         let original_no = std::env::var("NO_PROXY").ok();
-        
+
         // Test with HTTPS proxy
         std::env::set_var("HTTPS_PROXY", "https://proxy.example.com:8080");
         std::env::set_var("NO_PROXY", "localhost,.internal.corp");
         let client = client_with_timeout(Duration::from_secs(10));
         assert!(format!("{:?}", client).contains("Client"));
-        
+
         // Test with HTTP proxy
         std::env::remove_var("HTTPS_PROXY");
         std::env::set_var("HTTP_PROXY", "http://proxy.example.com:8080");
         let client = client_with_timeout(Duration::from_secs(10));
         assert!(format!("{:?}", client).contains("Client"));
-        
+
         // Restore original env vars
         if let Some(val) = original_https {
             std::env::set_var("HTTPS_PROXY", val);

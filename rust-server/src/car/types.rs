@@ -5,7 +5,7 @@ use std::fmt;
 pub struct Cid {
     #[allow(dead_code)] // Part of IPFS/AT Protocol spec - keep for future MCP tools
     pub version: u8,
-    #[allow(dead_code)] // Part of IPFS/AT Protocol spec - keep for future MCP tools  
+    #[allow(dead_code)] // Part of IPFS/AT Protocol spec - keep for future MCP tools
     pub codec: u8,
     #[allow(dead_code)] // Part of IPFS/AT Protocol spec - keep for future MCP tools
     pub digest_type: u8,
@@ -20,13 +20,11 @@ impl fmt::Display for Cid {
     }
 }
 
-impl Cid {
-    
-}
+impl Cid {}
 
 #[derive(Debug)]
 pub struct CarEntry {
-  #[allow(dead_code)] // not 100% sure may be removed later
+    #[allow(dead_code)] // not 100% sure may be removed later
     pub cid: Cid,
     pub bytes: Vec<u8>,
     // Remove unused positioning fields - these are just parsing artifacts
@@ -68,7 +66,7 @@ mod tests {
             digest_type: 0x12,
             digest: vec![0x01, 0x02, 0x03, 0x04, 0x05],
         };
-        
+
         let cid_string = cid.to_string();
         assert_eq!(cid_string, "0102030405");
     }
@@ -81,7 +79,7 @@ mod tests {
             digest_type: 0x12,
             digest: vec![],
         };
-        
+
         let cid_string = cid.to_string();
         assert_eq!(cid_string, "");
     }
@@ -94,7 +92,7 @@ mod tests {
             digest_type: 0x12,
             digest: vec![0xAA, 0xBB, 0xCC],
         };
-        
+
         let cloned = original.clone();
         assert_eq!(cloned.version, original.version);
         assert_eq!(cloned.codec, original.codec);
@@ -110,12 +108,12 @@ mod tests {
             digest_type: 0x12,
             digest: vec![0x01, 0x02, 0x03],
         };
-        
+
         let entry = CarEntry {
             cid: cid.clone(),
             bytes: vec![0x04, 0x05, 0x06],
         };
-        
+
         assert_eq!(entry.cid.version, 1);
         assert_eq!(entry.bytes, vec![0x04, 0x05, 0x06]);
     }
@@ -128,12 +126,12 @@ mod tests {
             digest_type: 0x12,
             digest: vec![0x01, 0x02, 0x03],
         };
-        
+
         let header = CarHeader {
             version: 1,
             roots: vec![root_cid.clone()],
         };
-        
+
         assert_eq!(header.version, 1);
         assert_eq!(header.roots.len(), 1);
         assert_eq!(header.roots[0].digest, vec![0x01, 0x02, 0x03]);
@@ -147,7 +145,7 @@ mod tests {
             digest_type: 0x12,
             digest: vec![0xFF, 0xEE, 0xDD],
         };
-        
+
         let link = CidLink::from(&cid);
         assert_eq!(link.0, "ffeedd");
         assert_eq!(link.as_str(), "ffeedd");
@@ -156,11 +154,11 @@ mod tests {
     #[test]
     fn test_cid_link_serialization() {
         let link = CidLink("test123".to_string());
-        
+
         // Test serialization
         let serialized = serde_json::to_string(&link).unwrap();
         assert_eq!(serialized, "\"test123\"");
-        
+
         // Test deserialization
         let deserialized: CidLink = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.0, "test123");
@@ -175,19 +173,19 @@ mod tests {
             digest_type: 0x12,
             digest: vec![0x01, 0x02],
         };
-        
+
         let cid2 = Cid {
             version: 1,
             codec: 0x55,
             digest_type: 0x12,
             digest: vec![0x03, 0x04],
         };
-        
+
         let original = CarHeader {
             version: 1,
             roots: vec![cid1, cid2],
         };
-        
+
         let cloned = original.clone();
         assert_eq!(cloned.version, original.version);
         assert_eq!(cloned.roots.len(), original.roots.len());

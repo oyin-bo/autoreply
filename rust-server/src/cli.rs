@@ -14,11 +14,11 @@ use serde::{Deserialize, Serialize};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
-    
+
     /// Enable verbose logging
     #[arg(short, long, global = true)]
     pub verbose: bool,
-    
+
     /// Suppress non-error output (no short flag to avoid conflicts)
     #[arg(long, global = true)]
     pub quiet: bool,
@@ -50,12 +50,12 @@ pub struct SearchArgs {
     #[arg(short = 'a', long)]
     #[schemars(description = "Handle or DID")]
     pub account: String,
-    
+
     /// Search terms (case-insensitive)
     #[arg(short = 'q', long)]
     #[schemars(description = "Search terms (case-insensitive)")]
     pub query: String,
-    
+
     /// Maximum number of results (default 50, max 200)
     #[arg(short = 'l', long)]
     #[schemars(description = "Maximum number of results (default 50, max 200)")]
@@ -63,26 +63,32 @@ pub struct SearchArgs {
 }
 
 /// Login command with subcommands for account management
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LoginCommand {
     #[command(subcommand)]
     pub command: Option<LoginSubcommands>,
-    
+
     /// Handle (alice.bsky.social) - for add operation
     #[arg(short = 'u', long, global = true)]
     pub handle: Option<String>,
-    
+
     /// App password (use this to skip OAuth and authenticate with app password)
     /// If provided without value, will prompt on console
     #[arg(short = 'p', long, num_args = 0..=1, default_missing_value = "", global = true)]
     pub password: Option<String>,
-    
+
     /// Service URL (defaults to <https://bsky.social>)
     #[arg(short = 's', long, global = true)]
     pub service: Option<String>,
+
+    /// Opaque prompt identifier used by MCP login elicitation
+    #[arg(skip = Option::<String>::None)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Opaque prompt identifier used when responding to MCP login prompts")]
+    pub prompt_id: Option<String>,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub enum LoginSubcommands {
     /// List all stored accounts
     List,

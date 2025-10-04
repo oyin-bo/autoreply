@@ -185,13 +185,14 @@ impl PostRecord {
 
         // Post URI and timestamp
         if !self.uri.is_empty() {
-            let post_url = format!("https://bsky.app/profile/{}/post/{}", 
-                handle, 
+            let post_url = format!(
+                "https://bsky.app/profile/{}/post/{}",
+                handle,
                 self.uri.split('/').next_back().unwrap_or("")
             );
             markdown.push_str(&format!("**URI:** [{}]({})\n", self.uri, post_url));
         }
-        
+
         markdown.push_str(&format!("**Created:** {}\n\n", self.created_at));
 
         // Highlighted post text
@@ -215,7 +216,9 @@ impl PostRecord {
         }
         if !link_lines.is_empty() {
             markdown.push_str("**Links:**\n");
-            for line in link_lines { markdown.push_str(&line); }
+            for line in link_lines {
+                markdown.push_str(&line);
+            }
             markdown.push('\n');
         }
 
@@ -247,32 +250,32 @@ fn highlight_text(text: &str, query: &str) -> String {
     // Simple case-insensitive highlighting
     let lower_text = text.to_lowercase();
     let lower_query = query.to_lowercase();
-    
+
     if !lower_text.contains(&lower_query) {
         return text.to_string();
     }
 
     let mut result = String::new();
     let mut last_end = 0;
-    
+
     while let Some(start) = lower_text[last_end..].find(&lower_query) {
         let absolute_start = last_end + start;
         let absolute_end = absolute_start + query.len();
-        
+
         // Add text before match
         result.push_str(&text[last_end..absolute_start]);
-        
+
         // Add highlighted match
         result.push_str("**");
         result.push_str(&text[absolute_start..absolute_end]);
         result.push_str("**");
-        
+
         last_end = absolute_end;
     }
-    
+
     // Add remaining text
     result.push_str(&text[last_end..]);
-    
+
     result
 }
 
@@ -305,7 +308,7 @@ mod tests {
     fn test_profile_record_to_markdown() {
         let profile = create_test_profile();
         let markdown = profile.to_markdown("alice.bsky.social", "did:plc:test123");
-        
+
         assert!(markdown.contains("# @alice.bsky.social (did:plc:test123)"));
         assert!(markdown.contains("**Display Name:** Test User"));
         assert!(markdown.contains("**Description:**"));
@@ -325,9 +328,9 @@ mod tests {
             banner: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
         };
-        
+
         let markdown = minimal_profile.to_markdown("minimal.bsky.social", "did:plc:minimal");
-        
+
         assert!(markdown.contains("# @minimal.bsky.social (did:plc:minimal)"));
         assert!(!markdown.contains("**Display Name:**"));
         assert!(!markdown.contains("**Description:**"));
@@ -340,15 +343,18 @@ mod tests {
     fn test_post_record_get_searchable_text_basic() {
         let post = create_test_post();
         let searchable = post.get_searchable_text();
-        
+
         assert_eq!(searchable.len(), 1);
-        assert_eq!(searchable[0], "Hello world! Check out this link: https://example.com");
+        assert_eq!(
+            searchable[0],
+            "Hello world! Check out this link: https://example.com"
+        );
     }
 
     #[test]
     fn test_post_record_get_searchable_text_with_embeds() {
         let mut post = create_test_post();
-        
+
         // Add external embed
         post.embeds.push(Embed::External {
             external: ExternalEmbed {
@@ -358,7 +364,7 @@ mod tests {
                 thumb: None,
             },
         });
-        
+
         // Add images embed
         post.embeds.push(Embed::Images {
             images: vec![
@@ -382,11 +388,12 @@ mod tests {
                 },
             ],
         });
-        
+
         let searchable = post.get_searchable_text();
-        
+
         assert_eq!(searchable.len(), 4);
-        assert!(searchable.contains(&"Hello world! Check out this link: https://example.com".to_string()));
+        assert!(searchable
+            .contains(&"Hello world! Check out this link: https://example.com".to_string()));
         assert!(searchable.contains(&"Amazing Article".to_string()));
         assert!(searchable.contains(&"This is a great article about Rust".to_string()));
         assert!(searchable.contains(&"A beautiful sunset".to_string()));
@@ -395,7 +402,7 @@ mod tests {
     #[test]
     fn test_post_record_get_searchable_text_with_facets() {
         let mut post = create_test_post();
-        
+
         // Add facets with links
         post.facets.push(Facet {
             index: FacetIndex {
@@ -411,11 +418,12 @@ mod tests {
                 },
             ],
         });
-        
+
         let searchable = post.get_searchable_text();
-        
+
         assert_eq!(searchable.len(), 2);
-        assert!(searchable.contains(&"Hello world! Check out this link: https://example.com".to_string()));
+        assert!(searchable
+            .contains(&"Hello world! Check out this link: https://example.com".to_string()));
         assert!(searchable.contains(&"https://example.com".to_string()));
     }
 
@@ -423,7 +431,7 @@ mod tests {
     fn test_post_record_to_markdown() {
         let post = create_test_post();
         let markdown = post.to_markdown("alice.bsky.social", "hello");
-        
+
         assert!(markdown.contains("**URI:** [at://did:plc:test/app.bsky.feed.post/123](https://bsky.app/profile/alice.bsky.social/post/123)"));
         assert!(markdown.contains("**Created:** 2024-01-01T12:00:00Z"));
         assert!(markdown.contains("**Hello** world!"));
@@ -432,7 +440,7 @@ mod tests {
     #[test]
     fn test_post_record_to_markdown_with_links() {
         let mut post = create_test_post();
-        
+
         // Add external embed
         post.embeds.push(Embed::External {
             external: ExternalEmbed {
@@ -442,17 +450,20 @@ mod tests {
                 thumb: None,
             },
         });
-        
+
         // Add facet link
         post.facets.push(Facet {
-            index: FacetIndex { byte_start: 0, byte_end: 5 },
+            index: FacetIndex {
+                byte_start: 0,
+                byte_end: 5,
+            },
             features: vec![FacetFeature::Link {
                 uri: "https://facet-link.com".to_string(),
             }],
         });
-        
+
         let markdown = post.to_markdown("alice.bsky.social", "hello");
-        
+
         assert!(markdown.contains("**Links:**"));
         assert!(markdown.contains("- [Great Article](https://example.com/article)"));
         assert!(markdown.contains("- https://facet-link.com"));
@@ -461,7 +472,7 @@ mod tests {
     #[test]
     fn test_post_record_to_markdown_with_images() {
         let mut post = create_test_post();
-        
+
         post.embeds.push(Embed::Images {
             images: vec![
                 ImageEmbed {
@@ -484,9 +495,9 @@ mod tests {
                 },
             ],
         });
-        
+
         let markdown = post.to_markdown("alice.bsky.social", "hello");
-        
+
         assert!(markdown.contains("**Images:**"));
         assert!(markdown.contains("- Sunset photo"));
         assert!(markdown.contains("- Image 2"));
@@ -504,7 +515,7 @@ mod tests {
         let text = "Hello World, this is a TEST";
         let result = highlight_text(text, "world");
         assert_eq!(result, "Hello **World**, this is a TEST");
-        
+
         let result = highlight_text(text, "test");
         assert_eq!(result, "Hello World, this is a **TEST**");
     }
@@ -545,7 +556,7 @@ mod tests {
             mime_type: "image/jpeg".to_string(),
             size: 1024,
         };
-        
+
         let json = serde_json::to_string(&blob).unwrap();
         assert!(json.contains("\"$type\":\"blob\""));
         assert!(json.contains("\"ref\":\"bafy123456789\""));
@@ -564,13 +575,13 @@ mod tests {
         let tag = FacetFeature::Tag {
             tag: "rust".to_string(),
         };
-        
+
         let link_json = serde_json::to_string(&link).unwrap();
         assert!(link_json.contains("\"$type\":\"app.bsky.richtext.facet#link\""));
-        
+
         let mention_json = serde_json::to_string(&mention).unwrap();
         assert!(mention_json.contains("\"$type\":\"app.bsky.richtext.facet#mention\""));
-        
+
         let tag_json = serde_json::to_string(&tag).unwrap();
         assert!(tag_json.contains("\"$type\":\"app.bsky.richtext.facet#tag\""));
     }
@@ -585,7 +596,7 @@ mod tests {
                 thumb: None,
             },
         };
-        
+
         let json = serde_json::to_string(&external).unwrap();
         assert!(json.contains("\"$type\":\"app.bsky.embed.external\""));
         assert!(json.contains("\"uri\":\"https://example.com\""));

@@ -12,6 +12,7 @@ This application supports two operational modes:
 Both modes implement the same tools:
 - `profile(account)` - Retrieve user profile information  
 - `search(account, query)` - Search posts within a user's repository
+- `login(...)` - Authenticate accounts and manage stored credentials (OAuth + app password)
 
 Authentication support via app passwords allows storing and managing credentials for future authenticated operations.
 
@@ -29,6 +30,7 @@ Authentication support via app passwords allows storing and managing credentials
 - Multi-account support with default selection
 - Token refresh and lifecycle management
 - CLI commands: `login` (with subcommands: `list`, `default <handle>`, `delete`)
+- MCP `login` tool with interactive elicitation for handles and app passwords
 - Defaults to OAuth and allows for app passwords
 
 ✅ **Bluesky Integration**
@@ -138,10 +140,12 @@ Notes:
 ```
 
 **Get user profile:**
-```json
 {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "profile", "arguments": {"account": "alice.bsky.social"}}}
 ```
-
 **Search user's posts:**
 ```json
 {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search", "arguments": {"account": "alice.bsky.social", "query": "hello world"}}}
+```
+**Login / manage credentials:**
+```json
+{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "login", "arguments": {"handle": "alice.bsky.social"}}}

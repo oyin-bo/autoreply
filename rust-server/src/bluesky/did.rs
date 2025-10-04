@@ -1,5 +1,5 @@
 //! DID resolution functionality
-//! 
+//!
 //! Handles resolving Bluesky handles to DIDs via XRPC
 
 #![allow(clippy::items_after_test_module)]
@@ -24,26 +24,26 @@ pub fn is_valid_handle(handle: &str) -> bool {
     if handle.is_empty() || !handle.contains('.') {
         return false;
     }
-    
+
     let parts: Vec<&str> = handle.split('.').collect();
     if parts.len() < 2 {
         return false;
     }
-    
+
     // Check each part is non-empty and contains only valid characters
     for part in &parts {
         if part.is_empty() || !part.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
             return false;
         }
     }
-    
+
     // Last part (TLD) should be at least 2 characters
     if let Some(tld) = parts.last() {
         if tld.len() < 2 {
             return false;
         }
     }
-    
+
     true
 }
 
@@ -85,24 +85,27 @@ impl DidResolver {
 
         // Try direct resolution
         let did = self.try_resolve_handle_direct(handle).await?;
-        
+
         if let Some(ref did_str) = did {
             self.cache_resolution(handle, did_str);
         }
-        
+
         Ok(did)
     }
 
     async fn try_resolve_handle_direct(&self, handle: &str) -> Result<Option<String>, AppError> {
-        let url = format!("https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle={}", handle);
-        
+        let url = format!(
+            "https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle={}",
+            handle
+        );
+
         match self.client.get(&url).send().await {
             Ok(response) if response.status().is_success() => {
                 match response.json::<ResolveHandleResponse>().await {
                     Ok(resolve_response) => Ok(Some(resolve_response.did)),
                     Err(_) => Ok(None),
                 }
-            },
+            }
             _ => Ok(None),
         }
     }
@@ -150,15 +153,15 @@ fn did_web_to_did_document_url(did: &str) -> Option<String> {
     if !did.starts_with("did:web:") {
         return None;
     }
-    
+
     let parts: Vec<&str> = did.split(':').collect();
     if parts.len() < 3 {
         return None;
     }
-    
+
     let domain_and_path = &parts[2..];
     let domain = domain_and_path[0];
-    
+
     if domain_and_path.len() == 1 {
         // Root domain case
         Some(format!("https://{}/.well-known/did.json", domain))
@@ -197,7 +200,7 @@ mod tests {
         assert!(is_valid_handle("user.example.com"));
         assert!(!is_valid_handle("not_a_handle"));
         assert!(!is_valid_handle(""));
-        assert!(!is_valid_handle("handle.c"));  // TLD too short
+        assert!(!is_valid_handle("handle.c")); // TLD too short
     }
 
     #[test]

@@ -49,7 +49,9 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     // Normalize query as specified
     let normalized_query = normalize_text(&search_args.query);
     if normalized_query.is_empty() {
-        return Err(AppError::InvalidInput("Query is empty after normalization".to_string()));
+        return Err(AppError::InvalidInput(
+            "Query is empty after normalization".to_string(),
+        ));
     }
 
     // Resolve handle to DID
@@ -61,54 +63,72 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
         // If input was a DID, we might not have the handle - use DID for now
         search_args.account.clone()
     } else {
-        search_args.account.strip_prefix('@').unwrap_or(&search_args.account).to_string()
+        search_args
+            .account
+            .strip_prefix('@')
+            .unwrap_or(&search_args.account)
+            .to_string()
     };
 
     debug!("Resolved {} to DID: {:?}", search_args.account, did);
 
     // Get posts using streaming iterator
     let provider = RepositoryProvider::new()?;
-    let records = provider.records(did.as_ref().ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?).await?;
-    
+    let records = provider
+        .records(
+            did.as_ref()
+                .ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?,
+        )
+        .await?;
+
     // Stream through records and collect posts
     let posts: Vec<PostRecord> = records
         .filter_map(|record_result| {
             let (record_type, cbor_data) = record_result.ok()?;
-            
+
             // Only process post records
             if record_type != "app.bsky.feed.post" {
                 return None;
             }
-            
+
             // Decode CBOR data to extract post fields
-            if let Ok(serde_cbor::Value::Map(post_map)) = serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data) {
-                    let text = match post_map.get(&serde_cbor::Value::Text("text".to_string())) {
+            if let Ok(serde_cbor::Value::Map(post_map)) =
+                serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data)
+            {
+                let text = match post_map.get(&serde_cbor::Value::Text("text".to_string())) {
+                    Some(serde_cbor::Value::Text(t)) => t.clone(),
+                    _ => return None,
+                };
+
+                let created_at =
+                    match post_map.get(&serde_cbor::Value::Text("createdAt".to_string())) {
                         Some(serde_cbor::Value::Text(t)) => t.clone(),
                         _ => return None,
                     };
-                    
-                    let created_at = match post_map.get(&serde_cbor::Value::Text("createdAt".to_string())) {
-                        Some(serde_cbor::Value::Text(t)) => t.clone(),
-                        _ => return None,
-                    };
-                    
-                    // For now, we'll use a placeholder for rkey - we'd need to extract it from the MST key
-                    // This is a limitation of the current approach vs the specialized get_posts method
-                    Some(PostRecord {
-                        uri: format!("at://{}/app.bsky.feed.post/unknown", did.as_deref().unwrap_or("unknown")),
-                        cid: "unknown".to_string(), // Would need CID from CAR entry
-                        text,
-                        created_at,
-                        embeds: Vec::new(), // TODO: Convert embeds if needed in future
-                        facets: Vec::new(), // TODO: Convert facets if needed in future
-                    })
-                } else {
-                    None
-                }
+
+                // For now, we'll use a placeholder for rkey - we'd need to extract it from the MST key
+                // This is a limitation of the current approach vs the specialized get_posts method
+                Some(PostRecord {
+                    uri: format!(
+                        "at://{}/app.bsky.feed.post/unknown",
+                        did.as_deref().unwrap_or("unknown")
+                    ),
+                    cid: "unknown".to_string(), // Would need CID from CAR entry
+                    text,
+                    created_at,
+                    embeds: Vec::new(), // TODO: Convert embeds if needed in future
+                    facets: Vec::new(), // TODO: Convert facets if needed in future
+                })
+            } else {
+                None
+            }
         })
         .collect();
-    
-    debug!("Extracted {} post records using streaming iterator", posts.len());
+
+    debug!(
+        "Extracted {} post records using streaming iterator",
+        posts.len()
+    );
 
     // Search posts
     let mut matching_posts = search_posts(&posts, &normalized_query);
@@ -118,7 +138,9 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
 
     // Apply limit (default 50, max 200)
     let limit = search_args.limit.unwrap_or(50).clamp(1, 200);
-    if matching_posts.len() > limit { matching_posts.truncate(limit); }
+    if matching_posts.len() > limit {
+        matching_posts.truncate(limit);
+    }
 
     if matching_posts.is_empty() {
         return Err(AppError::NotFound(format!(
@@ -140,7 +162,11 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
             let mut pr = p.clone();
             // URI format: at://{did}/app.bsky.feed.post/{rkey}
             if !pr.uri.is_empty() && !pr.uri.starts_with("at://") {
-                pr.uri = format!("at://{}/app.bsky.feed.post/{}", did.as_deref().unwrap_or("unknown"), pr.uri);
+                pr.uri = format!(
+                    "at://{}/app.bsky.feed.post/{}",
+                    did.as_deref().unwrap_or("unknown"),
+                    pr.uri
+                );
             }
             pr
         })
@@ -156,7 +182,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
 /// Search posts for query matches
 fn search_posts<'a>(posts: &'a [PostRecord], query: &str) -> Vec<&'a PostRecord> {
     let lower_query = query.to_lowercase();
-    
+
     posts
         .iter()
         .filter(|post| {
@@ -175,7 +201,7 @@ fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> St
     for (i, post) in posts.iter().enumerate() {
         markdown.push_str(&format!("## Post {}\n", i + 1));
         markdown.push_str(&post.to_markdown(handle, query));
-        
+
         // Add separator between posts
         if i < posts.len() - 1 {
             markdown.push_str("---\n\n");

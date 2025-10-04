@@ -28,15 +28,16 @@ impl RepositoryProvider {
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| AppError::HttpClientInitialization(e.to_string()))?;
-        
+
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(std::env::temp_dir)
             .join("autoreply")
             .join("repos");
-        
-        std::fs::create_dir_all(&cache_dir)
-            .map_err(|e| AppError::CacheError(format!("Failed to create cache directory: {}", e)))?;
-        
+
+        std::fs::create_dir_all(&cache_dir).map_err(|e| {
+            AppError::CacheError(format!("Failed to create cache directory: {}", e))
+        })?;
+
         let did_resolver = DidResolver::new();
         Ok(Self {
             client,
@@ -44,8 +45,6 @@ impl RepositoryProvider {
             did_resolver,
         })
     }
-
-    
 
     /// Fetches the repository CAR file for a DID.
     ///
@@ -62,7 +61,7 @@ impl RepositoryProvider {
         // Generate cache file paths
         let cache_filename = format!("{}.car", did.replace(':', "_"));
         let final_path = self.cache_dir.join(&cache_filename);
-        
+
         // Check if cached file exists (no TTL or metadata per PROCEED-FIX.md spec)
         if final_path.exists() {
             info!("Using cached repo for {}", did);
@@ -74,7 +73,8 @@ impl RepositoryProvider {
         let temp_path = self.cache_dir.join(&temp_filename);
 
         // Fetch CAR file and stream directly to temp file
-        let response = self.client
+        let response = self
+            .client
             .get(&url)
             .send()
             .await
@@ -99,52 +99,57 @@ impl RepositoryProvider {
         let mut temp_file = tokio::fs::File::create(&temp_path)
             .await
             .map_err(|e| AppError::CacheError(format!("Failed to create temp file: {}", e)))?;
-        
+
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| AppError::NetworkError(e.to_string()))?;
             tokio::io::AsyncWriteExt::write_all(&mut temp_file, &chunk)
                 .await
-                .map_err(|e| AppError::CacheError(format!("Failed to write to temp file: {}", e)))?;
+                .map_err(|e| {
+                    AppError::CacheError(format!("Failed to write to temp file: {}", e))
+                })?;
         }
 
         // Flush and fsync as required
         tokio::io::AsyncWriteExt::flush(&mut temp_file)
             .await
             .map_err(|e| AppError::CacheError(format!("Failed to flush temp file: {}", e)))?;
-        temp_file.sync_all()
+        temp_file
+            .sync_all()
             .await
             .map_err(|e| AppError::CacheError(format!("Failed to fsync temp file: {}", e)))?;
-        
+
         // Drop the file handle before rename
         drop(temp_file);
 
         // Atomically rename temp file to final path
-        std::fs::rename(&temp_path, &final_path)
-            .map_err(|e| AppError::CacheError(format!("Failed to atomically rename temp file: {}", e)))?;
+        std::fs::rename(&temp_path, &final_path).map_err(|e| {
+            AppError::CacheError(format!("Failed to atomically rename temp file: {}", e))
+        })?;
 
-        info!("Successfully cached repo for {} at {}", did, final_path.display());
+        info!(
+            "Successfully cached repo for {} at {}",
+            did,
+            final_path.display()
+        );
         Ok(final_path)
     }
-
-
 
     /// Get an iterator over AT Protocol records from a user's repository.
     /// Returns a streaming iterator that yields (record_type, cbor_data) tuples.
     /// This avoids loading all records into memory and supports early termination.
     pub async fn records(&self, did: &str) -> Result<crate::car::CarRecords, AppError> {
         let car_file_path = self.fetch_repo_car(did).await?;
-        
+
         // Read entire file into memory (CAR files are typically 1-10MB)
-        let car_bytes = tokio::fs::read(&car_file_path).await
+        let car_bytes = tokio::fs::read(&car_file_path)
+            .await
             .map_err(|e| AppError::CacheError(format!("Failed to read CAR file: {}", e)))?;
-        
+
         // Create iterator from CAR file bytes
         crate::car::CarRecords::from_bytes(car_bytes)
             .map_err(|e| AppError::RepoParseFailed(format!("Failed to create CAR iterator: {}", e)))
     }
-
-
 }
 
 impl Default for RepositoryProvider {

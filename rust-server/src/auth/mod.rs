@@ -7,17 +7,19 @@
 //! - Token refresh and lifecycle management
 //! - Multi-account support
 
+pub mod callback_server;
 pub mod credentials;
+pub mod login_flow;
+pub mod oauth_atproto;
 pub mod session;
 pub mod storage;
-pub mod oauth_atproto;
-pub mod callback_server;
 
+pub use callback_server::{CallbackResult, CallbackServer};
 pub use credentials::Credentials;
+pub use login_flow::{LoginManager, LoginRequest};
+pub use oauth_atproto::AtProtoOAuthManager;
 pub use session::{Session, SessionManager};
 pub use storage::{CredentialStorage, StorageBackend};
-pub use oauth_atproto::AtProtoOAuthManager;
-pub use callback_server::{CallbackServer, CallbackResult};
 
 use crate::error::AppError;
 
@@ -29,19 +31,19 @@ pub const DEFAULT_SERVICE: &str = "https://bsky.social";
 pub enum AuthError {
     #[error("Authentication failed: {0}")]
     AuthenticationFailed(String),
-    
+
     #[error("No credentials found for account: {0}")]
     NoCredentials(String),
-    
+
     // Token refresh functionality - will be used when OAuth is enabled
     #[allow(dead_code)]
     #[error("Token expired")]
     TokenExpired,
-    
+
     #[allow(dead_code)]
     #[error("Failed to refresh token: {0}")]
     RefreshFailed(String),
-    
+
     #[allow(dead_code)]
     #[error("Invalid session data: {0}")]
     InvalidSession(String),

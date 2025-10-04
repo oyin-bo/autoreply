@@ -32,7 +32,9 @@ impl fmt::Display for AppError {
             AppError::NotFound(msg) => write!(f, "Not found: {}", msg),
             AppError::Timeout(msg) => write!(f, "Timeout: {}", msg),
             AppError::CacheError(msg) => write!(f, "Cache error: {}", msg),
-            AppError::HttpClientInitialization(msg) => write!(f, "HTTP client initialization failed: {}", msg),
+            AppError::HttpClientInitialization(msg) => {
+                write!(f, "HTTP client initialization failed: {}", msg)
+            }
             AppError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             AppError::Authentication(msg) => write!(f, "Authentication error: {}", msg),
             AppError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
@@ -114,7 +116,9 @@ impl From<crate::car::CarError> for AppError {
 /// Validation functions
 pub fn validate_account(account: &str) -> Result<(), AppError> {
     if account.is_empty() {
-        return Err(AppError::InvalidInput("Account cannot be empty".to_string()));
+        return Err(AppError::InvalidInput(
+            "Account cannot be empty".to_string(),
+        ));
     }
 
     // Check if it's a DID
@@ -177,16 +181,46 @@ mod tests {
     #[test]
     fn test_app_error_display() {
         let tests = vec![
-            (AppError::InvalidInput("test".to_string()), "Invalid input: test"),
-            (AppError::DidResolveFailed("resolve error".to_string()), "DID resolution failed: resolve error"),
-            (AppError::RepoFetchFailed("fetch error".to_string()), "Repository fetch failed: fetch error"),
-            (AppError::RepoParseFailed("parse error".to_string()), "Repository parse failed: parse error"),
-            (AppError::NotFound("not found".to_string()), "Not found: not found"),
-            (AppError::Timeout("timeout error".to_string()), "Timeout: timeout error"),
-            (AppError::CacheError("cache error".to_string()), "Cache error: cache error"),
-            (AppError::HttpClientInitialization("http client error".to_string()), "HTTP client initialization failed: http client error"),
-            (AppError::NetworkError("network error".to_string()), "Network error: network error"),
-            (AppError::Internal("internal error".to_string()), "Internal error: internal error"),
+            (
+                AppError::InvalidInput("test".to_string()),
+                "Invalid input: test",
+            ),
+            (
+                AppError::DidResolveFailed("resolve error".to_string()),
+                "DID resolution failed: resolve error",
+            ),
+            (
+                AppError::RepoFetchFailed("fetch error".to_string()),
+                "Repository fetch failed: fetch error",
+            ),
+            (
+                AppError::RepoParseFailed("parse error".to_string()),
+                "Repository parse failed: parse error",
+            ),
+            (
+                AppError::NotFound("not found".to_string()),
+                "Not found: not found",
+            ),
+            (
+                AppError::Timeout("timeout error".to_string()),
+                "Timeout: timeout error",
+            ),
+            (
+                AppError::CacheError("cache error".to_string()),
+                "Cache error: cache error",
+            ),
+            (
+                AppError::HttpClientInitialization("http client error".to_string()),
+                "HTTP client initialization failed: http client error",
+            ),
+            (
+                AppError::NetworkError("network error".to_string()),
+                "Network error: network error",
+            ),
+            (
+                AppError::Internal("internal error".to_string()),
+                "Internal error: internal error",
+            ),
         ];
 
         for (error, expected) in tests {
@@ -198,13 +232,25 @@ mod tests {
     fn test_app_error_codes() {
         let tests = vec![
             (AppError::InvalidInput("test".to_string()), "invalid_input"),
-            (AppError::DidResolveFailed("test".to_string()), "did_resolve_failed"),
-            (AppError::RepoFetchFailed("test".to_string()), "repo_fetch_failed"),
-            (AppError::RepoParseFailed("test".to_string()), "repo_parse_failed"),
+            (
+                AppError::DidResolveFailed("test".to_string()),
+                "did_resolve_failed",
+            ),
+            (
+                AppError::RepoFetchFailed("test".to_string()),
+                "repo_fetch_failed",
+            ),
+            (
+                AppError::RepoParseFailed("test".to_string()),
+                "repo_parse_failed",
+            ),
             (AppError::NotFound("test".to_string()), "not_found"),
             (AppError::Timeout("test".to_string()), "timeout"),
             (AppError::CacheError("test".to_string()), "cache_error"),
-            (AppError::HttpClientInitialization("test".to_string()), "http_client_initialization"),
+            (
+                AppError::HttpClientInitialization("test".to_string()),
+                "http_client_initialization",
+            ),
             (AppError::NetworkError("test".to_string()), "network_error"),
             (AppError::Internal("test".to_string()), "internal_error"),
         ];
@@ -219,7 +265,7 @@ mod tests {
         // We can't easily create specific reqwest errors in tests,
         // but we can test the From implementation logic
         // by creating mock errors and testing the conversion paths
-        
+
         // Test that we have the conversion implemented
         let json_err = serde_json::from_str::<serde_json::Value>("invalid").unwrap_err();
         let app_err: AppError = json_err.into();
@@ -263,7 +309,7 @@ mod tests {
             "did:plc:abcdefghijklmnopqrstuvwx", // 32 total
             "did:plc:123456789012345678901234", // 32 total
         ];
-        
+
         for did in valid_dids {
             assert!(validate_account(did).is_ok());
         }
@@ -272,11 +318,11 @@ mod tests {
     #[test]
     fn test_validate_account_invalid_plc_did() {
         let invalid_dids = vec![
-            "did:plc:tooshort",          // Too short
+            "did:plc:tooshort",                     // Too short
             "did:plc:toolong123456789012345678901", // Too long
-            "did:plc:has-invalid-chars123456789!", // Invalid characters
+            "did:plc:has-invalid-chars123456789!",  // Invalid characters
         ];
-        
+
         for did in invalid_dids {
             let result = validate_account(did);
             assert!(result.is_err());
@@ -294,7 +340,7 @@ mod tests {
             "did:web:example.com:user:alice",
             "did:web:subdomain.example.org:some:path",
         ];
-        
+
         for did in valid_web_dids {
             assert!(validate_account(did).is_ok());
         }
@@ -314,11 +360,11 @@ mod tests {
     fn test_validate_account_valid_handles() {
         let valid_handles = vec![
             "alice.bsky.social",
-            "bob.example.com", 
+            "bob.example.com",
             "user.subdomain.example.org",
             "@alice.bsky.social", // With @ prefix should still validate the underlying handle
         ];
-        
+
         for handle in valid_handles {
             assert!(validate_account(handle).is_ok());
         }
@@ -327,12 +373,12 @@ mod tests {
     #[test]
     fn test_validate_account_invalid_handles() {
         let invalid_handles = vec![
-            "nodomain",           // No dot
-            "empty.",            // Empty domain part
-            ".empty",            // Empty name part
-            "double..domain",    // Double dot
+            "nodomain",       // No dot
+            "empty.",         // Empty domain part
+            ".empty",         // Empty name part
+            "double..domain", // Double dot
         ];
-        
+
         for handle in invalid_handles {
             let result = validate_account(handle);
             assert!(result.is_err());
@@ -352,7 +398,7 @@ mod tests {
             &max_length_query, // Max length
             "unicode: 🚀 ñoño",
         ];
-        
+
         for query in valid_queries {
             assert!(validate_query(query).is_ok());
         }
@@ -392,10 +438,10 @@ mod tests {
         // These examples use different Unicode forms that should normalize to the same result
         let text1 = "café"; // e with acute accent (composed)
         let text2 = "cafe\u{0301}"; // e + combining acute accent (decomposed)
-        
+
         let normalized1 = normalize_text(text1);
         let normalized2 = normalize_text(text2);
-        
+
         assert_eq!(normalized1, normalized2);
         assert_eq!(normalized1, "café");
     }
@@ -403,23 +449,19 @@ mod tests {
     #[test]
     fn test_normalize_text_whitespace() {
         // Test trimming various whitespace
-        let inputs = vec![
-            "\t  hello  \n",
-            "\r\n hello \t",
-            "   hello   ",
-        ];
-        
+        let inputs = vec!["\t  hello  \n", "\r\n hello \t", "   hello   "];
+
         for input in inputs {
             assert_eq!(normalize_text(input), "hello");
         }
     }
 
-    #[test] 
+    #[test]
     fn test_normalize_text_compatibility() {
         // Test NFKC compatibility normalization
         // Roman numeral I (Ⅰ U+2160) should normalize to regular I
         assert_eq!(normalize_text("Ⅰ"), "I");
-        
+
         // Fullwidth A should normalize to regular A
         assert_eq!(normalize_text("Ａ"), "A");
     }

@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
-use tracing::{error, info, debug};
+use tracing::{debug, error, info};
 
 /// MCP JSON-RPC 2.0 request structure
 #[derive(Debug, Deserialize)]
@@ -49,6 +49,8 @@ pub struct ToolCallArgs {
 pub struct ContentItem {
     pub r#type: String,
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 /// MCP Tool result
@@ -84,12 +86,34 @@ impl McpResponse {
 
 impl ToolResult {
     /// Create a text result
-    pub fn text(content: String) -> Self {
+    pub fn text(content: impl Into<String>) -> Self {
         Self {
-            content: vec![ContentItem {
-                r#type: "text".to_string(),
-                text: content,
-            }],
+            content: vec![ContentItem::text(content)],
+        }
+    }
+
+    /// Create a result from explicit content items
+    pub fn from_items(content: Vec<ContentItem>) -> Self {
+        Self { content }
+    }
+}
+
+impl ContentItem {
+    /// Helper to create plain text content
+    pub fn text(content: impl Into<String>) -> Self {
+        Self {
+            r#type: "text".to_string(),
+            text: content.into(),
+            metadata: None,
+        }
+    }
+
+    /// Helper to create an input prompt content item
+    pub fn input_text(prompt: impl Into<String>, metadata: Value) -> Self {
+        Self {
+            r#type: "input_text".to_string(),
+            text: prompt.into(),
+            metadata: Some(metadata),
         }
     }
 }
@@ -108,14 +132,14 @@ pub fn serialize_response(response: &McpResponse) -> Result<String> {
 /// Handle stdio MCP communication
 pub async fn handle_stdio() -> Result<()> {
     info!("Starting autoreply MCP server on stdio");
-    
+
     let stdin = tokio::io::stdin();
     let mut reader = AsyncBufReader::new(stdin).lines();
     let mut stdout = tokio::io::stdout();
 
     while let Some(line) = reader.next_line().await? {
         debug!("Received request: {}", line);
-        
+
         let response = match parse_request(&line) {
             Ok(request) => handle_request(request).await,
             Err(e) => {
@@ -126,7 +150,7 @@ pub async fn handle_stdio() -> Result<()> {
 
         let response_json = serialize_response(&response)?;
         debug!("Sending response: {}", response_json);
-        
+
         stdout.write_all(response_json.as_bytes()).await?;
         stdout.write_all(b"\n").await?;
         stdout.flush().await?;
@@ -165,6 +189,7 @@ async fn handle_tool_call(request: McpRequest) -> McpResponse {
     match args.name.as_str() {
         "profile" => crate::tools::profile::handle_profile(request.id, args.arguments).await,
         "search" => crate::tools::search::handle_search(request.id, args.arguments).await,
+        "login" => crate::tools::login::handle_login(request.id, args.arguments).await,
         _ => McpResponse::error(
             request.id,
             "tool_not_found",
@@ -198,12 +223,13 @@ async fn handle_initialize(request: McpRequest) -> McpResponse {
 
 /// Build the tools array returned from tools/list and initialize
 fn build_tools_array() -> serde_json::Value {
-    use crate::cli::{ProfileArgs, SearchArgs};
+    use crate::cli::{LoginCommand, ProfileArgs, SearchArgs};
     use schemars::schema_for;
 
     // Generate JSON schemas from the CLI argument structs
     let profile_schema = schema_for!(ProfileArgs);
     let search_schema = schema_for!(SearchArgs);
+    let login_schema = schema_for!(LoginCommand);
 
     serde_json::json!([
         {
@@ -215,6 +241,11 @@ fn build_tools_array() -> serde_json::Value {
             "name": "search",
             "description": "Search posts within a user's repository",
             "inputSchema": search_schema
+        },
+        {
+            "name": "login",
+            "description": "Authenticate accounts and manage stored credentials",
+            "inputSchema": login_schema
         }
     ])
 }
@@ -235,8 +266,21 @@ mod tests {
         let resp = handle_request(req).await;
         assert!(resp.error.is_none());
         let result = resp.result.expect("result present");
-        assert_eq!(result.get("serverInfo").and_then(|v| v.get("name")).and_then(|v| v.as_str()), Some("autoreply"));
-        assert_eq!(result.get("capabilities").and_then(|v| v.get("tools")).and_then(|v| v.get("list")).and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            result
+                .get("serverInfo")
+                .and_then(|v| v.get("name"))
+                .and_then(|v| v.as_str()),
+            Some("autoreply")
+        );
+        assert_eq!(
+            result
+                .get("capabilities")
+                .and_then(|v| v.get("tools"))
+                .and_then(|v| v.get("list"))
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert!(result.get("tools").and_then(|v| v.as_array()).is_some());
     }
 
@@ -251,8 +295,18 @@ mod tests {
         let resp = handle_request(req).await;
         assert!(resp.error.is_none());
         let result = resp.result.expect("result present");
-        let tools = result.get("tools").and_then(|v| v.as_array()).expect("tools array");
-        let names: Vec<String> = tools.iter().filter_map(|t| t.get("name").and_then(|n| n.as_str()).map(|s| s.to_string())).collect();
+        let tools = result
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .expect("tools array");
+        let names: Vec<String> = tools
+            .iter()
+            .filter_map(|t| {
+                t.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
         assert!(names.contains(&"profile".to_string()));
         assert!(names.contains(&"search".to_string()));
     }
