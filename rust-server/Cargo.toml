@@ -15,7 +15,12 @@ categories = ["command-line-utilities", "web-programming"]
 name = "autoreply"
 path = "src/main.rs"
 
+[features]
+default = []
+embed-model = []  # Embed 17MB directly into binary
+
 [dependencies]
+byteorder = "1.5"
 # Required Crates as specified in docs/7.1-rust.md
 # atrium-api = "0.24"
 # atrium-xrpc-client = "0.5"

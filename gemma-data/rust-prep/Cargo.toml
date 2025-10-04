@@ -1,0 +1,27 @@
+[package]
+name = "gemma-prep"
+version = "0.1.0"
+edition = "2021"
+authors = ["oyin-bo"]
+description = "Gemma embedding extraction and quantization tool"
+
+[[bin]]
+name = "gemma-prep"
+path = "src/main.rs"
+
+[dependencies]
+safetensors = "0.4"
+ndarray = "0.15"
+ndarray-npy = "0.8"
+anyhow = "1.0"
+half = "2.4"
+byteorder = "1.5"
+rand = "0.8"
+
+# For embed_demo example
+[dev-dependencies]
+autoreply = { path = "../../rust-server" }
+
+[features]
+default = []
+embed-model = []  # Embed 17MB directly into binary for demo

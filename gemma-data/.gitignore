@@ -1,2 +1,10 @@
 /*.json
 /tokenizer.model
+# Large model files - download separately
+model.safetensors
+
+# Generated embedding files - run rust-prep to regenerate
+embeddings.npy
+embeddings_64d_q8.bin
+/embeddings*.bin
+/embeddings*.npy
