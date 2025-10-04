@@ -37,6 +37,9 @@ unicode-normalization = "0.1"
 regex = "1.10"
 aho-corasick = "1.0"
 
+# SentencePiece protobuf support
+prost = "0.12"
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -78,3 +81,6 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 
 [dev-dependencies]
 tempfile = "3.23"
+
+[build-dependencies]
+prost-build = "0.12"

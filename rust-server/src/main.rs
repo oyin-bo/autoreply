@@ -15,6 +15,7 @@ mod cli;
 mod error;
 mod http;
 mod mcp;
+mod sentencepiece;
 mod tools;
 
 use anyhow::Result;

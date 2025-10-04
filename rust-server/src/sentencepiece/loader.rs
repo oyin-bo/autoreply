@@ -3,6 +3,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::{fs, io};
 
+use prost::Message;
 use thiserror::Error;
 
 use super::proto::{self, model_proto, ModelProto};
@@ -53,11 +54,11 @@ impl VocabularyStorage {
         &self.text
     }
 
-    pub fn piece_text(&self, piece: &VocabularyPiece) -> &str {
+    pub fn piece_text<'a>(&'a self, piece: &'a VocabularyPiece) -> &'a str {
         piece.text(self)
     }
 
-    pub fn piece_chars(&self, piece: &VocabularyPiece) -> &[char] {
+    pub fn piece_chars<'a>(&'a self, piece: &'a VocabularyPiece) -> &'a [char] {
         piece.chars(self)
     }
 }
@@ -121,7 +122,7 @@ impl SentencePieceModel {
         let piece_index = build_piece_index(&vocab, &storage);
         let trainer = proto.trainer_spec.as_ref().unwrap();
 
-        let unk_id = trainer.unk_id as u32;
+        let unk_id = trainer.unk_id.unwrap_or(0) as u32;
         let bos_id = option_id(trainer.bos_id);
         let eos_id = option_id(trainer.eos_id);
         let pad_id = option_id(trainer.pad_id);
@@ -217,7 +218,7 @@ fn build_vocab(proto: &ModelProto) -> Result<(Vec<VocabularyPiece>, VocabularySt
 fn piece_kind(piece: &model_proto::SentencePiece) -> SentencePieceType {
     piece
         .r#type
-        .and_then(model_proto::sentence_piece::Type::from_i32)
+        .and_then(|t| model_proto::sentence_piece::Type::try_from(t).ok())
         .map(SentencePieceType::from)
         .unwrap_or(SentencePieceType::Normal)
 }

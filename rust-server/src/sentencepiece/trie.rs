@@ -53,9 +53,21 @@ impl VocabularyTrie {
         for (chars, id) in pieces {
             let mut current = 0usize;
             for &ch in chars {
-                current = {
-                    let node = &mut arena[current];
-                    node.child_or_insert(ch, &mut arena)
+                // Find or create child node index
+                let found_idx = arena[current].children
+                    .binary_search_by(|&(c, _)| c.cmp(&ch))
+                    .ok();
+                
+                current = if let Some(idx) = found_idx {
+                    arena[current].children[idx].1
+                } else {
+                    let next_index = arena.len();
+                    arena.push(NodeBuilder::default());
+                    let insert_pos = arena[current].children
+                        .binary_search_by(|&(c, _)| c.cmp(&ch))
+                        .unwrap_err();
+                    arena[current].children.insert(insert_pos, (ch, next_index));
+                    next_index
                 };
             }
             arena[current].terminal_id = Some(id);
@@ -116,7 +128,7 @@ impl VocabularyTrie {
     fn find_child(&self, node_idx: usize, ch: char) -> Option<usize> {
         let node = &self.nodes[node_idx];
         let range = node.edge_range();
-        self.edges[range]
+        self.edges[range.clone()]
             .binary_search_by(|edge| edge.label.cmp(&ch))
             .ok()
             .map(|idx| self.edges[range][idx].target as usize)
@@ -125,7 +137,7 @@ impl VocabularyTrie {
 
 #[derive(Debug, Default, Clone)]
 pub struct LookupScratch {
-    matches: Vec<(usize, u32)>,
+    pub(crate) matches: Vec<(usize, u32)>,
 }
 
 impl LookupScratch {

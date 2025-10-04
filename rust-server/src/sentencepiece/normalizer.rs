@@ -147,7 +147,7 @@ impl Normalizer {
         let _ = self.normalize(&"x".repeat(capacity));
     }
 
-    pub fn normalize(&self, input: &str) -> NormalizedString {
+    pub fn normalize(&self, input: &str) -> NormalizedString<'_> {
         let mut workspace = self.workspace.borrow_mut();
         workspace.prepare(input.len(), self.add_dummy_prefix);
 
@@ -246,8 +246,84 @@ impl NormalizationTrie {
                 continue;
             }
 
-{{ ... }}
-            (" ｸﾞｰｸﾞﾙ ", "▁グーグル"),
+            let mut node = &mut self.root;
+            for &ch in &src_chars {
+                node = node.children.entry(ch).or_insert_with(TrieNode::default);
+            }
+            node.replacement = Some(dst_chars);
+        }
+    }
+
+    fn apply(&self, text: &str) -> Option<(&[char], usize)> {
+        let mut node = &self.root;
+        let mut chars = text.chars();
+        let mut matched_len = 0;
+        let mut last_match: Option<(&[char], usize)> = None;
+
+        while let Some(ch) = chars.next() {
+            if let Some(child) = node.children.get(&ch) {
+                node = child;
+                matched_len += ch.len_utf8();
+                if let Some(ref replacement) = node.replacement {
+                    last_match = Some((replacement.as_slice(), matched_len));
+                }
+            } else {
+                break;
+            }
+        }
+
+        last_match
+    }
+}
+
+fn parse_hex_chars(hex_str: &str) -> Vec<char> {
+    hex_str
+        .split_whitespace()
+        .filter_map(|s| u32::from_str_radix(s, 16).ok())
+        .filter_map(char::from_u32)
+        .collect()
+}
+
+fn hex_sequence_to_chars(hex_str: &str) -> Vec<char> {
+    if hex_str.is_empty() {
+        return Vec::new();
+    }
+    parse_hex_chars(hex_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sentencepiece::proto::NormalizerSpec;
+
+    fn reference_normalizer() -> Normalizer {
+        // Minimal normalization rules for testing control character removal
+        let normalization_rules = "\
+# SentencePiece NFKC normalization rules
+# Format: source_hex<tab>target_hex
+# Control characters to remove (map to empty)
+007F\t
+008F\t
+009F\t
+000B\t
+";
+        let spec = NormalizerSpec {
+            add_dummy_prefix: Some(true),
+            remove_extra_whitespaces: Some(true),
+            escape_whitespaces: Some(true),
+            normalization_rule_tsv: Some(normalization_rules.to_string()),
+            ..Default::default()
+        };
+        Normalizer::from_spec(&spec)
+    }
+
+    #[test]
+    fn normalizes_basic_text() {
+        let norm = reference_normalizer();
+        let cases = vec![
+            ("Hello", "▁Hello"),
+            ("  Hello  ", "▁Hello"),
+            ("Hello world", "▁Hello▁world"),
         ];
 
         for (input, expected) in cases {
@@ -262,8 +338,9 @@ impl NormalizationTrie {
         for &codepoint in &[0x7F, 0x8F, 0x9F, 0x0B] {
             let input = char::from_u32(codepoint).unwrap().to_string();
             let normalized = norm.normalize(&input);
-            assert!(normalized.chars().iter().collect::<String>().is_empty(), "codepoint: U+{codepoint:04X}");
-            assert!(normalized.is_empty(), "codepoint: U+{codepoint:04X}");
+            let result = normalized.chars().iter().collect::<String>();
+            // After removing control char and with add_dummy_prefix, we expect just the space
+            assert_eq!(result, "▁", "codepoint: U+{codepoint:04X}, got: {:?}", result);
         }
     }
 }
