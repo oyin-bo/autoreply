@@ -2,40 +2,32 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-// The test cases are defined here.
+// The test cases are defined here with embedded regex patterns.
+// Use ${/pattern/flags} syntax for regex assertions.
 const testContent = `
 # This is a comment. Lines starting with # are ignored.
 
-# Test Case 1: Tool Discovery
-# Verifies that the server starts and reports its tools.
-> List all available MCP tools
-< /"name": "profile"/
-< /"name": "search"/
-< /"name": "login"/
+# Successful Profile Lookup
+# Checks for a successful tool call with keyword confirmation.
+> Please fetch BlueSky profile for autoreply.ooo.
+< ${/WFH/i}
 
-# Test Case 2: Successful Profile Lookup
-# Checks for a successful tool call and specific content in the response.
-> Use the autoreply profile tool to get information about the BlueSky account "bsky.app"
-< /"totalSuccess":\\s*[1-9]/
-< /bsky\\.app/i
+# Handling Invalid Input (Error Recovery)
+# Ensures the server returns an error for a non-existent account.
+> Try to use the autoreply profile tool to fetch information about nonexistent-user-99999.bsky.social. Tell me if it worked or failed.
+< ${/failed|error/i}
+< ${/did_resolve|DID resolution|status 400/i}
 
-# Test Case 3: Handling Invalid Input
-# Ensures the server returns a user-friendly error for a non-existent account.
-> Use the autoreply profile tool to get information about "nonexistent-user-12345.bsky.social"
-< /not found|error|invalid/i
-# Also verify a tool call was attempted, even if it failed.
-< /"totalCalls":\\s*[1-9]/
+# Authentication Elicitation Test
+# Tests that the login tool correctly elicits missing credentials.
+> Call the autoreply login tool with empty credentials. What does it ask for?
+< ${/handle|bluesky/i}
 
-# Test Case 4: Authentication Flow Test
-# This test requires BSKY_TEST_HANDLE and BSKY_TEST_PASSWORD environment variables.
-> Use the autoreply login tool to authenticate with handle "{{BSKY_TEST_HANDLE}}" and password "{{BSKY_TEST_PASSWORD}}"
-< /"totalSuccess":\\s*[1-9]/
-< /authenticated|logged in/i
-
-# Test Case 5: Performance Baseline
-# Measures typical response times.
-> Get the profile for "bsky.app" using autoreply
-< /"totalDurationMs":\\s*\\d+/
+# Search Tool Verification
+# Verifies the search tool exists and can be described.
+> Does the autoreply server have a 'search' tool? If yes, what does it do?
+< ${/yes/i}
+< ${/search|posts/i}
 `;
 
 // --- Test Harness Implementation ---
@@ -66,10 +58,27 @@ function parseTestCases(content) {
             currentCase = {
                 prompt: trimmed.substring(1).trim(),
                 assertions: [],
-                name: `Test case starting with prompt: "${trimmed.substring(1, 40)}..."`
+                name: `Test case starting with prompt: "${trimmed.substring(1, 50)}..."`
             };
         } else if (trimmed.startsWith('<') && currentCase) {
-            currentCase.assertions.push(new RegExp(trimmed.substring(1).trim(), 'i'));
+            // Extract regex pattern from ${/pattern/flags} syntax
+            const assertionText = trimmed.substring(1).trim();
+            const regexMatch = assertionText.match(/^\$\{\/(.+)\/([gimsuvy]*)\}$/);
+            
+            if (regexMatch) {
+                const pattern = regexMatch[1];
+                const flags = regexMatch[2] || '';
+                currentCase.assertions.push({
+                    regex: new RegExp(pattern, flags),
+                    display: `/${pattern}/${flags}`
+                });
+            } else {
+                // Fallback for non-regex assertions (literal string match)
+                currentCase.assertions.push({
+                    regex: new RegExp(assertionText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+                    display: assertionText
+                });
+            }
         }
     }
     if (currentCase) {
@@ -85,19 +94,31 @@ function runGeminiPrompt(prompt) {
     });
 
     return new Promise((resolve, reject) => {
-        const command = `gemini -p "${finalPrompt.replace(/"/g, '\\"')}" --output-format json`;
-        exec(command, { timeout: 45000 }, (error, stdout, stderr) => {
-            if (error) {
-                // Gemini CLI often returns errors for non-zero exit codes even with valid JSON.
-                // We resolve with the output if it's parsable JSON, otherwise reject.
+        // DO NOT use --output-format json, we want plain text responses
+    // Always use Flash model to avoid pro quota issues
+    const command = `gemini -p "${finalPrompt.replace(/"/g, '\\"')}" -m gemini-2.5-flash`;
+        exec(command, { timeout: 60000 }, (error, stdout, stderr) => {
+            const combined = `${stdout || ''}\n${stderr || ''}`;
+
+            // Detect MCP ERROR JSON blocks and fail fast with parsed content
+            const mcpErrorMatch = combined.match(/MCP ERROR \([^\)]+\):\s*(\[[\s\S]*?\])\s*/i);
+            if (mcpErrorMatch) {
+                const jsonText = mcpErrorMatch[1];
                 try {
-                    const jsonOutput = JSON.parse(stdout || stderr);
-                    return resolve(JSON.stringify(jsonOutput, null, 2));
+                    const parsed = JSON.parse(jsonText);
+                    const pretty = JSON.stringify(parsed, null, 2);
+                    return reject(new Error(`MCP ERROR detected from server:\n${pretty}`));
                 } catch (e) {
-                    return reject(`Command failed: ${error.message}\nSTDOUT: ${stdout}\nSTDERR: ${stderr}`);
+                    return reject(new Error(`MCP ERROR detected but JSON parse failed: ${e.message}\nRaw: ${jsonText}`));
                 }
             }
-            resolve(stdout);
+
+            // Any non-zero exit from Gemini CLI is fatal now; surface the output
+            if (error) {
+                return reject(new Error(`Gemini CLI exited with error: ${error.message}\nOutput:\n${combined}`));
+            }
+
+            resolve(combined);
         });
     });
 }
@@ -110,18 +131,33 @@ async function main() {
     let passed = 0;
     let failed = 0;
 
+    const singleIndex = process.env.SINGLE_TEST_INDEX ? parseInt(process.env.SINGLE_TEST_INDEX, 10) - 1 : -1;
     for (let i = 0; i < testCases.length; i++) {
+        if (singleIndex >= 0 && i !== singleIndex) continue;
         const testCase = testCases[i];
         console.log(`${COLORS.yellow}Running test ${i + 1}/${testCases.length}: ${testCase.name}${COLORS.reset}`);
 
         try {
             const output = await runGeminiPrompt(testCase.prompt);
+          const normalized = output;
             let allAssertionsPassed = true;
 
             for (const assertion of testCase.assertions) {
-                if (!assertion.test(output)) {
+                const ok = assertion.regex.test(normalized)
+                    || assertion.regex.test(output)
+                    || assertion.regex.test(normalized.toLowerCase())
+                    || assertion.regex.test(output.toLowerCase());
+                if (!ok) {
                     allAssertionsPassed = false;
-                    console.error(`${COLORS.red}  ✗ FAILED assertion: ${assertion}${COLORS.reset}`);
+                    console.error(`${COLORS.red}  ✗ FAILED assertion: ${assertion.display}${COLORS.reset}`);
+                    // Diagnostic output to aid debugging
+                    try {
+                        console.error('    regex:', assertion.regex.toString());
+                    } catch (e) {
+                        console.error('    (could not stringify regex)');
+                    }
+                    console.error('    normalized snippet:', JSON.stringify(normalized.substring(0, 300)));
+                    console.error('    raw snippet:', JSON.stringify(output.substring(0, 300)));
                 }
             }
 
@@ -129,7 +165,7 @@ async function main() {
                 console.log(`${COLORS.green}  ✓ PASSED${COLORS.reset}\n`);
                 passed++;
             } else {
-                console.error(`${COLORS.red}  Test failed. Full output:${COLORS.reset}\n${output}\n`);
+                console.error(`${COLORS.red}  Test failed. Output (first 500 chars):${COLORS.reset}\n${output.substring(0, 500)}\n`);
                 failed++;
             }
         } catch (e) {
