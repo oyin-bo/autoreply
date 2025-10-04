@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::Path;
 use std::{fs, io};
 
@@ -25,10 +26,40 @@ pub enum SentencePieceError {
 #[derive(Debug, Clone)]
 pub struct VocabularyPiece {
     pub id: u32,
-    pub piece: String,
-    pub chars: Vec<char>,
     pub score: f32,
     pub kind: SentencePieceType,
+    text_range: Range<usize>,
+    char_range: Range<usize>,
+}
+
+impl VocabularyPiece {
+    pub fn text<'a>(&'a self, storage: &'a VocabularyStorage) -> &'a str {
+        &storage.text[self.text_range.clone()]
+    }
+
+    pub fn chars<'a>(&'a self, storage: &'a VocabularyStorage) -> &'a [char] {
+        &storage.chars[self.char_range.clone()]
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct VocabularyStorage {
+    text: String,
+    chars: Vec<char>,
+}
+
+impl VocabularyStorage {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn piece_text(&self, piece: &VocabularyPiece) -> &str {
+        piece.text(self)
+    }
+
+    pub fn piece_chars(&self, piece: &VocabularyPiece) -> &[char] {
+        piece.chars(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,6 +90,7 @@ impl From<model_proto::sentence_piece::Type> for SentencePieceType {
 pub struct SentencePieceModel {
     pub proto: ModelProto,
     pub vocab: Vec<VocabularyPiece>,
+    pub storage: VocabularyStorage,
     pub piece_index: HashMap<String, u32>,
     pub unk_id: u32,
     pub bos_id: Option<u32>,
@@ -85,8 +117,8 @@ impl SentencePieceModel {
             return Err(SentencePieceError::MissingNormalizerSpec);
         }
 
-        let vocab = build_vocab(&proto)?;
-        let piece_index = build_piece_index(&vocab);
+        let (vocab, storage) = build_vocab(&proto)?;
+        let piece_index = build_piece_index(&vocab, &storage);
         let trainer = proto.trainer_spec.as_ref().unwrap();
 
         let unk_id = trainer.unk_id as u32;
@@ -97,6 +129,7 @@ impl SentencePieceModel {
         Ok(Self {
             proto,
             vocab,
+            storage,
             piece_index,
             unk_id,
             bos_id,
@@ -109,8 +142,20 @@ impl SentencePieceModel {
         &self.vocab
     }
 
+    pub fn storage(&self) -> &VocabularyStorage {
+        &self.storage
+    }
+
     pub fn piece(&self, id: u32) -> Option<&VocabularyPiece> {
         self.vocab.get(id as usize)
+    }
+
+    pub fn piece_chars(&self, id: u32) -> Option<&[char]> {
+        self.piece(id).map(|piece| piece.chars(&self.storage))
+    }
+
+    pub fn piece_text(&self, id: u32) -> Option<&str> {
+        self.piece(id).map(|piece| piece.text(&self.storage))
     }
 
     pub fn trainer_spec(&self) -> &proto::TrainerSpec {
@@ -132,10 +177,15 @@ impl SentencePieceModel {
     }
 }
 
-fn build_vocab(proto: &ModelProto) -> Result<Vec<VocabularyPiece>, SentencePieceError> {
+fn build_vocab(proto: &ModelProto) -> Result<(Vec<VocabularyPiece>, VocabularyStorage), SentencePieceError> {
     if proto.pieces.is_empty() {
         return Err(SentencePieceError::EmptyVocabulary);
     }
+
+    let mut storage = VocabularyStorage::default();
+    storage.text = String::new();
+    storage.text.reserve(proto.pieces.len() * 4);
+    storage.chars.reserve(proto.pieces.len() * 4);
 
     let mut vocab = Vec::with_capacity(proto.pieces.len());
     for (idx, piece) in proto.pieces.iter().enumerate() {
@@ -143,17 +193,25 @@ fn build_vocab(proto: &ModelProto) -> Result<Vec<VocabularyPiece>, SentencePiece
         if piece_text.is_empty() {
             return Err(SentencePieceError::EmptyPiece(format!("id {}", idx)));
         }
-        let chars: Vec<char> = piece_text.chars().collect();
+
+        let text_start = storage.text.len();
+        storage.text.push_str(&piece_text);
+        let text_end = storage.text.len();
+
+        let chars_start = storage.chars.len();
+        storage.chars.extend(piece_text.chars());
+        let chars_end = storage.chars.len();
+
         vocab.push(VocabularyPiece {
             id: idx as u32,
-            piece: piece_text,
-            chars,
             score: piece.score.unwrap_or(0.0),
             kind: piece_kind(piece),
+            text_range: text_start..text_end,
+            char_range: chars_start..chars_end,
         });
     }
 
-    Ok(vocab)
+    Ok((vocab, storage))
 }
 
 fn piece_kind(piece: &model_proto::SentencePiece) -> SentencePieceType {
@@ -164,10 +222,10 @@ fn piece_kind(piece: &model_proto::SentencePiece) -> SentencePieceType {
         .unwrap_or(SentencePieceType::Normal)
 }
 
-fn build_piece_index(vocab: &[VocabularyPiece]) -> HashMap<String, u32> {
+fn build_piece_index(vocab: &[VocabularyPiece], storage: &VocabularyStorage) -> HashMap<String, u32> {
     let mut index = HashMap::with_capacity(vocab.len());
     for item in vocab {
-        index.insert(item.piece.clone(), item.id);
+        index.insert(storage.piece_text(item).to_string(), item.id);
     }
     index
 }

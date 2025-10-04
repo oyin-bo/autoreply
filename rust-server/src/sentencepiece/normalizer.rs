@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::{RefCell, RefMut}, collections::HashMap};
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -8,48 +8,139 @@ const DEFAULT_SPACE_CHAR: char = ' ';
 const ESCAPED_WHITESPACE: char = '\u{2581}';
 
 #[derive(Debug, Clone)]
+struct CharUnit {
+    ch: char,
+    origin: usize,
+    is_dummy_prefix: bool,
+}
+
+#[derive(Debug, Default, Clone)]
+struct NormalizerWorkspace {
+    units: Vec<CharUnit>,
+    scratch: Vec<CharUnit>,
+    chars: Vec<char>,
+    positions: Vec<usize>,
+    string: String,
+}
+
+impl NormalizerWorkspace {
+    fn reserve(&mut self, capacity: usize, add_dummy_prefix: bool) {
+        let needed = capacity + if add_dummy_prefix { 1 } else { 0 };
+        self.units.reserve(needed.saturating_sub(self.units.capacity()));
+        self.scratch.reserve(needed.saturating_sub(self.scratch.capacity()));
+        self.chars.reserve(needed.saturating_sub(self.chars.capacity()));
+        self.positions
+            .reserve(needed.saturating_sub(self.positions.capacity()));
+        self.string
+            .reserve(needed.saturating_sub(self.string.capacity()));
+    }
+
+    fn prepare(&mut self, capacity: usize, add_dummy_prefix: bool) {
+        self.reserve(capacity, add_dummy_prefix);
+        self.units.clear();
+        self.scratch.clear();
+        self.chars.clear();
+        self.positions.clear();
+        self.string.clear();
+    }
+
+    fn push_unit(&mut self, unit: CharUnit) {
+        self.units.push(unit);
+    }
+
+    fn apply_nfkc(&mut self) {
+        self.scratch.clear();
+        for unit in self.units.drain(..) {
+            for normalized in std::iter::once(unit.ch).nfkc() {
+                self.scratch.push(CharUnit {
+                    ch: normalized,
+                    origin: unit.origin,
+                    is_dummy_prefix: unit.is_dummy_prefix,
+                });
+            }
+        }
+        std::mem::swap(&mut self.units, &mut self.scratch);
+    }
+
+    fn collapse_whitespace(&mut self) {
+        self.scratch.clear();
+        let mut prev_was_space = false;
+
+        for unit in self.units.drain(..) {
+            if unit.ch.is_whitespace() && !unit.is_dummy_prefix {
+                if self.scratch.is_empty() || prev_was_space {
+                    continue;
+                }
+                prev_was_space = true;
+                self.scratch.push(CharUnit {
+                    ch: DEFAULT_SPACE_CHAR,
+                    origin: unit.origin,
+                    is_dummy_prefix: false,
+                });
+            } else {
+                prev_was_space = unit.ch.is_whitespace();
+                self.scratch.push(unit);
+            }
+        }
+
+        while matches!(self.scratch.last(), Some(last) if last.ch.is_whitespace() && !last.is_dummy_prefix) {
+            self.scratch.pop();
+        }
+
+        std::mem::swap(&mut self.units, &mut self.scratch);
+    }
+
+    fn rebuild_outputs(&mut self) {
+        self.chars.clear();
+        self.positions.clear();
+        self.chars.extend(self.units.iter().map(|u| u.ch));
+        self.positions.extend(self.units.iter().map(|u| u.origin));
+        self.string.clear();
+        self.string.extend(self.chars.iter().copied());
+    }
+}
+
+pub struct NormalizedString<'a> {
+    workspace: RefMut<'a, NormalizerWorkspace>,
+}
+
+impl<'a> NormalizedString<'a> {
+    pub fn as_str(&self) -> &str {
+        &self.workspace.string
+    }
+
+    pub fn chars(&self) -> &[char] {
+        &self.workspace.chars
+    }
+
+    pub fn to_string(&self) -> String {
+        self.workspace.string.clone()
+    }
+
+    pub fn positions(&self) -> &[usize] {
+        &self.workspace.positions
+    }
+
+    pub fn len(&self) -> usize {
+        self.workspace.chars.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.workspace.chars.is_empty()
+    }
+
+    pub fn slice(&self, start: usize, end: usize) -> String {
+        self.workspace.chars[start..end].iter().collect()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Normalizer {
     add_dummy_prefix: bool,
     remove_extra_whitespaces: bool,
     escape_whitespaces: bool,
     rules: NormalizationTrie,
-}
-
-#[derive(Debug, Clone)]
-pub struct NormalizedString {
-    string: String,
-    chars: Vec<char>,
-    positions: Vec<usize>,
-}
-
-impl NormalizedString {
-    pub fn as_str(&self) -> &str {
-        &self.string
-    }
-
-    pub fn chars(&self) -> &[char] {
-        &self.chars
-    }
-
-    pub fn to_string(&self) -> String {
-        self.string.clone()
-    }
-
-    pub fn positions(&self) -> &[usize] {
-        &self.positions
-    }
-
-    pub fn len(&self) -> usize {
-        self.chars.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn slice(&self, start: usize, end: usize) -> String {
-        self.chars[start..end].iter().collect()
-    }
+    workspace: RefCell<NormalizerWorkspace>,
 }
 
 impl Normalizer {
@@ -60,14 +151,26 @@ impl Normalizer {
             remove_extra_whitespaces: spec.remove_extra_whitespaces.unwrap_or(true),
             escape_whitespaces: spec.escape_whitespaces.unwrap_or(true),
             rules,
+            workspace: RefCell::new(NormalizerWorkspace::default()),
         }
     }
 
+    pub fn reserve(&self, capacity: usize) {
+        let mut workspace = self.workspace.borrow_mut();
+        workspace.reserve(capacity, self.add_dummy_prefix);
+    }
+
+    pub fn prewarm(&self, capacity: usize) {
+        self.reserve(capacity);
+        let _ = self.normalize(&"x".repeat(capacity));
+    }
+
     pub fn normalize(&self, input: &str) -> NormalizedString {
-        let mut units = Vec::new();
+        let mut workspace = self.workspace.borrow_mut();
+        workspace.prepare(input.len(), self.add_dummy_prefix);
 
         if self.add_dummy_prefix {
-            units.push(CharUnit {
+            workspace.push_unit(CharUnit {
                 ch: DEFAULT_SPACE_CHAR,
                 origin: 0,
                 is_dummy_prefix: true,
@@ -76,12 +179,10 @@ impl Normalizer {
 
         let mut iter = input.char_indices().peekable();
         while let Some((byte_idx, ch)) = iter.next() {
-            if let Some((replacement, consumed_bytes)) =
-                self.rules.apply(&input[byte_idx..])
-            {
+            if let Some((replacement, consumed_bytes)) = self.rules.apply(&input[byte_idx..]) {
                 if !replacement.is_empty() {
                     for sub_ch in replacement.chars() {
-                        units.push(CharUnit {
+                        workspace.push_unit(CharUnit {
                             ch: sub_ch,
                             origin: byte_idx,
                             is_dummy_prefix: false,
@@ -89,7 +190,6 @@ impl Normalizer {
                     }
                 }
 
-                // advance iterator to account for consumed bytes
                 let target_end = byte_idx + consumed_bytes;
                 while let Some(&(next_idx, _)) = iter.peek() {
                     if next_idx < target_end {
@@ -101,44 +201,30 @@ impl Normalizer {
                 continue;
             }
 
-            units.push(CharUnit {
+            workspace.push_unit(CharUnit {
                 ch,
                 origin: byte_idx,
                 is_dummy_prefix: false,
             });
         }
 
-        units = apply_nfkc(units);
-
+        workspace.apply_nfkc();
         if self.remove_extra_whitespaces {
-            units = collapse_whitespace(units);
+            workspace.collapse_whitespace();
         }
 
         if self.escape_whitespaces {
-            for unit in &mut units {
+            for unit in &mut workspace.units {
                 if unit.ch == DEFAULT_SPACE_CHAR {
                     unit.ch = ESCAPED_WHITESPACE;
                 }
             }
         }
 
-        let chars: Vec<char> = units.iter().map(|u| u.ch).collect();
-        let string: String = chars.iter().collect();
-        let positions: Vec<usize> = units.iter().map(|u| u.origin).collect();
+        workspace.rebuild_outputs();
 
-        NormalizedString {
-            string,
-            chars,
-            positions,
-        }
+        NormalizedString { workspace }
     }
-}
-
-#[derive(Debug, Clone)]
-struct CharUnit {
-    ch: char,
-    origin: usize,
-    is_dummy_prefix: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -171,25 +257,20 @@ impl NormalizationTrie {
             let Some(src_part) = parts.next() else { continue };
             let Some(dst_part) = parts.next() else { continue };
 
-            let src_bytes = parse_hex_sequence(src_part);
+            let src_chars = parse_hex_chars(src_part);
             let dst_string = hex_sequence_to_string(dst_part);
 
-            if src_bytes.is_empty() {
+            if src_chars.is_empty() {
                 continue;
             }
 
-            self.insert(&src_bytes, dst_string);
+            self.insert(&src_chars, dst_string);
         }
     }
 
-    fn insert(&mut self, src_bytes: &[u8], replacement: String) {
+    fn insert(&mut self, src_chars: &[char], replacement: String) {
         let mut node = &mut self.root;
-        let src_str = match std::str::from_utf8(src_bytes) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-
-        for ch in src_str.chars() {
+        for &ch in src_chars {
             node = node.children.entry(ch).or_insert_with(TrieNode::default);
         }
         node.replacement = Some(replacement);
@@ -211,36 +292,26 @@ impl NormalizationTrie {
             }
         }
 
-        if last_match.is_none() {
-            if let Some(rep) = &node.replacement {
-                let bytes = remaining
-                    .chars()
-                    .next()
-                    .map(|ch| ch.len_utf8())
-                    .unwrap_or(0);
-                return Some((rep.clone(), bytes));
-            }
-        }
-
         last_match
     }
 }
 
-fn parse_hex_sequence(part: &str) -> Vec<u8> {
-    let mut bytes = Vec::new();
+fn parse_hex_chars(part: &str) -> Vec<char> {
+    let mut chars = Vec::new();
     for hex in part.split_whitespace() {
         if hex.starts_with('#') {
             break;
         }
+        if hex.is_empty() {
+            continue;
+        }
         if let Ok(value) = u32::from_str_radix(hex, 16) {
             if let Some(ch) = char::from_u32(value) {
-                let mut buf = [0u8; 4];
-                let encoded = ch.encode_utf8(&mut buf);
-                bytes.extend_from_slice(encoded.as_bytes());
+                chars.push(ch);
             }
         }
     }
-    bytes
+    chars
 }
 
 fn hex_sequence_to_string(part: &str) -> String {
@@ -261,54 +332,11 @@ fn hex_sequence_to_string(part: &str) -> String {
     out
 }
 
-fn apply_nfkc(units: Vec<CharUnit>) -> Vec<CharUnit> {
-    let mut out = Vec::with_capacity(units.len());
-    for unit in units {
-        for normalized in std::iter::once(unit.ch).nfkc() {
-            out.push(CharUnit {
-                ch: normalized,
-                origin: unit.origin,
-                is_dummy_prefix: unit.is_dummy_prefix,
-            });
-        }
-    }
-    out
-}
-
-fn collapse_whitespace(units: Vec<CharUnit>) -> Vec<CharUnit> {
-    let mut out = Vec::with_capacity(units.len());
-    let mut prev_was_space = false;
-
-    for unit in units.into_iter() {
-        if unit.ch.is_whitespace() && !unit.is_dummy_prefix {
-            if out.is_empty() {
-                continue;
-            }
-            if prev_was_space {
-                continue;
-            }
-            prev_was_space = true;
-            out.push(CharUnit {
-                ch: DEFAULT_SPACE_CHAR,
-                origin: unit.origin,
-                is_dummy_prefix: false,
-            });
-        } else {
-            prev_was_space = unit.ch.is_whitespace();
-            out.push(unit);
-        }
-    }
-
-    while matches!(out.last(), Some(last) if last.ch.is_whitespace() && !last.is_dummy_prefix) {
-        out.pop();
-    }
-
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sentencepiece::loader::SentencePieceModel;
+    use std::path::Path;
 
     fn default_spec() -> NormalizerSpec {
         NormalizerSpec {
@@ -317,6 +345,12 @@ mod tests {
             escape_whitespaces: Some(true),
             ..Default::default()
         }
+    }
+
+    fn reference_normalizer() -> Normalizer {
+        let path = Path::new("../sentencepiece/python/test/test_model.model");
+        let model = SentencePieceModel::load_from_file(path).expect("load reference model");
+        Normalizer::from_spec(model.normalizer_spec())
     }
 
     #[test]
@@ -365,5 +399,50 @@ mod tests {
         let norm = Normalizer::from_spec(&spec);
         let result = norm.normalize("AAA");
         assert_eq!(result.to_string(), "CB");
+    }
+
+    #[test]
+    fn applies_multi_codepoint_rule() {
+        let spec = NormalizerSpec {
+            add_dummy_prefix: Some(false),
+            remove_extra_whitespaces: Some(false),
+            escape_whitespaces: Some(false),
+            normalization_rule_tsv: Some("41 0301\t62\n".to_string()),
+            ..Default::default()
+        };
+
+        let norm = Normalizer::from_spec(&spec);
+        let result = norm.normalize("A\u{0301}");
+        assert_eq!(result.to_string(), "b");
+        assert_eq!(result.positions(), &[0]);
+    }
+
+    #[test]
+    fn matches_reference_basic_cases() {
+        let norm = reference_normalizer();
+        let cases = [
+            ("", ""),
+            ("      ", ""),
+            ("ABC", "▁ABC"),
+            (" ABC ", "▁ABC"),
+            ("   ABC   ", "▁ABC"),
+            ("①②③", "▁123"),
+            (" ｸﾞｰｸﾞﾙ ", "▁グーグル"),
+        ];
+
+        for (input, expected) in cases {
+            let normalized = norm.normalize(input);
+            assert_eq!(normalized.to_string(), expected, "input: {input:?}");
+        }
+    }
+
+    #[test]
+    fn drops_control_characters_like_reference() {
+        let norm = reference_normalizer();
+        for &codepoint in &[0x7F, 0x8F, 0x9F, 0x0B] {
+            let input = char::from_u32(codepoint).unwrap().to_string();
+            let normalized = norm.normalize(&input);
+            assert!(normalized.is_empty(), "codepoint: U+{codepoint:04X}");
+        }
     }
 }
