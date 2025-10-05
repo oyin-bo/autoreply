@@ -24,14 +24,14 @@ type OAuthConfig struct {
 
 // OAuthFlow handles OAuth 2.0 with PKCE and DPoP flow following AT Protocol spec
 type OAuthFlow struct {
-	config      *OAuthConfig
-	dpopKey     *DPoPKey
-	verifier    string
-	challenge   string
-	state       string
-	httpClient  *http.Client
-	authNonce   string // DPoP nonce for auth server
-	pdsNonce    string // DPoP nonce for PDS
+	config     *OAuthConfig
+	dpopKey    *DPoPKey
+	verifier   string
+	challenge  string
+	state      string
+	httpClient *http.Client
+	authNonce  string // DPoP nonce for auth server
+	pdsNonce   string // DPoP nonce for PDS
 }
 
 // NewOAuthFlow creates a new OAuth flow
@@ -92,7 +92,7 @@ func (f *OAuthFlow) PushAuthorizationRequest(ctx context.Context, loginHint stri
 	params.Set("state", f.state)
 	params.Set("code_challenge", f.challenge)
 	params.Set("code_challenge_method", "S256")
-	
+
 	if loginHint != "" {
 		params.Set("login_hint", loginHint)
 	}
@@ -149,18 +149,18 @@ func (f *OAuthFlow) attemptPARRequest(ctx context.Context, parEndpoint string, p
 	// Handle non-200 responses
 	if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4096))
-		
+
 		// Check if error is about DPoP nonce
 		var errResp struct {
 			Error            string `json:"error"`
 			ErrorDescription string `json:"error_description"`
 		}
 		json.Unmarshal(body, &errResp)
-		
+
 		if errResp.Error == "use_dpop_nonce" {
 			return nil, newNonce, fmt.Errorf("use_dpop_nonce: %s", errResp.ErrorDescription)
 		}
-		
+
 		return nil, newNonce, fmt.Errorf("PAR request failed with status %d: %s", httpResp.StatusCode, string(body))
 	}
 
@@ -275,18 +275,18 @@ func (f *OAuthFlow) attemptTokenRequest(ctx context.Context, tokenEndpoint strin
 	// Handle non-200 responses
 	if httpResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4096))
-		
+
 		// Check if error is about DPoP nonce
 		var errResp struct {
 			Error            string `json:"error"`
 			ErrorDescription string `json:"error_description"`
 		}
 		json.Unmarshal(body, &errResp)
-		
+
 		if errResp.Error == "use_dpop_nonce" {
 			return nil, newNonce, fmt.Errorf("use_dpop_nonce: %s", errResp.ErrorDescription)
 		}
-		
+
 		return nil, newNonce, fmt.Errorf("token request failed with status %d: %s", httpResp.StatusCode, string(body))
 	}
 
@@ -313,4 +313,3 @@ func (f *OAuthFlow) GetState() string {
 func (f *OAuthFlow) GetDPoPKey() *DPoPKey {
 	return f.dpopKey
 }
-

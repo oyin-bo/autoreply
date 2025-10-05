@@ -14,25 +14,25 @@ import (
 
 // ProtectedResourceMetadata represents the OAuth protected resource metadata
 type ProtectedResourceMetadata struct {
-	Resource              string   `json:"resource"`
-	AuthorizationServers  []string `json:"authorization_servers"`
+	Resource               string   `json:"resource"`
+	AuthorizationServers   []string `json:"authorization_servers"`
 	BearerMethodsSupported []string `json:"bearer_methods_supported,omitempty"`
 }
 
 // AuthorizationServerMetadata represents the OAuth authorization server metadata
 type AuthorizationServerMetadata struct {
-	Issuer                            string   `json:"issuer"`
-	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
-	TokenEndpoint                     string   `json:"token_endpoint"`
+	Issuer                             string   `json:"issuer"`
+	AuthorizationEndpoint              string   `json:"authorization_endpoint"`
+	TokenEndpoint                      string   `json:"token_endpoint"`
 	PushedAuthorizationRequestEndpoint string   `json:"pushed_authorization_request_endpoint"`
-	RegistrationEndpoint              string   `json:"registration_endpoint,omitempty"`
-	JWKSEndpoint                      string   `json:"jwks_uri,omitempty"`
-	ScopesSupported                   []string `json:"scopes_supported"`
-	ResponseTypesSupported            []string `json:"response_types_supported"`
-	GrantTypesSupported               []string `json:"grant_types_supported"`
-	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported,omitempty"`
-	DPoPSigningAlgValuesSupported     []string `json:"dpop_signing_alg_values_supported,omitempty"`
-	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported,omitempty"`
+	RegistrationEndpoint               string   `json:"registration_endpoint,omitempty"`
+	JWKSEndpoint                       string   `json:"jwks_uri,omitempty"`
+	ScopesSupported                    []string `json:"scopes_supported"`
+	ResponseTypesSupported             []string `json:"response_types_supported"`
+	GrantTypesSupported                []string `json:"grant_types_supported"`
+	TokenEndpointAuthMethodsSupported  []string `json:"token_endpoint_auth_methods_supported,omitempty"`
+	DPoPSigningAlgValuesSupported      []string `json:"dpop_signing_alg_values_supported,omitempty"`
+	CodeChallengeMethodsSupported      []string `json:"code_challenge_methods_supported,omitempty"`
 	RequirePushedAuthorizationRequests bool     `json:"require_pushed_authorization_requests,omitempty"`
 }
 
@@ -70,7 +70,7 @@ func (d *MetadataDiscovery) DiscoverFromPDS(ctx context.Context, pdsURL string) 
 	}
 
 	// Construct the protected resource metadata URL
-	resourceMetadataURL := fmt.Sprintf("%s://%s/.well-known/oauth-protected-resource", 
+	resourceMetadataURL := fmt.Sprintf("%s://%s/.well-known/oauth-protected-resource",
 		parsedURL.Scheme, parsedURL.Host)
 
 	// Fetch protected resource metadata
@@ -187,4 +187,3 @@ func DiscoverServerMetadataFromHandle(ctx context.Context, handle string) (*Auth
 	metadata, _, err := discovery.DiscoverFromHandle(ctx, handle)
 	return metadata, err
 }
-

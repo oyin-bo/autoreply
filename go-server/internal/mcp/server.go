@@ -68,44 +68,44 @@ func (s *Server) ServeStdio(ctx context.Context) error {
 
 // handleRequest processes a JSON-RPC request
 func (s *Server) handleRequest(ctx context.Context, req *JSONRPCRequest) *JSONRPCResponse {
-    response := &JSONRPCResponse{
-        JSONRPC: "2.0",
-        ID:      req.ID,
-    }
+	response := &JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+	}
 
-    switch req.Method {
-    case "initialize":
-        var params InitializeParams
-        if len(req.Params) > 0 {
-            _ = json.Unmarshal(req.Params, &params)
-        }
+	switch req.Method {
+	case "initialize":
+		var params InitializeParams
+		if len(req.Params) > 0 {
+			_ = json.Unmarshal(req.Params, &params)
+		}
 
-        tools := s.listTools()
-        response.Result = &InitializeResult{
-            ServerInfo: ServerInfo{
-                Name:    "autoreply",
-                Version: "0.1.0",
-            },
-            Capabilities: Capabilities{
-                Tools: ToolsCapability{List: true, Call: true},
-            },
-            Tools: tools.Tools,
-        }
-    case "tools/list":
-        result := s.listTools()
-        response.Result = result
-    case "tools/call":
-        result, err := s.callTool(ctx, req.Params)
-        if err != nil {
-            response.Error = &RPCError{Code: -32000, Message: err.Error(), Data: err}
-        } else {
-            response.Result = result
-        }
-    default:
-        response.Error = &RPCError{Code: -32601, Message: fmt.Sprintf("Method not found: %s", req.Method)}
-    }
+		tools := s.listTools()
+		response.Result = &InitializeResult{
+			ServerInfo: ServerInfo{
+				Name:    "autoreply",
+				Version: "0.1.0",
+			},
+			Capabilities: Capabilities{
+				Tools: ToolsCapability{List: true, Call: true},
+			},
+			Tools: tools.Tools,
+		}
+	case "tools/list":
+		result := s.listTools()
+		response.Result = result
+	case "tools/call":
+		result, err := s.callTool(ctx, req.Params)
+		if err != nil {
+			response.Error = &RPCError{Code: -32000, Message: err.Error(), Data: err}
+		} else {
+			response.Result = result
+		}
+	default:
+		response.Error = &RPCError{Code: -32601, Message: fmt.Sprintf("Method not found: %s", req.Method)}
+	}
 
-    return response
+	return response
 }
 
 // listTools returns information about all registered tools

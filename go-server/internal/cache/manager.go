@@ -2,16 +2,16 @@
 package cache
 
 import (
-    "encoding/json"
-    "fmt"
-    "os"
-    "path/filepath"
-    "strings"
-    "sync"
-    "time"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
-    "github.com/oyin-bo/autoreply/go-server/pkg/errors"
-    "golang.org/x/sync/singleflight"
+	"github.com/oyin-bo/autoreply/go-server/pkg/errors"
+	"golang.org/x/sync/singleflight"
 )
 
 // Manager handles caching of CAR files and their metadata
@@ -49,83 +49,85 @@ func NewManager() (*Manager, error) {
 
 // getCacheDir determines the platform-specific cache directory
 func getCacheDir() (string, error) {
-    userCacheDir, err := os.UserCacheDir()
-    if err != nil {
-        return "", fmt.Errorf("failed to get user cache directory: %w", err)
-    }
-    // New root: <OS cache>/autoreply/did
-    return filepath.Join(userCacheDir, "autoreply", "did"), nil
+	userCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user cache directory: %w", err)
+	}
+	// New root: <OS cache>/autoreply/did
+	return filepath.Join(userCacheDir, "autoreply", "did"), nil
 }
 
 // sanitizeDID returns a filesystem-friendly identifier by stripping method prefixes
 // while keeping the rest of the DID intact (e.g.,
-//   did:web:example.com -> example.com
-//   did:plc:abc...      -> abc...)
+//
+//	did:web:example.com -> example.com
+//	did:plc:abc...      -> abc...)
+//
 // For unknown methods, returns the input unchanged.
 func sanitizeDID(did string) string {
-    // Strip known method prefixes
-    var s string
-    if strings.HasPrefix(did, "did:web:") {
-        s = strings.TrimPrefix(did, "did:web:")
-    } else if strings.HasPrefix(did, "did:plc:") {
-        s = strings.TrimPrefix(did, "did:plc:")
-    } else {
-        s = did
-    }
+	// Strip known method prefixes
+	var s string
+	if strings.HasPrefix(did, "did:web:") {
+		s = strings.TrimPrefix(did, "did:web:")
+	} else if strings.HasPrefix(did, "did:plc:") {
+		s = strings.TrimPrefix(did, "did:plc:")
+	} else {
+		s = did
+	}
 
-    // Replace colon separators (common in did:web path form) with double underscores
-    s = strings.ReplaceAll(s, ":", "__")
+	// Replace colon separators (common in did:web path form) with double underscores
+	s = strings.ReplaceAll(s, ":", "__")
 
-    // Map any remaining characters outside [A-Za-z0-9._-] to underscore
-    out := make([]rune, 0, len(s))
-    for _, r := range s {
-        switch {
-        case r >= 'a' && r <= 'z':
-            out = append(out, r)
-        case r >= 'A' && r <= 'Z':
-            out = append(out, r)
-        case r >= '0' && r <= '9':
-            out = append(out, r)
-        case r == '.' || r == '-' || r == '_':
-            out = append(out, r)
-        default:
-            out = append(out, '_')
-        }
-    }
-    return string(out)
+	// Map any remaining characters outside [A-Za-z0-9._-] to underscore
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			out = append(out, r)
+		case r >= 'A' && r <= 'Z':
+			out = append(out, r)
+		case r >= '0' && r <= '9':
+			out = append(out, r)
+		case r == '.' || r == '-' || r == '_':
+			out = append(out, r)
+		default:
+			out = append(out, '_')
+		}
+	}
+	return string(out)
 }
 
 // GetCachePath returns the cache path for a DID using two-tier structure
 func (m *Manager) GetCachePath(did string) (string, error) {
-    if did == "" {
-        return "", errors.NewMCPError(errors.InvalidInput, "DID cannot be empty")
-    }
+	if did == "" {
+		return "", errors.NewMCPError(errors.InvalidInput, "DID cannot be empty")
+	}
 
-    // Use sanitized DID as directory name for readability
-    sanitized := sanitizeDID(did)
-    if sanitized == "" {
-        return "", errors.NewMCPError(errors.InvalidInput, "Invalid DID format")
-    }
+	// Use sanitized DID as directory name for readability
+	sanitized := sanitizeDID(did)
+	if sanitized == "" {
+		return "", errors.NewMCPError(errors.InvalidInput, "Invalid DID format")
+	}
 
-    // Tier prefix: first two characters of sanitized DID (or entire string if shorter)
-    prefix := sanitized
-    if len(prefix) > 2 {
-        prefix = sanitized[:2]
-    }
+	// Tier prefix: first two characters of sanitized DID (or entire string if shorter)
+	prefix := sanitized
+	if len(prefix) > 2 {
+		prefix = sanitized[:2]
+	}
 
-    // Final directory uses sanitized DID for cross-platform safety
-    return filepath.Join(m.cacheDir, prefix, sanitized), nil
+	// Final directory uses sanitized DID for cross-platform safety
+	return filepath.Join(m.cacheDir, prefix, sanitized), nil
 }
 
 // GetFilePaths returns paths for CAR file and metadata
 func (m *Manager) GetFilePaths(did string) (carPath, metadataPath string, err error) {
-    cachePath, err := m.GetCachePath(did)
-    if err != nil {
-        return "", "", err
-    }
-    carPath = filepath.Join(cachePath, "repo.car")
-    metadataPath = filepath.Join(cachePath, "metadata.json")
-    return carPath, metadataPath, nil
+	cachePath, err := m.GetCachePath(did)
+	if err != nil {
+		return "", "", err
+	}
+	carPath = filepath.Join(cachePath, "repo.car")
+	metadataPath = filepath.Join(cachePath, "metadata.json")
+	return carPath, metadataPath, nil
 }
 
 // IsCacheValid checks if cached data is valid and not expired
@@ -195,7 +197,7 @@ func (m *Manager) StoreCar(did string, carData []byte, metadata Metadata) error 
 	lockKey := fmt.Sprintf("lock_%s", did)
 	lockValue, _ := m.locks.LoadOrStore(lockKey, &sync.Mutex{})
 	lock := lockValue.(*sync.Mutex)
-	
+
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -275,7 +277,7 @@ func (m *Manager) CleanupExpired() error {
 		// Check if expired
 		cachedAt := time.Unix(metadata.CachedAt, 0)
 		expiry := cachedAt.Add(time.Duration(metadata.TTLHours) * time.Hour)
-		
+
 		if time.Now().After(expiry) {
 			// Remove the entire DID directory
 			didDir := filepath.Dir(path)

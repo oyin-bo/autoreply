@@ -14,13 +14,13 @@ type ProfileRecord struct {
 
 // PostRecord represents an app.bsky.feed.post record
 type PostRecord struct {
-	URI       string    `json:"uri"`
-	CID       string    `json:"cid"`
-	Text      string    `json:"text"`
-	CreatedAt string    `json:"createdAt"`
-	Embeds    []Embed   `json:"embeds,omitempty"`
-	Facets    []Facet   `json:"facets,omitempty"`
-	Reply     *Reply    `json:"reply,omitempty"`
+	URI       string  `json:"uri"`
+	CID       string  `json:"cid"`
+	Text      string  `json:"text"`
+	CreatedAt string  `json:"createdAt"`
+	Embeds    []Embed `json:"embeds,omitempty"`
+	Facets    []Facet `json:"facets,omitempty"`
+	Reply     *Reply  `json:"reply,omitempty"`
 }
 
 // Embed represents embedded content in a post
@@ -92,10 +92,10 @@ type ParsedProfile struct {
 // ParsedPost represents a parsed post with computed fields
 type ParsedPost struct {
 	*PostRecord
-	Handle      string
-	DID         string
-	RKey        string
-	ParsedTime  time.Time
+	Handle         string
+	DID            string
+	RKey           string
+	ParsedTime     time.Time
 	SearchableText string // Combined text for searching
 }
 

@@ -90,7 +90,7 @@ func CreateCobraCommand(td *ToolDefinition, execute func(ctx context.Context, ar
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			argsInstance := createArgsInstance(td.ArgsType)
-			
+
 			// Bind flags to struct fields
 			if err := bindFlagsToStruct(cmd, argsInstance); err != nil {
 				return err
@@ -124,7 +124,7 @@ func addFlagsFromStruct(cmd *cobra.Command, argsType interface{}) {
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		
+
 		shortFlag := field.Tag.Get("short")
 		longFlag := field.Tag.Get("long")
 		description := getDescription(field)
@@ -166,7 +166,7 @@ func bindFlagsToStruct(cmd *cobra.Command, argsInstance interface{}) error {
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
 		longFlag := field.Tag.Get("long")
-		
+
 		if longFlag == "" {
 			continue
 		}
@@ -220,14 +220,14 @@ func hasRequiredTag(field reflect.StructField) bool {
 // parseTag parses a jsonschema tag into key-value pairs
 func parseTag(tag string) map[string]string {
 	result := make(map[string]string)
-	
+
 	// Simple parser for comma-separated tags
 	for _, part := range splitTag(tag) {
 		if part == "required" {
 			result["required"] = "true"
 			continue
 		}
-		
+
 		// Handle key=value pairs
 		if idx := findEquals(part); idx != -1 {
 			key := part[:idx]
@@ -235,7 +235,7 @@ func parseTag(tag string) map[string]string {
 			result[key] = value
 		}
 	}
-	
+
 	return result
 }
 
@@ -244,7 +244,7 @@ func splitTag(tag string) []string {
 	var parts []string
 	var current []rune
 	inQuotes := false
-	
+
 	for _, ch := range tag {
 		switch ch {
 		case ',':
@@ -260,11 +260,11 @@ func splitTag(tag string) []string {
 			current = append(current, ch)
 		}
 	}
-	
+
 	if len(current) > 0 {
 		parts = append(parts, string(current))
 	}
-	
+
 	return parts
 }
 
