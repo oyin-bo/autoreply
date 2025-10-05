@@ -67,7 +67,14 @@ default <HANDLE>             Set default account
 delete [OPTIONS]             Remove stored credentials
 ```
 
-**Note:** OAuth browser flow is the default authentication method when no password is provided. When invoked through MCP without a password, the tool returns an `input_text` prompt asking for the app password; respond by resubmitting the `login` call with the provided `prompt_id` and `password` fields.
+**Note:** OAuth browser flow is the default authentication method when no password is provided. 
+
+**MCP Mode Behavior:** When invoked through an MCP client, the `login` tool automatically uses interactive elicitation (if the client supports it) to prompt for missing credentials:
+- If handle is missing: Prompts "Please provide your BlueSky handle"
+- If password is missing: Prompts with instructions to create an app password at https://bsky.app/settings/app-passwords, or suggests using OAuth instead
+- If client doesn't support elicitation: Returns a detailed error message with manual instructions
+
+This provides a seamless interactive experience in supporting MCP clients (like recent versions of Gemini CLI, Claude Desktop, etc.).
 
 **Authentication Methods:**
 

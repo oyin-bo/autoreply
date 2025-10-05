@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.3.2] - 2025-10-05
+
+### Added
+- **MCP Elicitation Support**: Implemented bidirectional JSON-RPC communication for interactive prompts.
+  - `elicitation/create` requests for collecting user input (handles, passwords) during MCP tool execution.
+  - Server-to-client RPC sender with async response handling and request ID management.
+  - Client capability detection for elicitation support during initialization.
+  - Comprehensive test suite (15+ new tests) covering request ID generation, concurrent operations, and error handling.
+- **Experimental SentencePiece Integration**: Added optional tokenization support (behind `experimental-sentencepiece` feature flag).
+  - Protobuf-based SentencePiece model loading and processing.
+  - Embedding table loader for quantized embeddings (EMB8 format).
+  - Note: Experimental feature, not production-ready.
+
+### Changed
+- **Login Tool Enhancement**: Interactive elicitation for missing credentials when MCP client supports it.
+  - Prompts for BlueSky handle if not provided.
+  - Prompts for app password with clear guidance and OAuth alternative suggestion.
+  - Falls back to detailed error messages with instructions for clients without elicitation support.
+- **PDS Discovery**: Implemented complete PDS (Personal Data Server) resolution for profiles.
+  - Full `did:plc` support via plc.directory DID document resolution.
+  - Full `did:web` support with .well-known/did.json and did.json fallback paths.
+  - Proper `AtprotoPersonalDataServer` service endpoint extraction from DID documents.
+  - Robust error handling for malformed or unavailable DID documents.
+- **DID Resolution**: Enhanced edge case handling and code quality improvements.
+- **Error Messages**: Enhanced user-facing error messages with clearer guidance and formatting.
+
+### Fixed
+- Code quality improvements: removed duplicated cfg attributes, unused imports, and compiler warnings.
+- Formatting consistency across all Rust source files (`cargo fmt`).
+- Test compilation errors in experimental features.
+- All clippy warnings resolved for default feature set (clean build with `cargo clippy`).
+
+### Development
+- Added end-to-end MCP testing infrastructure with Gemini CLI integration.
+- Zero-allocation optimizations in normalizer implementation.
+- Improved Go server formatting and structure (parallel development track).
 
 ## [0.3.1] - 2025-10-03
 

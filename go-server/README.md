@@ -2,6 +2,8 @@
 
 An autoreply Model Context Protocol (MCP) server for BlueSky profile and post search functionality, implemented in Go.
 
+**Current Version:** 0.3.2
+
 ## Features
 
 - **Dual-Mode Operation**: MCP server mode and CLI trial mode
@@ -9,6 +11,7 @@ An autoreply Model Context Protocol (MCP) server for BlueSky profile and post se
   - App password (simple)
   - OAuth 2.0 with PKCE and DPoP (most secure)
   - Device Authorization Grant (headless)
+- **MCP Elicitation Support** (v0.3.2+): Interactive prompts for missing credentials when MCP client supports it
 - **Secure Credential Storage**: OS keychain integration with encrypted fallback
 - **Profile Tool**: Retrieve user profile information from BlueSky
 - **Search Tool**: Search posts within a user's repository

@@ -13,6 +13,8 @@ Both modes implement the same tools:
 - `profile(account)` - Retrieve user profile information  
 - `search(account, query)` - Search posts within a user's repository
 - `login(...)` - Authenticate accounts and manage stored credentials (OAuth + app password)
+  - Supports **interactive elicitation** for missing credentials when used via MCP clients that support the elicitation capability
+  - Falls back to clear error messages with instructions for non-supporting clients
 
 Authentication support via app passwords allows storing and managing credentials for future authenticated operations.
 
@@ -22,6 +24,8 @@ Authentication support via app passwords allows storing and managing credentials
 - JSON-RPC 2.0 compliant
 - Stdio communication
 - Proper error handling with MCP error codes
+- **Bidirectional RPC support** for server-to-client requests (elicitation)
+- Client capability detection and negotiation
 
 ✅ **Authentication & Credential Management**
 - OAuth Browser Flow - Interactive OAuth with PKCE and callback server
@@ -30,7 +34,9 @@ Authentication support via app passwords allows storing and managing credentials
 - Multi-account support with default selection
 - Token refresh and lifecycle management
 - CLI commands: `login` (with subcommands: `list`, `default <handle>`, `delete`)
-- MCP `login` tool with interactive elicitation for handles and app passwords
+- MCP `login` tool with interactive **elicitation** for handles and app passwords
+  - Automatically prompts for missing credentials when MCP client supports elicitation
+  - Provides clear instructions when elicitation is not available
 - Defaults to OAuth and allows for app passwords
 
 ✅ **Bluesky Integration**
@@ -49,9 +55,15 @@ Authentication support via app passwords allows storing and managing credentials
 - System proxy support via environment variables (HTTP(S)_PROXY, NO_PROXY)
 
 ✅ **Quality Assurance**
-- Comprehensive test suite with 110+ tests
+- Comprehensive test suite with 124+ tests (including 15+ tests for elicitation)
 - Full error handling and edge case coverage
 - Performance optimized for ~2s repo processing
+- Clean builds with zero clippy warnings (default features)
+
+🧪 **Experimental Features** (opt-in via feature flags)
+- SentencePiece tokenization support (`experimental-sentencepiece`)
+- Quantized embedding table support for semantic search prototypes
+- Not production-ready - for research and experimentation only
 
 ## Building
 
@@ -59,6 +71,15 @@ Authentication support via app passwords allows storing and managing credentials
 cd rust-server
 cargo build --release
 ```
+
+### Building with Experimental Features
+
+```bash
+# Build with SentencePiece support (requires protobuf compiler)
+cargo build --release --features experimental-sentencepiece
+```
+
+**Note:** Experimental features require additional dependencies and are not recommended for production use.
 
 ## Usage
 

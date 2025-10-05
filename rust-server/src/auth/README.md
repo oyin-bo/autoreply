@@ -304,9 +304,82 @@ cargo test auth::storage::
 - State parameter validation (CSRF protection)
 - Automatic browser opening
 - User-friendly authorization pages
+- **MCP elicitation support** for interactive credential prompts (v0.3.2+)
 
 ### 📋 Planned for Future Releases
 - DPoP token binding (advanced security feature)
 - Token rotation and automatic session management
+
+## MCP Integration (v0.3.2+)
+
+### Elicitation Support
+
+The authentication module integrates with the MCP server's elicitation capability to provide interactive credential collection when running in MCP mode.
+
+**How it works:**
+
+1. **Client Capability Detection**: During MCP initialization, the server detects if the client supports the `elicitation` capability
+2. **Interactive Prompts**: When credentials are missing, the server sends `elicitation/create` requests to the client
+3. **User Response**: The client presents the prompt to the user and returns their input
+4. **Seamless Flow**: The authentication proceeds with the provided credentials
+
+**Example Flow:**
+
+```
+MCP Client → Server: tools/call login (no handle provided)
+Server → Client: elicitation/create { message: "Please provide your BlueSky handle", schema: {...} }
+Client → User: [Interactive prompt]
+User → Client: "alice.bsky.social"
+Client → Server: elicitation response { action: "accept", content: { handle: "alice.bsky.social" } }
+Server: Continues authentication with handle
+```
+
+**Supported Prompts:**
+
+- **Handle prompt**: When `--handle` is not provided
+  - Message: "Please provide your BlueSky handle"
+  - Schema: `{ type: "object", properties: { handle: { type: "string" } } }`
+
+- **Password prompt**: When `--password` is not provided (and OAuth is not available)
+  - Message: Detailed instructions with link to create app password + OAuth suggestion
+  - Schema: `{ type: "object", properties: { password: { type: "string" } } }`
+  - User can decline to switch to OAuth method
+
+**Fallback Behavior:**
+
+If the MCP client doesn't support elicitation, the `login` tool returns a detailed error message with manual instructions:
+
+```markdown
+# Login requires handle - but **ClientName does not support interactive prompts** (MCP elicitation)
+
+To complete login, please:
+1. Create an app password at: https://bsky.app/settings/app-passwords
+2. Retry with: login(handle="your.handle", password="app-password")
+
+Or use OAuth in CLI mode:
+autoreply login --handle your.handle
+```
+
+This ensures a good experience whether or not the client supports elicitation.
+
+### Supported MCP Clients
+
+Known clients with elicitation support:
+- Gemini CLI (recent versions)
+- Claude Desktop (with MCP SDK updates)
+- Custom MCP clients implementing the elicitation protocol
+
+### Testing Elicitation
+
+The module includes comprehensive tests for elicitation behavior:
+
+```bash
+# Run MCP-specific tests
+cargo test mcp::tests::
+
+# Test elicitation handling
+cargo test test_request_elicitation
+cargo test test_elicitation_response
+```
 - MCP tool for authentication in server mode
 - Encrypted file storage option
