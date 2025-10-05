@@ -55,11 +55,7 @@ fn create_elicitation_unavailable_error(context: &ServerContext, field: &str) ->
     
     let message = if field == "password" {
         format!(
-            r#"# Password required
-
-**{} does not support interactive prompts** (MCP elicitation).
-
-Please choose one of these options:
+            r#"# Login via app password failed: **{} does not support interactive prompts** (MCP elicitation). Please choose one of these options:
 
 1. **Use OAuth (strongly recommended):** Call login with your handle:
    {{"handle": "your.handle.bsky.social"}}
@@ -76,11 +72,7 @@ Please choose one of these options:
         )
     } else {
         format!(
-            r#"# Login requires {}
-
-**{} does not support interactive prompts** (MCP elicitation).
-
-To complete login, please:
+            r#"# Login requires {} **{} does not support interactive prompts** (MCP elicitation). To complete login, please:
 
 1. **Use OAuth (recommended):** Call login with your handle:
    {{"handle": "your.handle.bsky.social"}}

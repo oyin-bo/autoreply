@@ -117,9 +117,16 @@ impl LoginManager {
                         }),
                     });
                 }
-                return Err(AppError::InvalidInput(
-                    "Password is required for app password authentication".to_string(),
-                ));
+                return Err(AppError::InvalidInput(r#"# Login via app password failed: the client does not support interactive prompts (MCP elicitation). Please choose one of these options:
+
+1. Use OAuth (strongly recommended): call login with your handle only, e.g.: {"handle": "your.handle.bsky.social"}
+
+2. Provide app password up-front: call login with password, e.g.: {"handle": "your.handle.bsky.social", "password": "your-app-password"}
+
+IMPORTANT Security Warning:
+- Do NOT use your main BlueSky account password
+- Create an app password at: https://bsky.app/settings/app-passwords
+- OAuth is the most secure option and is strongly preferred"#.to_string()));
             }
 
             let credentials = build_credentials(&handle, &pwd, service.as_deref());
