@@ -43,16 +43,16 @@ impl RpcSender {
         requested_schema: Value,
     ) -> Result<ElicitationResponse> {
         let request_id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        
+
         // Create response channel
         let (tx, mut rx) = mpsc::channel(1);
-        
+
         // Register pending response
         {
             let mut pending = self.pending_responses.lock().await;
             pending.insert(request_id, tx);
         }
-        
+
         // Build and send request
         let request = serde_json::json!({
             "jsonrpc": "2.0",
@@ -63,35 +63,41 @@ impl RpcSender {
                 "requestedSchema": requested_schema
             }
         });
-        
+
         let request_json = serde_json::to_string(&request)?;
-        debug!("Sending elicitation/create request ID={}: {}", request_id, request_json);
-        
+        debug!(
+            "Sending elicitation/create request ID={}: {}",
+            request_id, request_json
+        );
+
         {
             let mut stdout = self.stdout.lock().await;
             stdout.write_all(request_json.as_bytes()).await?;
             stdout.write_all(b"\n").await?;
             stdout.flush().await?;
         }
-        
+
         // Wait for response
-        let response = rx.recv().await
+        let response = rx
+            .recv()
+            .await
             .ok_or_else(|| anyhow::anyhow!("Elicitation response channel closed"))?;
-        
+
         // Cleanup
         {
             let mut pending = self.pending_responses.lock().await;
             pending.remove(&request_id);
         }
-        
+
         // Parse response
         if let Some(error) = response.error {
             return Err(anyhow::anyhow!("Elicitation error: {}", error.message));
         }
-        
-        let result = response.result
+
+        let result = response
+            .result
             .ok_or_else(|| anyhow::anyhow!("Elicitation response missing result"))?;
-        
+
         let elicitation_response: ElicitationResponse = serde_json::from_value(result)?;
         Ok(elicitation_response)
     }
@@ -135,21 +141,25 @@ impl ServerContext {
             .cloned()
             .unwrap_or_else(|| "Unknown Client".to_string())
     }
-    
+
     /// Request elicitation from client (if supported)
     pub async fn request_elicitation(
         &self,
         message: String,
         requested_schema: Value,
     ) -> Result<ElicitationResponse> {
-        let rpc_sender = self.rpc_sender.as_ref()
+        let rpc_sender = self
+            .rpc_sender
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("RPC sender not initialized"))?;
-        
+
         if !self.supports_elicitation() {
             return Err(anyhow::anyhow!("Client does not support elicitation"));
         }
-        
-        rpc_sender.request_elicitation(message, requested_schema).await
+
+        rpc_sender
+            .request_elicitation(message, requested_schema)
+            .await
     }
 }
 
@@ -194,6 +204,7 @@ pub struct ElicitationCapability {
 
 /// Elicitation request (server -> client)
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct ElicitationRequest {
     pub message: String,
     #[serde(rename = "requestedSchema")]
@@ -327,7 +338,7 @@ pub async fn handle_stdio() -> Result<()> {
 
     // Create RPC sender for bidirectional communication
     let rpc_sender = Arc::new(RpcSender::new(stdout));
-    
+
     // Track server context with RPC sender
     let mut context = ServerContext::new(Some(rpc_sender.clone()));
 
@@ -622,7 +633,7 @@ mod tests {
         // Need actual stdout for sender, so we'll create context differently
         let stdout = tokio::io::stdout();
         let rpc_sender = Arc::new(RpcSender::new(stdout));
-        
+
         let context = ServerContext {
             client_info: None,
             client_capabilities: Some(ClientCapabilities { elicitation: None }),
@@ -644,10 +655,10 @@ mod tests {
     async fn test_rpc_sender_construction() {
         let stdout = tokio::io::stdout();
         let sender = RpcSender::new(stdout);
-        
+
         // Verify initial state
         assert_eq!(sender.next_id.load(Ordering::SeqCst), 1);
-        
+
         // Verify pending responses is empty
         let pending = sender.pending_responses.lock().await;
         assert_eq!(pending.len(), 0);
@@ -657,12 +668,12 @@ mod tests {
     async fn test_request_id_uniqueness() {
         let stdout = tokio::io::stdout();
         let sender = RpcSender::new(stdout);
-        
+
         // Generate multiple IDs
         let id1 = sender.next_id.fetch_add(1, Ordering::SeqCst);
         let id2 = sender.next_id.fetch_add(1, Ordering::SeqCst);
         let id3 = sender.next_id.fetch_add(1, Ordering::SeqCst);
-        
+
         // Verify uniqueness and ordering
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
@@ -673,30 +684,29 @@ mod tests {
     async fn test_concurrent_request_id_generation() {
         use std::collections::HashSet;
         use tokio::task;
-        
+
         let stdout = tokio::io::stdout();
         let sender = Arc::new(RpcSender::new(stdout));
-        
+
         // Spawn 20 concurrent tasks generating IDs
         let mut handles = vec![];
         for _ in 0..20 {
             let sender_clone = sender.clone();
-            let handle = task::spawn(async move {
-                sender_clone.next_id.fetch_add(1, Ordering::SeqCst)
-            });
+            let handle =
+                task::spawn(async move { sender_clone.next_id.fetch_add(1, Ordering::SeqCst) });
             handles.push(handle);
         }
-        
+
         // Collect all IDs
         let mut ids = HashSet::new();
         for handle in handles {
             let id = handle.await.unwrap();
             ids.insert(id);
         }
-        
+
         // Verify all IDs are unique
         assert_eq!(ids.len(), 20, "All 20 IDs should be unique");
-        
+
         // Verify IDs are in expected range (1-20)
         for id in &ids {
             assert!(*id >= 1 && *id <= 20, "ID {} should be in range 1-20", id);
@@ -707,14 +717,14 @@ mod tests {
     async fn test_handle_response_delivers_to_pending() {
         let stdout = tokio::io::stdout();
         let sender = RpcSender::new(stdout);
-        
+
         // Create a pending response channel
         let (tx, mut rx) = mpsc::channel(1);
         {
             let mut pending = sender.pending_responses.lock().await;
             pending.insert(42, tx);
         }
-        
+
         // Simulate incoming response
         let response = McpResponse {
             jsonrpc: "2.0".to_string(),
@@ -722,9 +732,9 @@ mod tests {
             result: Some(json!({"type": "response", "data": "test"})),
             error: None,
         };
-        
+
         sender.handle_response(response.clone()).await;
-        
+
         // Verify response was delivered
         let received = rx.recv().await.expect("Should receive response");
         assert_eq!(received.id, Some(json!(42)));
@@ -735,9 +745,9 @@ mod tests {
     async fn test_handle_response_unknown_id() {
         let stdout = tokio::io::stdout();
         let sender = RpcSender::new(stdout);
-        
+
         // No pending responses registered
-        
+
         // Simulate incoming response with unknown ID
         let response = McpResponse {
             jsonrpc: "2.0".to_string(),
@@ -745,10 +755,10 @@ mod tests {
             result: Some(json!({"type": "response"})),
             error: None,
         };
-        
+
         // Should not panic, just log warning
         sender.handle_response(response).await;
-        
+
         // Verify pending is still empty
         let pending = sender.pending_responses.lock().await;
         assert_eq!(pending.len(), 0);
@@ -758,7 +768,7 @@ mod tests {
     async fn test_handle_response_malformed_id_string() {
         let stdout = tokio::io::stdout();
         let sender = RpcSender::new(stdout);
-        
+
         // Response with string ID (should be ignored - not a number)
         let response = McpResponse {
             jsonrpc: "2.0".to_string(),
@@ -766,7 +776,7 @@ mod tests {
             result: Some(json!({"data": "test"})),
             error: None,
         };
-        
+
         sender.handle_response(response).await;
         // Should not panic
     }
@@ -775,7 +785,7 @@ mod tests {
     async fn test_handle_response_null_id() {
         let stdout = tokio::io::stdout();
         let sender = RpcSender::new(stdout);
-        
+
         // Response with null ID
         let response = McpResponse {
             jsonrpc: "2.0".to_string(),
@@ -783,20 +793,19 @@ mod tests {
             result: Some(json!({"data": "test"})),
             error: None,
         };
-        
+
         sender.handle_response(response).await;
         // Should not panic
     }
 
     #[tokio::test]
     async fn test_request_elicitation_error_response() {
-        use tokio::io::AsyncWriteExt;
         use std::sync::Arc;
-        
+
         // Create an in-memory buffer to capture stdout
         let (_reader, _writer) = tokio::io::duplex(1024);
         let sender = Arc::new(RpcSender::new(tokio::io::stdout()));
-        
+
         // We can't easily test the full cycle without refactoring, but we can test
         // error response handling by creating a mock response
         let error_response = McpResponse {
@@ -808,17 +817,17 @@ mod tests {
                 message: "Invalid params".to_string(),
             }),
         };
-        
+
         // Create channel to simulate pending request
         let (tx, mut rx) = mpsc::channel(1);
         {
             let mut pending = sender.pending_responses.lock().await;
             pending.insert(1, tx);
         }
-        
+
         // Deliver error response
         sender.handle_response(error_response).await;
-        
+
         // Verify error was delivered
         let received = rx.recv().await.expect("Should receive error response");
         assert!(received.error.is_some());
@@ -830,20 +839,20 @@ mod tests {
     async fn test_pending_response_cleanup_after_delivery() {
         let stdout = tokio::io::stdout();
         let sender = RpcSender::new(stdout);
-        
+
         // Create pending response
         let (tx, mut rx) = mpsc::channel(1);
         {
             let mut pending = sender.pending_responses.lock().await;
             pending.insert(100, tx);
         }
-        
+
         // Verify it's registered
         {
             let pending = sender.pending_responses.lock().await;
             assert_eq!(pending.len(), 1);
         }
-        
+
         // Deliver response
         let response = McpResponse {
             jsonrpc: "2.0".to_string(),
@@ -852,24 +861,28 @@ mod tests {
             error: None,
         };
         sender.handle_response(response).await;
-        
+
         // Receive it
         let _ = rx.recv().await;
-        
+
         // Note: In current implementation, cleanup happens in request_elicitation
         // after receiving, not in handle_response. This test shows the response
         // is still in pending map after delivery.
         let pending = sender.pending_responses.lock().await;
-        assert_eq!(pending.len(), 1, "Cleanup happens in request_elicitation, not handle_response");
+        assert_eq!(
+            pending.len(),
+            1,
+            "Cleanup happens in request_elicitation, not handle_response"
+        );
     }
 
     #[tokio::test]
     async fn test_multiple_concurrent_pending_responses() {
         use std::collections::HashSet;
-        
+
         let stdout = tokio::io::stdout();
         let sender = Arc::new(RpcSender::new(stdout));
-        
+
         // Create 10 pending responses
         let mut receivers = vec![];
         for i in 1..=10 {
@@ -880,15 +893,15 @@ mod tests {
             }
             receivers.push((i, rx));
         }
-        
+
         // Verify all registered
         {
             let pending = sender.pending_responses.lock().await;
             assert_eq!(pending.len(), 10);
         }
-        
+
         // Send responses out of order
-        for i in vec![3, 7, 1, 9, 2, 5, 10, 4, 8, 6] {
+        for i in [3, 7, 1, 9, 2, 5, 10, 4, 8, 6] {
             let response = McpResponse {
                 jsonrpc: "2.0".to_string(),
                 id: Some(json!(i)),
@@ -897,7 +910,7 @@ mod tests {
             };
             sender.handle_response(response).await;
         }
-        
+
         // Verify all responses received correctly
         let mut received_ids = HashSet::new();
         for (expected_id, mut rx) in receivers {
@@ -908,21 +921,25 @@ mod tests {
                 received_ids.insert(id_val);
             }
         }
-        
-        assert_eq!(received_ids.len(), 10, "All 10 responses should be received");
+
+        assert_eq!(
+            received_ids.len(),
+            10,
+            "All 10 responses should be received"
+        );
     }
 
     #[tokio::test]
     async fn test_response_with_missing_result() {
         let stdout = tokio::io::stdout();
         let sender = RpcSender::new(stdout);
-        
+
         let (tx, mut rx) = mpsc::channel(1);
         {
             let mut pending = sender.pending_responses.lock().await;
             pending.insert(50, tx);
         }
-        
+
         // Response with neither result nor error (malformed)
         let response = McpResponse {
             jsonrpc: "2.0".to_string(),
@@ -930,9 +947,9 @@ mod tests {
             result: None,
             error: None,
         };
-        
+
         sender.handle_response(response).await;
-        
+
         let received = rx.recv().await.expect("Should receive response");
         assert!(received.result.is_none());
         assert!(received.error.is_none());
@@ -946,10 +963,10 @@ mod tests {
             "action": "accept",
             "content": {"field": "value"}
         });
-        
+
         let parsed: Result<ElicitationResponse, _> = serde_json::from_value(json_response);
         assert!(parsed.is_ok());
-        
+
         let response = parsed.unwrap();
         assert_eq!(response.action, "accept");
         assert!(response.content.is_some());
@@ -963,9 +980,8 @@ mod tests {
             // Missing action field
             "content": {"field": "value"}
         });
-        
+
         let parsed: Result<ElicitationResponse, _> = serde_json::from_value(json_response);
         assert!(parsed.is_err(), "Should fail to parse invalid schema");
     }
 }
-

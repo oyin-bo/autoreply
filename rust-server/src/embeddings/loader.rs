@@ -1,6 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
+
+#[cfg(not(feature = "embed-model"))]
+use anyhow::Context;
 
 /// Embedding table loaded from EMB8 format
 #[derive(Debug)]

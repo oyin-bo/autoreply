@@ -2,7 +2,6 @@
 //!
 //! This module is only available when the `experimental-sentencepiece` feature is enabled.
 
-#![cfg(feature = "experimental-sentencepiece")]
 #![allow(dead_code, unused_imports, unused_variables)]
 
 pub mod proto {

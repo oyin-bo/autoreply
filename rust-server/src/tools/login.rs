@@ -16,11 +16,11 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
         .map_err(|e| AppError::InvalidInput(format!("Invalid arguments: {}", e)))?;
 
     let manager = LoginManager::new()?;
-    
+
     // Check if we need elicitation for missing fields
-    let mut needs_handle = command.handle.is_none();
-    let mut needs_password = command.password.is_none();
-    
+    let needs_handle = command.handle.is_none();
+    let needs_password = command.password.is_none();
+
     // If client supports elicitation and we're missing fields, use it
     if context.supports_elicitation() {
         // Elicit handle if missing
@@ -35,17 +35,16 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
                 },
                 "required": ["handle"]
             });
-            
-            match context.request_elicitation(
-                "Please provide your BlueSky handle".to_string(),
-                schema
-            ).await {
+
+            match context
+                .request_elicitation("Please provide your BlueSky handle".to_string(), schema)
+                .await
+            {
                 Ok(response) => {
                     if response.action == "accept" {
                         if let Some(content) = response.content {
                             if let Some(handle) = content.get("handle").and_then(|v| v.as_str()) {
                                 command.handle = Some(handle.to_string());
-                                needs_handle = false;
                             }
                         }
                     } else {
@@ -58,7 +57,7 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
                 }
             }
         }
-        
+
         // Elicit password if missing and not using OAuth
         if needs_password && command.handle.is_some() {
             let handle = command.handle.as_ref().unwrap();
@@ -72,39 +71,39 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
                 },
                 "required": ["password"]
             });
-            
+
             let message = format!(
                 "Please provide a BlueSky app password for @{} (NOT your main password).\n\n\
                 Create an app password at: https://bsky.app/settings/app-passwords\n\n\
                 Alternatively, cancel and use OAuth authentication instead.",
                 handle
             );
-            
+
             match context.request_elicitation(message, schema).await {
-                Ok(response) => {
-                    match response.action.as_str() {
-                        "accept" => {
-                            if let Some(content) = response.content {
-                                if let Some(password) = content.get("password").and_then(|v| v.as_str()) {
-                                    command.password = Some(password.to_string());
-                                    needs_password = false;
-                                }
+                Ok(response) => match response.action.as_str() {
+                    "accept" => {
+                        if let Some(content) = response.content {
+                            if let Some(password) = content.get("password").and_then(|v| v.as_str())
+                            {
+                                command.password = Some(password.to_string());
                             }
                         }
-                        "cancel" => {
-                            return Ok(ToolResult::text(format!(
+                    }
+                    "cancel" => {
+                        return Ok(ToolResult::text(format!(
                                 "Login cancelled. To use OAuth, call login with handle={} and omit the password parameter.",
                                 handle
                             )));
-                        }
-                        _ => {
-                            return Ok(ToolResult::text("Login declined"));
-                        }
                     }
-                }
+                    _ => {
+                        return Ok(ToolResult::text("Login declined"));
+                    }
+                },
                 Err(e) => {
                     tracing::warn!("Password elicitation failed: {}", e);
-                    return Ok(create_password_elicitation_unavailable_error(context, handle));
+                    return Ok(create_password_elicitation_unavailable_error(
+                        context, handle,
+                    ));
                 }
             }
         }
@@ -164,7 +163,10 @@ https://bsky.app/settings/app-passwords
 }
 
 /// Create password-specific error message when elicitation is unavailable
-fn create_password_elicitation_unavailable_error(context: &ServerContext, handle: &str) -> ToolResult {
+fn create_password_elicitation_unavailable_error(
+    context: &ServerContext,
+    handle: &str,
+) -> ToolResult {
     let client_name = context.get_client_name();
 
     let message = format!(
