@@ -121,7 +121,131 @@ impl DidResolver {
 
     /// Discover PDS endpoint for a DID
     pub async fn discover_pds(&self, _did: &str) -> Result<Option<String>, AppError> {
-        // Simplified implementation
+        // Implement PDS discovery for supported DID methods (did:plc and did:web)
+        #[derive(Debug, serde::Deserialize)]
+        struct ServiceEndpoint {
+            #[serde(default)]
+            id: Option<String>,
+            #[serde(rename = "type", default)]
+            type_field: Option<String>,
+            #[serde(rename = "serviceEndpoint")]
+            service_endpoint: String,
+        }
+
+        #[derive(Debug, serde::Deserialize)]
+        struct DidDocument {
+            #[serde(default)]
+            service: Option<Vec<ServiceEndpoint>>,
+        }
+
+        // Helper to inspect service entries
+        let extract_pds = |services: Option<Vec<ServiceEndpoint>>| -> Option<String> {
+            if let Some(svcs) = services {
+                for s in svcs.iter() {
+                    if s.type_field.as_deref() == Some("AtprotoPersonalDataServer")
+                        || s.id.as_deref() == Some("#atproto_pds")
+                    {
+                        return Some(s.service_endpoint.clone());
+                    }
+                }
+            }
+            None
+        };
+
+        // did:plc:<id> -> fetch https://plc.directory/{did}
+        if _did.starts_with("did:plc:") {
+            let url = construct_pds_endpoint_url(_did);
+            let resp = self
+                .client
+                .get(&url)
+                .header(reqwest::header::ACCEPT, "application/json")
+                .send()
+                .await
+                .map_err(|e| AppError::NetworkError(e.to_string()))?;
+
+            if !resp.status().is_success() {
+                return Err(AppError::DidResolveFailed(format!(
+                    "DID document resolution failed with status {}",
+                    resp.status()
+                )));
+            }
+
+            let did_doc: DidDocument = resp
+                .json()
+                .await
+                .map_err(|e| AppError::DidResolveFailed(format!(
+                    "Failed to parse DID document: {}",
+                    e
+                )))?;
+
+            return Ok(extract_pds(did_doc.service));
+        }
+
+        // did:web:<host>[:path...] -> try well-known and did.json locations
+        if _did.starts_with("did:web:") {
+            let parts: Vec<&str> = _did.split(':').collect();
+            if parts.len() < 3 {
+                return Ok(None);
+            }
+
+            let host = parts[2];
+            let mut candidates = Vec::new();
+            if parts.len() == 3 {
+                candidates.push(format!("https://{}/.well-known/did.json", host));
+                candidates.push(format!("https://{}/did.json", host));
+            } else {
+                let path = parts[3..].join("/");
+                candidates.push(format!("https://{}/{}/did.json", host, path));
+            }
+
+            let mut last_err: Option<AppError> = None;
+            for url in candidates {
+                let resp = match self
+                    .client
+                    .get(&url)
+                    .header(reqwest::header::ACCEPT, "application/did+json, application/json")
+                    .send()
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        last_err = Some(AppError::NetworkError(e.to_string()));
+                        continue;
+                    }
+                };
+
+                if !resp.status().is_success() {
+                    last_err = Some(AppError::DidResolveFailed(format!(
+                        "did:web document fetch failed with status {}",
+                        resp.status()
+                    )));
+                    continue;
+                }
+
+                let did_doc: DidDocument = match resp.json().await {
+                    Ok(d) => d,
+                    Err(e) => {
+                        last_err = Some(AppError::DidResolveFailed(format!(
+                            "Failed to parse did:web document: {}",
+                            e
+                        )));
+                        continue;
+                    }
+                };
+
+                if let Some(endpoint) = extract_pds(did_doc.service) {
+                    return Ok(Some(endpoint));
+                }
+            }
+
+            // If we exhausted candidates, return last error if any, otherwise None
+            if let Some(err) = last_err {
+                return Err(err);
+            }
+            return Ok(None);
+        }
+
+        // Unsupported DID method for PDS discovery
         Ok(None)
     }
 }
