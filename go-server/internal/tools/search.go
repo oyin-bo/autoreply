@@ -63,7 +63,7 @@ func (t *SearchTool) InputSchema() mcp.InputSchema {
 }
 
 // Call executes the search tool
-func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
+func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp.Server) (*mcp.ToolResult, error) {
 	// Extract and validate parameters
 	account, query, limit, err := t.validateInput(args)
 	if err != nil {

@@ -17,12 +17,21 @@ type Tool interface {
 	Name() string
 	Description() string
 	InputSchema() InputSchema
-	Call(ctx context.Context, args map[string]interface{}) (*ToolResult, error)
+	Call(ctx context.Context, args map[string]interface{}, server *Server) (*ToolResult, error)
+}
+
+// ClientRPC provides the ability for server to send RPC requests to client
+type ClientRPC interface {
+	SendRequest(ctx context.Context, method string, params interface{}) (interface{}, error)
+	SupportsElicitation() bool
+	GetClientName() string
 }
 
 // Server represents an MCP server
 type Server struct {
-	tools map[string]Tool
+	tools            map[string]Tool
+	clientInfo       *ClientInfo
+	clientCapability *ClientCapabilities
 }
 
 // NewServer creates a new MCP server
@@ -36,6 +45,36 @@ func NewServer() (*Server, error) {
 func (s *Server) RegisterTool(name string, tool Tool) {
 	s.tools[name] = tool
 	log.Printf("Registered tool: %s", name)
+}
+
+// RequestElicitation sends an elicitation/create request to the client
+// Returns error if client doesn't support elicitation
+func (s *Server) RequestElicitation(ctx context.Context, message string, schema map[string]interface{}) (*ElicitationResponse, error) {
+	if s.clientCapability == nil || s.clientCapability.Elicitation == nil {
+		return nil, fmt.Errorf("client does not support elicitation")
+	}
+
+	_ = ElicitationRequest{
+		Message:         message,
+		RequestedSchema: schema,
+	}
+
+	// This is a placeholder - actual implementation would need bidirectional transport
+	// For now, we return an error to indicate elicitation is unavailable
+	return nil, fmt.Errorf("elicitation transport not yet implemented")
+}
+
+// SupportsElicitation returns true if the connected client supports elicitation
+func (s *Server) SupportsElicitation() bool {
+	return s.clientCapability != nil && s.clientCapability.Elicitation != nil
+}
+
+// GetClientName returns the client name from initialization, or "Unknown Client"
+func (s *Server) GetClientName() string {
+	if s.clientInfo != nil && s.clientInfo.Name != "" {
+		return s.clientInfo.Name
+	}
+	return "Unknown Client"
 }
 
 // ServeStdio starts the server in stdio mode
@@ -79,6 +118,10 @@ func (s *Server) handleRequest(ctx context.Context, req *JSONRPCRequest) *JSONRP
 		if len(req.Params) > 0 {
 			_ = json.Unmarshal(req.Params, &params)
 		}
+
+		// Store client info and capabilities
+		s.clientInfo = params.ClientInfo
+		s.clientCapability = params.Capabilities
 
 		tools := s.listTools()
 		response.Result = &InitializeResult{
@@ -133,5 +176,5 @@ func (s *Server) callTool(ctx context.Context, params json.RawMessage) (*ToolRes
 		return nil, errors.NewMCPError(errors.NotFound, fmt.Sprintf("Tool not found: %s", toolParams.Name))
 	}
 
-	return tool.Call(ctx, toolParams.Arguments)
+	return tool.Call(ctx, toolParams.Arguments, s)
 }

@@ -8,6 +8,37 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tracing::{debug, error, info};
 
+/// Server context for tracking client information
+#[derive(Clone)]
+pub struct ServerContext {
+    pub client_info: Option<ClientInfo>,
+    pub client_capabilities: Option<ClientCapabilities>,
+}
+
+impl ServerContext {
+    pub fn new() -> Self {
+        Self {
+            client_info: None,
+            client_capabilities: None,
+        }
+    }
+
+    pub fn supports_elicitation(&self) -> bool {
+        self.client_capabilities
+            .as_ref()
+            .and_then(|c| c.elicitation.as_ref())
+            .is_some()
+    }
+
+    pub fn get_client_name(&self) -> String {
+        self.client_info
+            .as_ref()
+            .and_then(|info| info.name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "Unknown Client".to_string())
+    }
+}
+
 /// MCP JSON-RPC 2.0 request structure
 #[derive(Debug, Deserialize)]
 pub struct McpRequest {
@@ -17,6 +48,53 @@ pub struct McpRequest {
     pub id: Option<Value>,
     pub method: String,
     pub params: Option<Value>,
+}
+
+/// Initialize request parameters
+#[derive(Debug, Deserialize)]
+pub struct InitializeParams {
+    #[serde(rename = "clientInfo")]
+    pub client_info: Option<ClientInfo>,
+    pub capabilities: Option<ClientCapabilities>,
+}
+
+/// Client information
+#[derive(Debug, Deserialize, Clone)]
+pub struct ClientInfo {
+    pub name: Option<String>,
+    #[allow(dead_code)]
+    pub version: Option<String>,
+}
+
+/// Client capabilities
+#[derive(Debug, Deserialize, Clone)]
+pub struct ClientCapabilities {
+    pub elicitation: Option<ElicitationCapability>,
+}
+
+/// Elicitation capability (presence indicates support)
+#[derive(Debug, Deserialize, Clone)]
+pub struct ElicitationCapability {
+    // Empty struct - presence indicates support
+}
+
+/// Elicitation request (server -> client)
+/// Placeholder for future bidirectional RPC implementation
+#[allow(dead_code)]
+#[derive(Debug, Serialize)]
+pub struct ElicitationRequest {
+    pub message: String,
+    #[serde(rename = "requestedSchema")]
+    pub requested_schema: Value,
+}
+
+/// Elicitation response (client -> server)
+/// Placeholder for future bidirectional RPC implementation
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub struct ElicitationResponse {
+    pub action: String, // "accept", "decline", "cancel"
+    pub content: Option<Value>,
 }
 
 /// MCP JSON-RPC 2.0 response structure
@@ -136,12 +214,15 @@ pub async fn handle_stdio() -> Result<()> {
     let stdin = tokio::io::stdin();
     let mut reader = AsyncBufReader::new(stdin).lines();
     let mut stdout = tokio::io::stdout();
+    
+    // Track server context
+    let mut context = ServerContext::new();
 
     while let Some(line) = reader.next_line().await? {
         debug!("Received request: {}", line);
 
         let response = match parse_request(&line) {
-            Ok(request) => handle_request(request).await,
+            Ok(request) => handle_request(request, &mut context).await,
             Err(e) => {
                 error!("Failed to parse request: {}", e);
                 McpResponse::error(None, "parse_error", &format!("Invalid JSON: {}", e))
@@ -160,10 +241,10 @@ pub async fn handle_stdio() -> Result<()> {
 }
 
 /// Handle a single MCP request
-async fn handle_request(request: McpRequest) -> McpResponse {
+async fn handle_request(request: McpRequest, context: &mut ServerContext) -> McpResponse {
     match request.method.as_str() {
-        "initialize" => handle_initialize(request).await,
-        "tools/call" => handle_tool_call(request).await,
+        "initialize" => handle_initialize(request, context).await,
+        "tools/call" => handle_tool_call(request, context).await,
         "tools/list" => handle_tools_list(request).await,
         _ => McpResponse::error(
             request.id,
@@ -174,12 +255,12 @@ async fn handle_request(request: McpRequest) -> McpResponse {
 }
 
 /// Handle tools/call method
-async fn handle_tool_call(request: McpRequest) -> McpResponse {
+async fn handle_tool_call(request: McpRequest, context: &ServerContext) -> McpResponse {
     let args: ToolCallArgs = match serde_json::from_value(request.params.unwrap_or_default()) {
         Ok(args) => args,
         Err(e) => {
             return McpResponse::error(
-                request.id,
+                request.id.clone(),
                 "invalid_params",
                 &format!("Invalid parameters: {}", e),
             )
@@ -189,7 +270,7 @@ async fn handle_tool_call(request: McpRequest) -> McpResponse {
     match args.name.as_str() {
         "profile" => crate::tools::profile::handle_profile(request.id, args.arguments).await,
         "search" => crate::tools::search::handle_search(request.id, args.arguments).await,
-        "login" => crate::tools::login::handle_login(request.id, args.arguments).await,
+        "login" => crate::tools::login::handle_login(request.id, args.arguments, context).await,
         _ => McpResponse::error(
             request.id,
             "tool_not_found",
@@ -206,7 +287,22 @@ async fn handle_tools_list(request: McpRequest) -> McpResponse {
 }
 
 /// Handle initialize method
-async fn handle_initialize(request: McpRequest) -> McpResponse {
+async fn handle_initialize(request: McpRequest, context: &mut ServerContext) -> McpResponse {
+    // Parse initialize params
+    if let Some(params) = request.params {
+        if let Ok(init_params) = serde_json::from_value::<InitializeParams>(params) {
+            // Store client info and capabilities
+            context.client_info = init_params.client_info;
+            context.client_capabilities = init_params.capabilities;
+
+            if context.supports_elicitation() {
+                info!("Client supports elicitation");
+            } else {
+                info!("Client does not support elicitation - will use fallback error messages");
+            }
+        }
+    }
+
     let tools = build_tools_array();
     let result = serde_json::json!({
         "serverInfo": {
@@ -263,7 +359,8 @@ mod tests {
             method: "initialize".into(),
             params: None,
         };
-        let resp = handle_request(req).await;
+        let mut context = ServerContext::new();
+        let resp = handle_request(req, &mut context).await;
         assert!(resp.error.is_none());
         let result = resp.result.expect("result present");
         assert_eq!(
@@ -292,7 +389,8 @@ mod tests {
             method: "tools/list".into(),
             params: None,
         };
-        let resp = handle_request(req).await;
+        let mut context = ServerContext::new();
+        let resp = handle_request(req, &mut context).await;
         assert!(resp.error.is_none());
         let result = resp.result.expect("result present");
         let tools = result

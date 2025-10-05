@@ -75,13 +75,36 @@ type PropertySchema struct {
 
 // InitializeParams represents params accepted by the initialize method
 type InitializeParams struct {
-	ClientInfo *ClientInfo `json:"clientInfo,omitempty"`
+	ClientInfo   *ClientInfo         `json:"clientInfo,omitempty"`
+	Capabilities *ClientCapabilities `json:"capabilities,omitempty"`
 }
 
 // ClientInfo describes the client calling the server
 type ClientInfo struct {
 	Name    string `json:"name,omitempty"`
 	Version string `json:"version,omitempty"`
+}
+
+// ClientCapabilities describes what features the client supports
+type ClientCapabilities struct {
+	Elicitation *ElicitationCapability `json:"elicitation,omitempty"`
+}
+
+// ElicitationCapability indicates client supports elicitation/create requests
+type ElicitationCapability struct {
+	// Empty struct - presence indicates support
+}
+
+// ElicitationRequest represents an elicitation/create request from server to client
+type ElicitationRequest struct {
+	Message         string                 `json:"message"`
+	RequestedSchema map[string]interface{} `json:"requestedSchema"`
+}
+
+// ElicitationResponse represents the client's response to elicitation/create
+type ElicitationResponse struct {
+	Action  string                 `json:"action"` // "accept", "decline", "cancel"
+	Content map[string]interface{} `json:"content,omitempty"`
 }
 
 // InitializeResult is returned from initialize

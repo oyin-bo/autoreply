@@ -25,8 +25,8 @@ func (a *MCPToolAdapter) Execute(ctx context.Context, args interface{}) (string,
 		return "", err
 	}
 
-	// Call the MCP tool
-	result, err := a.tool.Call(ctx, argsMap)
+	// Call the MCP tool (CLI mode doesn't have a server context, pass nil)
+	result, err := a.tool.Call(ctx, argsMap, nil)
 	if err != nil {
 		return "", err
 	}

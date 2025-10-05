@@ -53,7 +53,7 @@ func (t *LogoutTool) InputSchema() mcp.InputSchema {
 }
 
 // Call executes the logout tool
-func (t *LogoutTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
+func (t *LogoutTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp.Server) (*mcp.ToolResult, error) {
 	var handle string
 
 	// Extract handle parameter (optional)

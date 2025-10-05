@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	jsonpkg "encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -58,10 +57,6 @@ func (t *LoginTool) InputSchema() mcp.InputSchema {
 				Type:        "string",
 				Description: "App password (generated in Bluesky settings). If this parameter is present (even empty), skips OAuth and uses app password authentication. Omit this parameter to use OAuth.",
 			},
-			"prompt_id": {
-				Type:        "string",
-				Description: "Opaque prompt identifier used by MCP clients to correlate elicitation responses",
-			},
 			"port": {
 				Type:        "integer",
 				Description: "Local callback server port for OAuth (default: 8080)",
@@ -71,7 +66,7 @@ func (t *LoginTool) InputSchema() mcp.InputSchema {
 }
 
 // Call executes the login tool - tries OAuth first, falls back to app password
-func (t *LoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
+func (t *LoginTool) Call(ctx context.Context, args map[string]interface{}, server *mcp.Server) (*mcp.ToolResult, error) {
 	// Extract and validate handle parameter
 	handleRaw, ok := args["handle"]
 	// Handle may be omitted for elicitation - treat missing differently from empty string
@@ -84,13 +79,9 @@ func (t *LoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp
 		}
 	}
 
-	// Extract prompt_id if present (MCP clients can pass this to correlate prompts)
-	var promptID string
-	if pidRaw, exists := args["prompt_id"]; exists {
-		if pidStr, ok := pidRaw.(string); ok {
-			promptID = pidStr
-		}
-	}
+	// Check if we're in CLI mode (server is nil) - use legacy input_text pattern
+	// In CLI mode, we still use prompt_id for backward compatibility
+	isCliMode := server == nil
 
 	// Check if password parameter is present (forces app password mode)
 	// If the key exists in args, even with empty value, we use app password mode
@@ -102,53 +93,152 @@ func (t *LoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp
 			password = strings.TrimSpace(passwordStr)
 		}
 
-		// If handle is missing, elicit it instead of proceeding
+		// If handle is missing
 		if !hasHandle || handle == "" {
-			// generate prompt id if not provided
-			if promptID == "" {
-				promptID = generatePromptID()
+			if isCliMode {
+				// CLI mode - use legacy input_text pattern
+				promptID := generatePromptID()
+				metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"handle","message":"Enter Bluesky handle (e.g., alice.bsky.social)"}`, promptID)
+				return &mcp.ToolResult{
+					Content: []mcp.ContentItem{{
+						Type:     "input_text",
+						Text:     "Enter Bluesky handle (e.g., alice.bsky.social)",
+						Metadata: []byte(metadata),
+					}},
+				}, nil
 			}
-			metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"handle","message":"Enter Bluesky handle (e.g., alice.bsky.social)"}`, promptID)
-			return &mcp.ToolResult{
-				Content: []mcp.ContentItem{{
-					Type:     "input_text",
-					Text:     "Enter Bluesky handle (e.g., alice.bsky.social)",
-					Metadata: jsonpkg.RawMessage(metadata),
-				}},
-			}, nil
+			if server.SupportsElicitation() {
+				// Use standard MCP elicitation/create
+				schema := map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"handle": map[string]interface{}{
+							"type":        "string",
+							"description": "Your BlueSky handle (e.g., user.bsky.social)",
+						},
+					},
+					"required": []string{"handle"},
+				}
+				resp, err := server.RequestElicitation(ctx, "Please provide your BlueSky handle", schema)
+				if err != nil {
+					// Elicitation transport not available - fall back to error
+					return createElicitationUnavailableError(server, "handle"), nil
+				}
+				if resp.Action != "accept" {
+					return &mcp.ToolResult{
+						Content: []mcp.ContentItem{{Type: "text", Text: "Login cancelled"}},
+					}, nil
+				}
+				if h, ok := resp.Content["handle"].(string); ok {
+					handle = h
+					hasHandle = true
+				}
+			} else {
+				// Client doesn't support elicitation - return error with guidance
+				return createElicitationUnavailableError(server, "handle"), nil
+			}
 		}
 
-		// If password is empty, elicit it
+		// If password is empty
 		if password == "" {
-			if promptID == "" {
-				promptID = generatePromptID()
+			if isCliMode {
+				// CLI mode - use legacy input_text pattern
+				promptID := generatePromptID()
+				metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"password","message":"App password for @%s"}`, promptID, handle)
+				return &mcp.ToolResult{
+					Content: []mcp.ContentItem{{
+						Type:     "input_text",
+						Text:     fmt.Sprintf("App password for @%s", handle),
+						Metadata: []byte(metadata),
+					}},
+				}, nil
 			}
-			metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"password","message":"App password for @%s"}`, promptID, handle)
-			return &mcp.ToolResult{
-				Content: []mcp.ContentItem{{
-					Type:     "input_text",
-					Text:     fmt.Sprintf("App password for @%s", handle),
-					Metadata: jsonpkg.RawMessage(metadata),
-				}},
-			}, nil
+			if server.SupportsElicitation() {
+				schema := map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"password": map[string]interface{}{
+							"type":        "string",
+							"description": "BlueSky app password (create at https://bsky.app/settings/app-passwords)",
+						},
+					},
+					"required": []string{"password"},
+				}
+				message := fmt.Sprintf(`Please provide a BlueSky app password for @%s (NOT your main password).
+
+Create an app password at: https://bsky.app/settings/app-passwords
+
+Alternatively, cancel and use OAuth authentication instead.`, handle)
+
+				resp, err := server.RequestElicitation(ctx, message, schema)
+				if err != nil {
+					return createPasswordElicitationUnavailableError(server, handle), nil
+				}
+				if resp.Action == "cancel" {
+					return &mcp.ToolResult{
+						Content: []mcp.ContentItem{{
+							Type: "text",
+							Text: fmt.Sprintf("Login cancelled. To use OAuth, call login with handle=%s and omit the password parameter.", handle),
+						}},
+					}, nil
+				}
+				if resp.Action != "accept" {
+					return &mcp.ToolResult{
+						Content: []mcp.ContentItem{{Type: "text", Text: "Login declined"}},
+					}, nil
+				}
+				if p, ok := resp.Content["password"].(string); ok {
+					password = p
+				}
+			} else {
+				return createPasswordElicitationUnavailableError(server, handle), nil
+			}
 		}
 
 		return t.loginWithPassword(ctx, handle, password)
 	}
 
-	// If handle is missing, elicit it (interactive MCP caller)
+	// If handle is missing
 	if !hasHandle || handle == "" {
-		if promptID == "" {
-			promptID = generatePromptID()
+		if isCliMode {
+			// CLI mode - use legacy input_text pattern
+			promptID := generatePromptID()
+			metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"handle","message":"Enter Bluesky handle (e.g., alice.bsky.social)"}`, promptID)
+			return &mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type:     "input_text",
+					Text:     "Enter Bluesky handle (e.g., alice.bsky.social)",
+					Metadata: []byte(metadata),
+				}},
+			}, nil
 		}
-		metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"handle","message":"Enter Bluesky handle (e.g., alice.bsky.social)"}`, promptID)
-		return &mcp.ToolResult{
-			Content: []mcp.ContentItem{{
-				Type:     "input_text",
-				Text:     "Enter Bluesky handle (e.g., alice.bsky.social)",
-				Metadata: jsonpkg.RawMessage(metadata),
-			}},
-		}, nil
+		if server.SupportsElicitation() {
+			schema := map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"handle": map[string]interface{}{
+						"type":        "string",
+						"description": "Your BlueSky handle (e.g., user.bsky.social)",
+					},
+				},
+				"required": []string{"handle"},
+			}
+			resp, err := server.RequestElicitation(ctx, "Please provide your BlueSky handle", schema)
+			if err != nil {
+				return createElicitationUnavailableError(server, "handle"), nil
+			}
+			if resp.Action != "accept" {
+				return &mcp.ToolResult{
+					Content: []mcp.ContentItem{{Type: "text", Text: "Login cancelled"}},
+				}, nil
+			}
+			if h, ok := resp.Content["handle"].(string); ok {
+				handle = h
+				hasHandle = true
+			}
+		} else {
+			return createElicitationUnavailableError(server, "handle"), nil
+		}
 	}
 
 	// Otherwise, try OAuth first
@@ -175,6 +265,64 @@ func (t *LoginTool) Call(ctx context.Context, args map[string]interface{}) (*mcp
 	}
 
 	return result, nil
+}
+
+// createElicitationUnavailableError creates the standard error for when elicitation is needed but unavailable
+func createElicitationUnavailableError(server *mcp.Server, field string) *mcp.ToolResult {
+	clientName := server.GetClientName()
+	message := fmt.Sprintf(`# Login requires %s
+
+**%s does not support interactive prompts** (MCP elicitation).
+
+To complete login, please:
+
+1. **Use OAuth (recommended):** Call login with your handle:
+   {"handle": "your.handle.bsky.social"}
+
+2. **Or provide credentials up-front:** Call login with both handle and password:
+   {"handle": "your.handle.bsky.social", "password": "your-app-password"}
+
+**Security Note:** Do NOT use your main BlueSky password. Create an app password at:
+https://bsky.app/settings/app-passwords
+`, field, clientName)
+
+	return &mcp.ToolResult{
+		Content: []mcp.ContentItem{{
+			Type: "text",
+			Text: message,
+		}},
+		IsError: true,
+	}
+}
+
+// createPasswordElicitationUnavailableError creates the error for when password elicitation is unavailable
+func createPasswordElicitationUnavailableError(server *mcp.Server, handle string) *mcp.ToolResult {
+	clientName := server.GetClientName()
+	message := fmt.Sprintf(`# Password required for @%s
+
+**%s does not support interactive prompts** (MCP elicitation).
+
+Please choose one of these options:
+
+1. **Use OAuth (strongly recommended):** Call login without password parameter:
+   {"handle": "%s"}
+
+2. **Provide app password up-front:** Call login with password:
+   {"handle": "%s", "password": "your-app-password"}
+
+**IMPORTANT Security Warning:**
+- Do NOT use your main BlueSky account password
+- Create an app password at: https://bsky.app/settings/app-passwords
+- OAuth is the most secure option and is strongly preferred
+`, handle, clientName, handle, handle)
+
+	return &mcp.ToolResult{
+		Content: []mcp.ContentItem{{
+			Type: "text",
+			Text: message,
+		}},
+		IsError: true,
+	}
 }
 
 // loginWithPassword performs app password authentication

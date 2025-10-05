@@ -52,7 +52,7 @@ func (t *ProfileTool) InputSchema() mcp.InputSchema {
 }
 
 // Call executes the profile tool
-func (t *ProfileTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
+func (t *ProfileTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp.Server) (*mcp.ToolResult, error) {
 	// Extract and validate account parameter
 	accountRaw, ok := args["account"]
 	if !ok {

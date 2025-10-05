@@ -92,8 +92,8 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 		argsMap["password"] = password
 	}
 
-	// Call the MCP tool
-	result, err := a.tool.Call(ctx, argsMap)
+	// Call the MCP tool (CLI mode doesn't have a server context, pass nil)
+	result, err := a.tool.Call(ctx, argsMap, nil)
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +134,7 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 			}
 
 			// Re-call the tool with the elicited value
-			result, err = a.tool.Call(ctx, argsMap)
+			result, err = a.tool.Call(ctx, argsMap, nil)
 			if err != nil {
 				return "", err
 			}
@@ -163,7 +163,7 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 
 			// Retry with app password
 			argsMap["password"] = promptedPassword
-			result, err = a.tool.Call(ctx, argsMap)
+			result, err = a.tool.Call(ctx, argsMap, nil)
 			if err != nil {
 				return "", err
 			}

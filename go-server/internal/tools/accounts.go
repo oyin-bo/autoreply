@@ -57,7 +57,7 @@ func (t *AccountsTool) InputSchema() mcp.InputSchema {
 }
 
 // Call executes the accounts tool
-func (t *AccountsTool) Call(ctx context.Context, args map[string]interface{}) (*mcp.ToolResult, error) {
+func (t *AccountsTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp.Server) (*mcp.ToolResult, error) {
 	// Default action is list
 	action := "list"
 	if actionRaw, ok := args["action"]; ok {
