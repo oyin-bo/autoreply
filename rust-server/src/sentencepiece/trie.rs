@@ -54,16 +54,18 @@ impl VocabularyTrie {
             let mut current = 0usize;
             for &ch in chars {
                 // Find or create child node index
-                let found_idx = arena[current].children
+                let found_idx = arena[current]
+                    .children
                     .binary_search_by(|&(c, _)| c.cmp(&ch))
                     .ok();
-                
+
                 current = if let Some(idx) = found_idx {
                     arena[current].children[idx].1
                 } else {
                     let next_index = arena.len();
                     arena.push(NodeBuilder::default());
-                    let insert_pos = arena[current].children
+                    let insert_pos = arena[current]
+                        .children
                         .binary_search_by(|&(c, _)| c.cmp(&ch))
                         .unwrap_err();
                     arena[current].children.insert(insert_pos, (ch, next_index));
@@ -155,17 +157,18 @@ mod tests {
         let piece1: Vec<char> = "abc".chars().collect();
         let piece2: Vec<char> = "abcd".chars().collect();
         let piece3: Vec<char> = "abd".chars().collect();
-        let trie = VocabularyTrie::from_pieces(vec![
-            (&piece1[..], 1),
-            (&piece2[..], 2),
-            (&piece3[..], 3),
-        ]);
+        let trie =
+            VocabularyTrie::from_pieces(vec![(&piece1[..], 1), (&piece2[..], 2), (&piece3[..], 3)]);
 
         let mut scratch = LookupScratch::default();
         let mut results = Vec::new();
-        trie.common_prefix_search(&"abcdef".chars().collect::<Vec<_>>(), &mut scratch, |len, id| {
-            results.push((len, id));
-        });
+        trie.common_prefix_search(
+            &"abcdef".chars().collect::<Vec<_>>(),
+            &mut scratch,
+            |len, id| {
+                results.push((len, id));
+            },
+        );
 
         assert_eq!(results, vec![(3, 1), (4, 2)]);
     }
@@ -176,9 +179,13 @@ mod tests {
         let trie = VocabularyTrie::from_pieces(vec![(&piece[..], 1)]);
         let mut scratch = LookupScratch::default();
         let mut results = Vec::new();
-        trie.common_prefix_search(&"bc".chars().collect::<Vec<_>>(), &mut scratch, |len, id| {
-            results.push((len, id));
-        });
+        trie.common_prefix_search(
+            &"bc".chars().collect::<Vec<_>>(),
+            &mut scratch,
+            |len, id| {
+                results.push((len, id));
+            },
+        );
         assert!(results.is_empty());
     }
 }

@@ -178,7 +178,9 @@ impl SentencePieceModel {
     }
 }
 
-fn build_vocab(proto: &ModelProto) -> Result<(Vec<VocabularyPiece>, VocabularyStorage), SentencePieceError> {
+fn build_vocab(
+    proto: &ModelProto,
+) -> Result<(Vec<VocabularyPiece>, VocabularyStorage), SentencePieceError> {
     if proto.pieces.is_empty() {
         return Err(SentencePieceError::EmptyVocabulary);
     }
@@ -223,7 +225,10 @@ fn piece_kind(piece: &model_proto::SentencePiece) -> SentencePieceType {
         .unwrap_or(SentencePieceType::Normal)
 }
 
-fn build_piece_index(vocab: &[VocabularyPiece], storage: &VocabularyStorage) -> HashMap<String, u32> {
+fn build_piece_index(
+    vocab: &[VocabularyPiece],
+    storage: &VocabularyStorage,
+) -> HashMap<String, u32> {
     let mut index = HashMap::with_capacity(vocab.len());
     for item in vocab {
         index.insert(storage.piece_text(item).to_string(), item.id);

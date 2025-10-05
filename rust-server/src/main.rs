@@ -15,13 +15,20 @@ mod cli;
 mod error;
 mod http;
 mod mcp;
+
+#[cfg(feature = "experimental-sentencepiece")]
 mod sentencepiece;
+
+#[cfg(not(feature = "experimental-sentencepiece"))]
+#[allow(dead_code)]
+mod sentencepiece_stub;
+
 mod tools;
 
 use anyhow::Result;
+use auth::{LoginManager, LoginRequest};
 use clap::Parser;
 use cli::{Cli, Commands};
-use auth::{LoginManager, LoginRequest};
 use tracing::info;
 
 #[tokio::main]

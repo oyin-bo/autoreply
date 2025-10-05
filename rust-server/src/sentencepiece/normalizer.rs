@@ -1,4 +1,7 @@
-use std::{cell::{RefCell, RefMut}, collections::HashMap};
+use std::{
+    cell::{RefCell, RefMut},
+    collections::HashMap,
+};
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -25,9 +28,12 @@ struct NormalizerWorkspace {
 impl NormalizerWorkspace {
     fn reserve(&mut self, capacity: usize, add_dummy_prefix: bool) {
         let needed = capacity + if add_dummy_prefix { 1 } else { 0 };
-        self.units.reserve(needed.saturating_sub(self.units.capacity()));
-        self.scratch.reserve(needed.saturating_sub(self.scratch.capacity()));
-        self.chars.reserve(needed.saturating_sub(self.chars.capacity()));
+        self.units
+            .reserve(needed.saturating_sub(self.units.capacity()));
+        self.scratch
+            .reserve(needed.saturating_sub(self.scratch.capacity()));
+        self.chars
+            .reserve(needed.saturating_sub(self.chars.capacity()));
         self.positions
             .reserve(needed.saturating_sub(self.positions.capacity()));
     }
@@ -75,7 +81,8 @@ impl NormalizerWorkspace {
             }
         }
 
-        while matches!(self.scratch.last(), Some(last) if last.ch.is_whitespace() && !last.is_dummy_prefix) {
+        while matches!(self.scratch.last(), Some(last) if last.ch.is_whitespace() && !last.is_dummy_prefix)
+        {
             self.scratch.pop();
         }
 
@@ -236,8 +243,12 @@ impl NormalizationTrie {
             }
 
             let mut parts = line.splitn(2, '\t');
-            let Some(src_part) = parts.next() else { continue };
-            let Some(dst_part) = parts.next() else { continue };
+            let Some(src_part) = parts.next() else {
+                continue;
+            };
+            let Some(dst_part) = parts.next() else {
+                continue;
+            };
 
             let src_chars = parse_hex_chars(src_part);
             let dst_chars = hex_sequence_to_chars(dst_part);
@@ -328,10 +339,14 @@ mod tests {
 
         for (input, expected) in cases {
             let normalized = norm.normalize(input);
-            assert_eq!(normalized.chars().iter().collect::<String>(), expected, "input: {input:?}");
+            assert_eq!(
+                normalized.chars().iter().collect::<String>(),
+                expected,
+                "input: {input:?}"
+            );
         }
     }
-    
+
     #[test]
     fn drops_control_characters_like_reference() {
         let norm = reference_normalizer();
@@ -340,7 +355,11 @@ mod tests {
             let normalized = norm.normalize(&input);
             let result = normalized.chars().iter().collect::<String>();
             // After removing control char and with add_dummy_prefix, we expect just the space
-            assert_eq!(result, "▁", "codepoint: U+{codepoint:04X}, got: {:?}", result);
+            assert_eq!(
+                result, "▁",
+                "codepoint: U+{codepoint:04X}, got: {:?}",
+                result
+            );
         }
     }
 }

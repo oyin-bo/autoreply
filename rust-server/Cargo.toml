@@ -18,6 +18,8 @@ path = "src/main.rs"
 [features]
 default = []
 embed-model = []  # Embed 17MB directly into binary
+# Experimental SentencePiece tokenization support (not production-ready)
+experimental-sentencepiece = ["prost", "prost-build"]
 
 [dependencies]
 byteorder = "1.5"
@@ -42,8 +44,8 @@ unicode-normalization = "0.1"
 regex = "1.10"
 aho-corasick = "1.0"
 
-# SentencePiece protobuf support
-prost = "0.12"
+# SentencePiece protobuf support (optional, enabled by experimental-sentencepiece feature)
+prost = { version = "0.12", optional = true }
 
 # Logging
 tracing = "0.1"
@@ -88,4 +90,4 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 tempfile = "3.23"
 
 [build-dependencies]
-prost-build = "0.12"
+prost-build = { version = "0.12", optional = true }

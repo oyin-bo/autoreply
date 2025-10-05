@@ -15,13 +15,8 @@ const SCORE_EPS: f32 = 1e-6;
 #[derive(Debug, Clone, Copy)]
 pub enum DecodeStrategy {
     BestPath,
-    Sample {
-        temperature: f32,
-        nbest_size: usize,
-    },
-    NBest {
-        size: usize,
-    },
+    Sample { temperature: f32, nbest_size: usize },
+    NBest { size: usize },
 }
 
 impl Default for DecodeStrategy {
@@ -80,19 +75,14 @@ impl SentencePieceProcessor {
         let normalizer = Normalizer::from_spec(model.normalizer_spec());
         let trie = {
             let storage = model.storage();
-            VocabularyTrie::from_pieces(model.vocab().iter().filter_map(|piece| {
-                match piece.kind {
-                    SentencePieceType::Unused | SentencePieceType::Control => None,
-                    _ => Some((storage.piece_chars(piece), piece.id)),
-                }
+            VocabularyTrie::from_pieces(model.vocab().iter().filter_map(|piece| match piece.kind {
+                SentencePieceType::Unused | SentencePieceType::Control => None,
+                _ => Some((storage.piece_chars(piece), piece.id)),
             }))
         };
 
         let unk_id = model.unk_id;
-        let unk_score = model
-            .piece(unk_id)
-            .map(|p| p.score)
-            .unwrap_or(-100.0);
+        let unk_score = model.piece(unk_id).map(|p| p.score).unwrap_or(-100.0);
         let bos_id = model.bos_id;
         let eos_id = model.eos_id;
 
@@ -141,7 +131,11 @@ impl SentencePieceProcessor {
         self.encode_with(text, self.options)
     }
 
-    pub fn encode_with(&self, text: &str, options: EncodeOptions) -> Result<Vec<u32>, TokenizerError> {
+    pub fn encode_with(
+        &self,
+        text: &str,
+        options: EncodeOptions,
+    ) -> Result<Vec<u32>, TokenizerError> {
         let mut out = Vec::new();
         self.encode_into(text, options, &mut out)?;
         Ok(out)
@@ -313,7 +307,8 @@ impl ViterbiWorkspace {
         self.best_scores[..cap].fill(f32::NEG_INFINITY);
         self.back_ptrs[..cap].fill(None);
         if self.token_buffer.capacity() < cap + 2 {
-            self.token_buffer.reserve(cap + 2 - self.token_buffer.capacity());
+            self.token_buffer
+                .reserve(cap + 2 - self.token_buffer.capacity());
         }
         self.token_buffer.clear();
     }
@@ -322,20 +317,44 @@ impl ViterbiWorkspace {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sentencepiece::proto;
     use crate::sentencepiece::loader::SentencePieceModel;
+    use crate::sentencepiece::proto;
     use proto::ModelProto;
     use std::path::Path;
 
     fn build_test_model() -> SentencePieceModel {
         let pieces = vec![
-            make_piece("<unk>", -10.0, proto::model_proto::sentence_piece::Type::Unknown),
-            make_piece("<s>", 0.0, proto::model_proto::sentence_piece::Type::Control),
-            make_piece("</s>", 0.0, proto::model_proto::sentence_piece::Type::Control),
+            make_piece(
+                "<unk>",
+                -10.0,
+                proto::model_proto::sentence_piece::Type::Unknown,
+            ),
+            make_piece(
+                "<s>",
+                0.0,
+                proto::model_proto::sentence_piece::Type::Control,
+            ),
+            make_piece(
+                "</s>",
+                0.0,
+                proto::model_proto::sentence_piece::Type::Control,
+            ),
             make_piece("▁", -1.0, proto::model_proto::sentence_piece::Type::Normal),
-            make_piece("▁Hello", -0.1, proto::model_proto::sentence_piece::Type::Normal),
-            make_piece("world", -0.2, proto::model_proto::sentence_piece::Type::Normal),
-            make_piece("▁world", -0.3, proto::model_proto::sentence_piece::Type::Normal),
+            make_piece(
+                "▁Hello",
+                -0.1,
+                proto::model_proto::sentence_piece::Type::Normal,
+            ),
+            make_piece(
+                "world",
+                -0.2,
+                proto::model_proto::sentence_piece::Type::Normal,
+            ),
+            make_piece(
+                "▁world",
+                -0.3,
+                proto::model_proto::sentence_piece::Type::Normal,
+            ),
             make_piece("!", -0.5, proto::model_proto::sentence_piece::Type::Normal),
         ];
 
@@ -408,10 +427,20 @@ mod tests {
         let tokens = processor.encode("Zzz").expect("tokens");
         // After normalization "Zzz" becomes "▁Zzz"
         // This tokenizes as ["▁", unk, unk, unk]
-        assert!(tokens.len() >= 3, "Expected at least 3 tokens, got {}", tokens.len());
+        assert!(
+            tokens.len() >= 3,
+            "Expected at least 3 tokens, got {}",
+            tokens.len()
+        );
         // Check that we have unknown tokens (not checking if ALL are unknown due to space prefix)
-        let unk_count = tokens.iter().filter(|&&id| id == processor.unk_id()).count();
-        assert!(unk_count >= 3, "Expected at least 3 unknown tokens for 'Zzz'");
+        let unk_count = tokens
+            .iter()
+            .filter(|&&id| id == processor.unk_id())
+            .count();
+        assert!(
+            unk_count >= 3,
+            "Expected at least 3 unknown tokens for 'Zzz'"
+        );
     }
 
     #[test]
@@ -439,13 +468,13 @@ mod tests {
     fn gemma_self_test_samples_match() {
         let path = Path::new(GEMMA_MODEL);
         let processor = SentencePieceProcessor::from_file(path).expect("load gemma model");
-        
+
         // Some models don't have self-test data, which is fine
         if processor.model().self_test_data().is_none() {
             eprintln!("Note: Gemma model doesn't have self-test data, skipping validation");
             return;
         }
-        
+
         assert_self_test_samples(&processor);
     }
 
@@ -467,7 +496,10 @@ mod tests {
         // After normalization becomes "▁XYZ"
         // Tokenizes as ["▁", unk, unk, unk] = 4 tokens
         assert_eq!(tokens.len(), 4, "Expected 4 tokens (space + 3 unknown)");
-        let unk_count = tokens.iter().filter(|&&id| id == processor.unk_id()).count();
+        let unk_count = tokens
+            .iter()
+            .filter(|&&id| id == processor.unk_id())
+            .count();
         assert_eq!(unk_count, 3, "Expected 3 unknown tokens");
     }
 
@@ -476,7 +508,10 @@ mod tests {
             .model()
             .self_test_data()
             .expect("model missing self-test data");
-        assert!(!self_test.samples.is_empty(), "no self-test samples present");
+        assert!(
+            !self_test.samples.is_empty(),
+            "no self-test samples present"
+        );
 
         for sample in &self_test.samples {
             let input = sample.input.as_deref().unwrap_or("");
@@ -496,9 +531,21 @@ mod tests {
 
     fn build_tie_test_model() -> SentencePieceModel {
         let pieces = vec![
-            make_piece("<unk>", -10.0, proto::model_proto::sentence_piece::Type::Unknown),
-            make_piece("▁Hello", -0.1, proto::model_proto::sentence_piece::Type::Normal),
-            make_piece("▁Hel", -0.1, proto::model_proto::sentence_piece::Type::Normal),
+            make_piece(
+                "<unk>",
+                -10.0,
+                proto::model_proto::sentence_piece::Type::Unknown,
+            ),
+            make_piece(
+                "▁Hello",
+                -0.1,
+                proto::model_proto::sentence_piece::Type::Normal,
+            ),
+            make_piece(
+                "▁Hel",
+                -0.1,
+                proto::model_proto::sentence_piece::Type::Normal,
+            ),
             make_piece("lo", -0.1, proto::model_proto::sentence_piece::Type::Normal),
         ];
         let trainer = proto::TrainerSpec {
@@ -522,7 +569,11 @@ mod tests {
 
     fn build_minimal_model() -> SentencePieceModel {
         let pieces = vec![
-            make_piece("<unk>", -10.0, proto::model_proto::sentence_piece::Type::Unknown),
+            make_piece(
+                "<unk>",
+                -10.0,
+                proto::model_proto::sentence_piece::Type::Unknown,
+            ),
             make_piece("▁", -1.0, proto::model_proto::sentence_piece::Type::Normal),
         ];
         let trainer = proto::TrainerSpec {
