@@ -20,7 +20,7 @@ func NewInteractiveLoginAdapter(tool *tools.LoginTool) *InteractiveLoginAdapter 
 	return &InteractiveLoginAdapter{tool: tool}
 }
 
-// Execute runs the login tool with interactive prompting if needed
+// Execute runs the login tool with interactive prompting if needed and handles subcommands
 func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{}) (string, error) {
 	// Convert args to LoginArgs
 	loginArgs, ok := args.(*LoginArgs)
@@ -28,6 +28,42 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 		return "", fmt.Errorf("invalid arguments type for login")
 	}
 
+	// Build args map for tool call
+	argsMap := map[string]interface{}{}
+
+	// Check for subcommand
+	if loginArgs.Command != "" {
+		argsMap["command"] = loginArgs.Command
+
+		// For 'default' command, handle is required
+		if loginArgs.Command == "default" {
+			if loginArgs.Handle == "" {
+				return "", fmt.Errorf("handle is required for 'default' command")
+			}
+			argsMap["handle"] = loginArgs.Handle
+		}
+
+		// For 'delete' command, handle is optional (uses default if not provided)
+		if loginArgs.Command == "delete" && loginArgs.Handle != "" {
+			argsMap["handle"] = loginArgs.Handle
+		}
+
+		// For 'list' command, no additional parameters needed
+
+		// Call the tool directly for subcommands
+		result, err := a.tool.Call(ctx, argsMap, nil)
+		if err != nil {
+			return "", err
+		}
+
+		// Extract text content from result
+		if len(result.Content) > 0 && result.Content[0].Type == "text" {
+			return result.Content[0].Text, nil
+		}
+		return "", nil
+	}
+
+	// No subcommand - proceed with login flow
 	handle := loginArgs.Handle
 	password := loginArgs.Password
 	port := loginArgs.Port
@@ -76,10 +112,12 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 		}
 	}
 
-	// Build args map for tool call
-	argsMap := map[string]interface{}{
-		"handle": handle,
-		"port":   float64(port),
+	argsMap["handle"] = handle
+	argsMap["port"] = float64(port)
+
+	// Add service if provided
+	if loginArgs.Service != "" {
+		argsMap["service"] = loginArgs.Service
 	}
 
 	// Do not generate prompt_id from the CLI. The tool will generate a prompt_id when

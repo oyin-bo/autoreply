@@ -41,7 +41,7 @@ func (t *LoginTool) Name() string {
 
 // Description returns the tool description
 func (t *LoginTool) Description() string {
-	return "Authenticate with Bluesky. Uses OAuth 2.0 by default (most secure), or app password if specified or OAuth fails."
+	return "Authenticate accounts and manage stored credentials. Supports subcommands: list (show accounts), default (set default account), delete (remove credentials), or omit command for login."
 }
 
 // InputSchema returns the JSON schema for tool input
@@ -49,9 +49,13 @@ func (t *LoginTool) InputSchema() mcp.InputSchema {
 	return mcp.InputSchema{
 		Type: "object",
 		Properties: map[string]mcp.PropertySchema{
+			"command": {
+				Type:        "string",
+				Description: "Subcommand: 'list' (show accounts), 'default' (set default), 'delete' (remove credentials), or omit for login",
+			},
 			"handle": {
 				Type:        "string",
-				Description: "Bluesky handle (e.g., alice.bsky.social)",
+				Description: "Bluesky handle (e.g., alice.bsky.social) - required for login, default, and optional for delete",
 			},
 			"password": {
 				Type:        "string",
@@ -61,12 +65,170 @@ func (t *LoginTool) InputSchema() mcp.InputSchema {
 				Type:        "integer",
 				Description: "Local callback server port for OAuth (default: 8080)",
 			},
+			"service": {
+				Type:        "string",
+				Description: "Service URL (defaults to https://bsky.social)",
+			},
 		},
 	}
 }
 
-// Call executes the login tool - tries OAuth first, falls back to app password
+// Call executes the login tool - dispatches to subcommands or performs login
 func (t *LoginTool) Call(ctx context.Context, args map[string]interface{}, server *mcp.Server) (*mcp.ToolResult, error) {
+	// Check for subcommand
+	commandRaw, hasCommand := args["command"]
+	if hasCommand {
+		commandStr, ok := commandRaw.(string)
+		if !ok {
+			return nil, errors.NewMCPError(errors.InvalidInput, "command must be a string")
+		}
+		command := strings.ToLower(strings.TrimSpace(commandStr))
+
+		switch command {
+		case "list":
+			return t.handleList()
+		case "default":
+			return t.handleDefault(args)
+		case "delete":
+			return t.handleDelete(args)
+		case "":
+			// Empty command - proceed with login
+			break
+		default:
+			return nil, errors.NewMCPError(errors.InvalidInput, fmt.Sprintf("Unknown command: %s. Valid commands: list, default, delete", command))
+		}
+	}
+
+	// No subcommand (or empty) - proceed with login
+	return t.performLogin(ctx, args, server)
+}
+
+// handleList lists all authenticated accounts
+func (t *LoginTool) handleList() (*mcp.ToolResult, error) {
+	handles, err := t.credStore.ListHandles()
+	if err != nil {
+		return nil, errors.Wrap(err, errors.InternalError, "Failed to list accounts")
+	}
+
+	defaultHandle, _ := t.credStore.GetDefault()
+
+	var message strings.Builder
+	message.WriteString("# Authenticated Accounts\n\n")
+
+	if len(handles) == 0 {
+		message.WriteString("No authenticated accounts found.\n\n")
+		message.WriteString("Use `login` to authenticate with a Bluesky account.\n")
+	} else {
+		message.WriteString(fmt.Sprintf("Found %d authenticated account(s):\n\n", len(handles)))
+		for _, handle := range handles {
+			if handle == defaultHandle {
+				message.WriteString(fmt.Sprintf("- **@%s** *(default)*\n", handle))
+			} else {
+				message.WriteString(fmt.Sprintf("- @%s\n", handle))
+			}
+		}
+		message.WriteString("\n")
+		if defaultHandle != "" {
+			message.WriteString(fmt.Sprintf("Default account: **@%s**\n", defaultHandle))
+		}
+	}
+
+	return &mcp.ToolResult{
+		Content: []mcp.ContentItem{
+			{
+				Type: "text",
+				Text: message.String(),
+			},
+		},
+	}, nil
+}
+
+// handleDefault sets the default account
+func (t *LoginTool) handleDefault(args map[string]interface{}) (*mcp.ToolResult, error) {
+	handleRaw, ok := args["handle"]
+	if !ok {
+		return nil, errors.NewMCPError(errors.InvalidInput, "handle parameter is required for 'default' command")
+	}
+
+	handle, ok := handleRaw.(string)
+	if !ok {
+		return nil, errors.NewMCPError(errors.InvalidInput, "handle must be a string")
+	}
+
+	handle = strings.TrimSpace(strings.TrimPrefix(handle, "@"))
+	if handle == "" {
+		return nil, errors.NewMCPError(errors.InvalidInput, "handle cannot be empty")
+	}
+
+	// Verify the account exists
+	_, err := t.credStore.Load(handle)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.NotFound, "Account not found. Please login first.")
+	}
+
+	// Set as default
+	if err := t.credStore.SetDefault(handle); err != nil {
+		return nil, errors.Wrap(err, errors.InternalError, "Failed to set default account")
+	}
+
+	message := fmt.Sprintf("# Default Account Updated\n\n"+
+		"Default account set to **@%s**\n",
+		handle)
+
+	return &mcp.ToolResult{
+		Content: []mcp.ContentItem{
+			{
+				Type: "text",
+				Text: message,
+			},
+		},
+	}, nil
+}
+
+// handleDelete removes stored credentials for an account
+func (t *LoginTool) handleDelete(args map[string]interface{}) (*mcp.ToolResult, error) {
+	var handle string
+
+	// Extract handle parameter (optional)
+	if handleRaw, ok := args["handle"]; ok {
+		handleStr, ok := handleRaw.(string)
+		if !ok {
+			return nil, errors.NewMCPError(errors.InvalidInput, "handle must be a string")
+		}
+		handle = strings.TrimSpace(strings.TrimPrefix(handleStr, "@"))
+	}
+
+	// If no handle provided, use default
+	if handle == "" {
+		defaultHandle, err := t.credStore.GetDefault()
+		if err != nil {
+			return nil, errors.Wrap(err, errors.InvalidInput, "No handle provided and no default handle set")
+		}
+		handle = defaultHandle
+	}
+
+	// Delete credentials
+	if err := t.credStore.Delete(handle); err != nil {
+		return nil, errors.Wrap(err, errors.InternalError, "Failed to delete credentials")
+	}
+
+	// Format success message
+	message := fmt.Sprintf("# Credentials Removed\n\n"+
+		"Credentials for **@%s** have been removed.\n",
+		handle)
+
+	return &mcp.ToolResult{
+		Content: []mcp.ContentItem{
+			{
+				Type: "text",
+				Text: message,
+			},
+		},
+	}, nil
+}
+
+// performLogin executes the login flow - tries OAuth first, falls back to app password
+func (t *LoginTool) performLogin(ctx context.Context, args map[string]interface{}, server *mcp.Server) (*mcp.ToolResult, error) {
 	// Extract and validate handle parameter
 	handleRaw, ok := args["handle"]
 	// Handle may be omitted for elicitation - treat missing differently from empty string
