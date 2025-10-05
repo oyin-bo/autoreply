@@ -28,4 +28,3 @@ func GeneratePKCEChallenge() (verifier, challenge string, err error) {
 
 	return verifier, challenge, nil
 }
-

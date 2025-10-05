@@ -15,7 +15,7 @@ func ExtractCIDToRKeyMapping(carData []byte, collection string) (map[string]stri
 	// Use indigo's repo library to read the repository from CAR
 	ctx := context.Background()
 	reader := bytes.NewReader(carData)
-	
+
 	r, err := repo.ReadRepoFromCar(ctx, reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read repo from CAR: %w", err)
@@ -23,7 +23,7 @@ func ExtractCIDToRKeyMapping(carData []byte, collection string) (map[string]stri
 
 	// Extract all records from the specified collection
 	cidToRKey := make(map[string]string)
-	
+
 	// Iterate through all records in the collection
 	if err := r.ForEach(ctx, collection, func(k string, v cid.Cid) error {
 		// k is the rkey, v is the CID of the record

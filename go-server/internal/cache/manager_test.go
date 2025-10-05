@@ -12,11 +12,11 @@ func TestNewManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create cache manager: %v", err)
 	}
-	
+
 	if manager.cacheDir == "" {
 		t.Error("Cache directory is empty")
 	}
-	
+
 	// Check if cache directory exists
 	if _, err := os.Stat(manager.cacheDir); os.IsNotExist(err) {
 		t.Errorf("Cache directory does not exist: %s", manager.cacheDir)
@@ -49,14 +49,14 @@ func TestGetCachePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path, err := manager.GetCachePath(tt.did)
-			
+
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return
@@ -64,12 +64,12 @@ func TestGetCachePath(t *testing.T) {
 			if path == "" {
 				t.Error("Cache path is empty")
 			}
-			
+
 			// Should end with the sanitized DID (cross-platform safe)
-            expectedBase := sanitizeDID(tt.did)
-            if tt.did != "" && filepath.Base(path) != expectedBase {
-                t.Errorf("Cache path should end with sanitized DID %s, got %s", expectedBase, path)
-            }
+			expectedBase := sanitizeDID(tt.did)
+			if tt.did != "" && filepath.Base(path) != expectedBase {
+				t.Errorf("Cache path should end with sanitized DID %s, got %s", expectedBase, path)
+			}
 		})
 	}
 }

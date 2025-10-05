@@ -1,3 +1,5 @@
+//go:build experimental_sentencepiece
+
 package sentencepiece
 
 import (

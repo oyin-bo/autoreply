@@ -10,28 +10,28 @@ import (
 // Config holds application configuration
 type Config struct {
 	// Cache settings
-	CacheTTLHours     int64
-	ProfileTTLHours   int64
-	CleanupInterval   time.Duration
-	
+	CacheTTLHours   int64
+	ProfileTTLHours int64
+	CleanupInterval time.Duration
+
 	// HTTP client settings
-	RequestTimeout    time.Duration
-	DownloadTimeout   time.Duration
-	
+	RequestTimeout  time.Duration
+	DownloadTimeout time.Duration
+
 	// Server settings
-	MaxQueryLength    int
+	MaxQueryLength         int
 	MaxConcurrentDownloads int
 }
 
 // LoadConfig loads configuration from environment variables with defaults
 func LoadConfig() *Config {
 	return &Config{
-		CacheTTLHours:      getEnvInt64("CACHE_TTL_HOURS", 24),
-		ProfileTTLHours:    getEnvInt64("PROFILE_TTL_HOURS", 1),
-		CleanupInterval:    getEnvDuration("CLEANUP_INTERVAL", "1h"),
-		RequestTimeout:     getEnvDuration("REQUEST_TIMEOUT", "10s"),
-		DownloadTimeout:    getEnvDuration("DOWNLOAD_TIMEOUT", "60s"),
-		MaxQueryLength:     getEnvInt("MAX_QUERY_LENGTH", 500),
+		CacheTTLHours:          getEnvInt64("CACHE_TTL_HOURS", 24),
+		ProfileTTLHours:        getEnvInt64("PROFILE_TTL_HOURS", 1),
+		CleanupInterval:        getEnvDuration("CLEANUP_INTERVAL", "1h"),
+		RequestTimeout:         getEnvDuration("REQUEST_TIMEOUT", "10s"),
+		DownloadTimeout:        getEnvDuration("DOWNLOAD_TIMEOUT", "60s"),
+		MaxQueryLength:         getEnvInt("MAX_QUERY_LENGTH", 500),
 		MaxConcurrentDownloads: getEnvInt("MAX_CONCURRENT_DOWNLOADS", 4),
 	}
 }
@@ -62,15 +62,15 @@ func getEnvDuration(key string, defaultValue string) time.Duration {
 	if value == "" {
 		value = defaultValue
 	}
-	
+
 	if duration, err := time.ParseDuration(value); err == nil {
 		return duration
 	}
-	
+
 	// Parse default if parsing failed
 	if duration, err := time.ParseDuration(defaultValue); err == nil {
 		return duration
 	}
-	
+
 	return time.Hour // Ultimate fallback
 }

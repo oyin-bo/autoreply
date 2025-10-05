@@ -25,14 +25,14 @@ func PromptForInput(prompt string) (string, error) {
 // PromptForPassword prompts the user for a password without echoing it
 func PromptForPassword(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
-	
+
 	// Read password without echoing
 	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Fprintln(os.Stderr) // Print newline after password input
-	
+
 	if err != nil {
 		return "", fmt.Errorf("failed to read password: %w", err)
 	}
-	
+
 	return strings.TrimSpace(string(bytePassword)), nil
 }

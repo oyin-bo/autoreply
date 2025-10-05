@@ -13,13 +13,13 @@ import (
 
 // Credentials stores user authentication information
 type Credentials struct {
-	Handle       string `json:"handle"`
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	DID          string `json:"did"`
-	TokenType    string `json:"token_type,omitempty"`
+	Handle       string    `json:"handle"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	DID          string    `json:"did"`
+	TokenType    string    `json:"token_type,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at,omitempty"`
-	Scope        string `json:"scope,omitempty"`
+	Scope        string    `json:"scope,omitempty"`
 }
 
 // CredentialStore manages secure credential storage
