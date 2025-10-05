@@ -214,7 +214,7 @@ pub async fn handle_stdio() -> Result<()> {
     let stdin = tokio::io::stdin();
     let mut reader = AsyncBufReader::new(stdin).lines();
     let mut stdout = tokio::io::stdout();
-    
+
     // Track server context
     let mut context = ServerContext::new();
 

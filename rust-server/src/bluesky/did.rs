@@ -170,13 +170,9 @@ impl DidResolver {
                 )));
             }
 
-            let did_doc: DidDocument = resp
-                .json()
-                .await
-                .map_err(|e| AppError::DidResolveFailed(format!(
-                    "Failed to parse DID document: {}",
-                    e
-                )))?;
+            let did_doc: DidDocument = resp.json().await.map_err(|e| {
+                AppError::DidResolveFailed(format!("Failed to parse DID document: {}", e))
+            })?;
 
             return Ok(extract_pds(did_doc.service));
         }
@@ -203,7 +199,10 @@ impl DidResolver {
                 let resp = match self
                     .client
                     .get(&url)
-                    .header(reqwest::header::ACCEPT, "application/did+json, application/json")
+                    .header(
+                        reqwest::header::ACCEPT,
+                        "application/did+json, application/json",
+                    )
                     .send()
                     .await
                 {

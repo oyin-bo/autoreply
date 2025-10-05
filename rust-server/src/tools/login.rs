@@ -42,7 +42,10 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
             return Ok(ToolResult::from_items(content));
         } else {
             // Client doesn't support elicitation - return fallback error
-            return Ok(create_elicitation_unavailable_error(context, &elicitation.field));
+            return Ok(create_elicitation_unavailable_error(
+                context,
+                &elicitation.field,
+            ));
         }
     }
 
@@ -52,7 +55,7 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
 /// Create error message when elicitation is unavailable
 fn create_elicitation_unavailable_error(context: &ServerContext, field: &str) -> ToolResult {
     let client_name = context.get_client_name();
-    
+
     let message = if field == "password" {
         format!(
             r#"# Login via app password failed: **{} does not support interactive prompts** (MCP elicitation). Please choose one of these options:
