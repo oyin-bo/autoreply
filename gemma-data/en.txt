@@ -1,0 +1,359 @@
+home eng:physical+3 eng:social+4 eng:location+5 eng:personal+4
+house eng:physical+5 eng:social+3 eng:location+5 eng:structure+5
+apartment eng:physical+4 eng:social+3 eng:location+5 eng:dwelling+4
+office eng:physical+4 eng:social+4 eng:location+5 eng:work+5
+garden eng:physical+5 eng:natural+5 eng:location+4 eng:leisure+3
+school eng:physical+4 eng:social+5 eng:location+5 eng:education+5
+university eng:physical+4 eng:social+5 eng:location+5 eng:education+5
+work eng:action+5 eng:social+4 eng:purpose+5 eng:effort+4
+job eng:action+4 eng:social+5 eng:purpose+5 eng:economic+4
+career eng:temporal+4 eng:social+5 eng:purpose+5 eng:development+4
+computer eng:physical+5 eng:technological+5 eng:informational+4 eng:tool+5
+laptop eng:physical+5 eng:technological+5 eng:informational+4 eng:tool+5 eng:portable+4
+phone eng:physical+4 eng:technological+5 eng:communication+5 eng:tool+5
+message eng:informational+5 eng:communication+5 eng:social+3
+email eng:informational+5 eng:communication+5 eng:social+4 eng:technological+4
+call eng:action+4 eng:communication+5 eng:social+4
+meeting eng:social+5 eng:action+3 eng:informational+3 eng:event+4
+appointment eng:social+4 eng:temporal+4 eng:event+4
+holiday eng:temporal+5 eng:social+4 eng:leisure+5 eng:event+4
+vacation eng:temporal+5 eng:social+4 eng:leisure+5 eng:event+4
+travel eng:action+5 eng:physical+4 eng:motion+5 eng:purpose+3
+flight eng:action+5 eng:physical+5 eng:motion+5 eng:transport+4
+train eng:physical+5 eng:transport+5 eng:vehicle+5 eng:public+3
+car eng:physical+5 eng:transport+5 eng:vehicle+5 eng:personal+4
+drive eng:action+5 eng:physical+4 eng:motion+5 eng:control+4
+walk eng:action+5 eng:physical+5 eng:motion+5 eng:leisure+3
+run eng:action+5 eng:physical+5 eng:motion+5 eng:speed+4
+exercise eng:action+5 eng:physical+5 eng:health+5 eng:effort+4
+health eng:state+5 eng:physical+5 eng:well-being+5
+doctor eng:social+5 eng:professional+5 eng:health+5 eng:person+5
+hospital eng:physical+5 eng:social+4 eng:location+5 eng:health+5
+food eng:physical+5 eng:natural+4 eng:sustenance+5
+restaurant eng:physical+4 eng:social+4 eng:location+5 eng:food+5
+cafe eng:physical+4 eng:social+4 eng:location+5 eng:food+4
+coffee eng:physical+5 eng:natural+4 eng:stimulant+4 eng:drink+5
+tea eng:physical+5 eng:natural+4 eng:drink+5
+water eng:physical+5 eng:natural+5 eng:essential+5 eng:drink+5
+breakfast eng:event+4 eng:food+5 eng:temporal+4 eng:morning+5
+lunch eng:event+4 eng:food+5 eng:temporal+4 eng:midday+5
+dinner eng:event+4 eng:food+5 eng:temporal+4 eng:evening+5
+snack eng:food+5 eng:small+4 eng:quick+3
+book eng:physical+4 eng:informational+5 eng:leisure+3 eng:object+5
+novel eng:informational+5 eng:creative+4 eng:story+5
+story eng:informational+5 eng:creative+4 eng:narrative+5
+article eng:informational+5 eng:written+4 eng:factual+3
+news eng:informational+5 eng:temporal+4 eng:current+5
+science eng:informational+5 eng:cognitive+4 eng:knowledge+5
+research eng:action+5 eng:informational+5 eng:cognitive+4 eng:effort+4
+technology eng:informational+5 eng:cognitive+4 eng:tool+5 eng:practical+4
+internet eng:technological+5 eng:informational+5 eng:social+4 eng:global+4
+software eng:technological+5 eng:informational+5 eng:tool+5
+hardware eng:technological+5 eng:physical+5 eng:tool+5
+music eng:artistic+5 eng:auditory+5 eng:emotional+4
+song eng:artistic+5 eng:auditory+5 eng:emotional+4 eng:short+3
+movie eng:artistic+5 eng:visual+5 eng:narrative+4
+film eng:artistic+5 eng:visual+5 eng:narrative+4
+art eng:artistic+5 eng:creative+5 eng:visual+4
+painting eng:artistic+5 eng:creative+5 eng:visual+5 eng:object+4
+photo eng:visual+5 eng:representational+4 eng:object+4
+picture eng:visual+5 eng:representational+4
+camera eng:physical+5 eng:technological+5 eng:tool+5 eng:visual+4
+sport eng:action+5 eng:physical+5 eng:social+3 eng:competitive+4
+game eng:action+4 eng:social+4 eng:leisure+4 eng:rule-based+4
+play eng:action+5 eng:leisure+5 eng:social+3
+child eng:social+5 eng:person+5 eng:young+5
+parent eng:social+5 eng:person+5 eng:role+5
+family eng:social+5 eng:group+5 eng:intimate+4
+friend eng:social+5 eng:person+5 eng:relationship+5
+neighbor eng:social+5 eng:person+5 eng:location+4
+community eng:social+5 eng:group+5 eng:location+4
+city eng:location+5 eng:social+4 eng:large+4
+town eng:location+5 eng:social+4 eng:medium+4
+village eng:location+5 eng:social+4 eng:small+4
+country eng:location+5 eng:political+4 eng:large+4
+nation eng:political+5 eng:social+5 eng:group+5
+language eng:informational+5 eng:social+5 eng:communication+5
+word eng:informational+5 eng:linguistic+5
+sentence eng:informational+5 eng:linguistic+5 eng:structure+4
+question eng:informational+5 eng:communication+5 eng:social+3
+answer eng:informational+5 eng:communication+5 eng:social+3
+help eng:action+5 eng:social+5 eng:positive+4
+support eng:action+4 eng:social+5 eng:positive+4
+love eng:emotional+5 eng:positive+5 eng:social+4
+like eng:emotional+4 eng:positive+4 eng:social+3
+hate eng:emotional+5 eng:negative+5 eng:social+3
+happy eng:emotional+5 eng:positive+5
+sad eng:emotional+5 eng:negative+5
+angry eng:emotional+5 eng:negative+5
+afraid eng:emotional+5 eng:negative+5
+excited eng:emotional+5 eng:positive+4
+bored eng:emotional+4 eng:negative+4
+tired eng:physical+4 eng:state+4 eng:negative+3
+sleep eng:action+4 eng:physical+5 eng:state+5
+dream eng:cognitive+4 eng:creative+4 eng:state+4
+workout eng:action+5 eng:physical+5 eng:health+4
+fitness eng:state+4 eng:physical+5 eng:health+5
+money eng:economic+5 eng:social+4 eng:tool+4
+price eng:economic+5 eng:informational+4
+cost eng:economic+5 eng:informational+4
+cheap eng:economic+4 eng:evaluative+4 eng:negative+3
+expensive eng:economic+4 eng:evaluative+4 eng:positive+3
+buy eng:action+5 eng:economic+5 eng:social+3
+sell eng:action+5 eng:economic+5 eng:social+3
+order eng:action+4 eng:economic+4 eng:social+3
+deliver eng:action+5 eng:physical+4 eng:economic+3
+package eng:physical+4 eng:object+5 eng:economic+3
+service eng:action+4 eng:economic+5 eng:social+4
+customer eng:social+5 eng:person+5 eng:economic+4
+client eng:social+5 eng:person+5 eng:economic+4
+review eng:informational+4 eng:evaluative+4 eng:social+3
+rating eng:informational+4 eng:evaluative+5
+discount eng:economic+5 eng:positive+3
+refund eng:economic+5 eng:action+3
+warranty eng:economic+4 eng:legal+3
+return eng:action+4 eng:economic+4
+exchange eng:action+4 eng:economic+4 eng:social+3
+invoice eng:informational+5 eng:economic+5 eng:document+5
+receipt eng:informational+5 eng:economic+5 eng:document+5
+checkout eng:action+4 eng:economic+5
+cart eng:physical+4 eng:tool+4 eng:economic+4
+subscription eng:economic+5 eng:temporal+4
+renewal eng:economic+4 eng:temporal+4
+trial eng:action+3 eng:temporal+3 eng:evaluative+3
+coupon eng:economic+4 eng:tool+3
+gift eng:social+4 eng:object+4 eng:positive+4
+voucher eng:economic+4 eng:document+4
+balance eng:state+4 eng:economic+4
+budget eng:economic+5 eng:plan+4
+savings eng:economic+5 eng:future+3
+investment eng:economic+5 eng:future+4
+stock eng:economic+5 eng:financial+5
+market eng:economic+5 eng:social+4 eng:location+4
+share eng:economic+5 eng:financial+5
+bond eng:economic+5 eng:financial+5
+portfolio eng:economic+5 eng:financial+5
+asset eng:economic+5 eng:financial+5
+liability eng:economic+5 eng:financial+5
+tax eng:economic+5 eng:legal+4
+refundable eng:economic+4 eng:evaluative+3
+deduction eng:economic+4
+income eng:economic+5
+salary eng:economic+5
+wage eng:economic+5
+bonus eng:economic+4 eng:positive+4
+commission eng:economic+4
+freelance eng:economic+4 eng:work+4
+contract eng:legal+5 eng:document+5
+internship eng:work+4 eng:temporal+3
+resume eng:document+5 eng:work+4
+cv eng:document+5 eng:work+4
+cover eng:document+4 eng:work+4
+letter eng:document+5 eng:communication+4
+application eng:document+5 eng:action+3
+interview eng:social+5 eng:event+4
+candidate eng:social+4 eng:person+5
+employer eng:social+5 eng:person+5
+employee eng:social+5 eng:person+5
+colleague eng:social+5 eng:person+5
+team eng:social+5 eng:group+5
+manager eng:social+5 eng:person+5
+boss eng:social+5 eng:person+5
+leader eng:social+5 eng:person+5
+role eng:social+4
+responsibility eng:social+4
+task eng:action+4
+deadline eng:temporal+5
+priority eng:evaluative+4
+milestone eng:temporal+4 eng:goal+3
+deliverable eng:object+4 eng:goal+4
+project eng:action+5 eng:goal+5
+plan eng:cognitive+5 eng:goal+4
+strategy eng:cognitive+5 eng:goal+4
+goal eng:cognitive+5
+objective eng:cognitive+5
+vision eng:cognitive+4 eng:future+4
+mission eng:cognitive+4 eng:purpose+5
+policy eng:rule+5 eng:social+4
+procedure eng:rule+5 eng:action+4
+guideline eng:rule+4 eng:informational+4
+standard eng:rule+5 eng:evaluative+4
+compliance eng:legal+4 eng:action+3
+regulation eng:legal+5 eng:rule+5
+law eng:legal+5 eng:rule+5
+rule eng:cognitive+4 eng:social+4
+license eng:legal+4 eng:document+4
+permit eng:legal+4 eng:document+4
+certificate eng:document+5 eng:achievement+4
+accreditation eng:social+4 eng:evaluative+4
+award eng:social+4 eng:achievement+5
+recognition eng:social+4 eng:evaluative+4
+diploma eng:document+5 eng:achievement+4
+degree eng:achievement+5 eng:education+5
+major eng:education+5
+minor eng:education+5
+course eng:education+5
+semester eng:temporal+5 eng:education+4
+term eng:temporal+5 eng:education+4
+credit eng:economic+4 eng:education+4
+grade eng:evaluative+5 eng:education+4
+transcript eng:document+5 eng:education+5
+lecture eng:event+4 eng:education+5
+seminar eng:event+4 eng:education+5
+workshop eng:event+4 eng:education+4
+tutorial eng:event+4 eng:education+4
+assignment eng:task+5 eng:education+4
+homework eng:task+5 eng:education+4
+exam eng:event+5 eng:education+5
+quiz eng:event+4 eng:education+4
+assessment eng:evaluative+5 eng:education+4
+feedback eng:informational+5 eng:evaluative+4
+mentor eng:social+5 eng:person+5
+coach eng:social+5 eng:person+5
+advisor eng:social+5 eng:person+5
+faculty eng:social+5 eng:group+5
+staff eng:social+5 eng:group+5
+campus eng:location+5 eng:education+4
+library eng:location+5 eng:informational+4
+laboratory eng:location+5 eng:science+4
+researcher eng:person+5 eng:science+5
+experiment eng:action+5 eng:science+5
+data eng:informational+5
+dataset eng:informational+5
+analysis eng:cognitive+5 eng:informational+4
+report eng:document+5 eng:informational+5
+publication eng:document+5 eng:informational+5
+conference eng:event+5 eng:social+5
+presentation eng:event+4 eng:informational+4
+poster eng:document+4 eng:informational+4
+abstract eng:document+4 eng:informational+5
+citation eng:informational+4
+bibliography eng:document+4 eng:informational+4
+index eng:informational+4
+chapter eng:document+4
+paragraph eng:linguistic+4
+phrase eng:linguistic+4
+grammar eng:linguistic+5
+vocabulary eng:linguistic+5
+pronunciation eng:linguistic+4
+accent eng:linguistic+4
+dialect eng:linguistic+4
+translation eng:linguistic+5
+interpretation eng:cognitive+5
+meaning eng:cognitive+5
+definition eng:cognitive+5
+thesaurus eng:tool+4 eng:linguistic+4
+synonym eng:linguistic+4
+antonym eng:linguistic+4
+idiom eng:linguistic+4
+proverb eng:linguistic+4
+storyline eng:narrative+5
+plot eng:narrative+5
+character eng:narrative+5
+dialogue eng:communication+5
+narrative eng:creative+4
+genre eng:creative+4
+fiction eng:creative+5
+nonfiction eng:creative+5
+biography eng:narrative+5
+autobiography eng:narrative+5
+memoir eng:narrative+5
+essay eng:document+4
+column eng:document+4
+editorial eng:document+4
+headline eng:informational+5
+breaking eng:temporal+5
+update eng:informational+4
+bulletin eng:informational+4
+archive eng:storage+5
+database eng:storage+5
+server eng:technological+5
+client eng:technological+5
+request eng:communication+4
+response eng:communication+4
+protocol eng:rule+5
+socket eng:technological+4
+port eng:technological+4
+host eng:technological+4
+domain eng:technological+4
+url eng:technological+4
+endpoint eng:technological+4
+api eng:technological+5
+sdk eng:technological+5
+library eng:technological+5
+framework eng:technological+5
+module eng:technological+4
+package eng:technological+4
+dependency eng:technological+4
+version eng:informational+4
+release eng:temporal+4
+beta eng:temporal+4
+alpha eng:temporal+4
+stable eng:evaluative+4
+deprecated eng:evaluative+4
+patch eng:action+3
+hotfix eng:action+3
+debug eng:action+4
+log eng:informational+4
+trace eng:action+3
+monitor eng:action+4
+alert eng:informational+4
+dashboard eng:visual+4
+analytics eng:informational+5
+metric eng:informational+4
+event eng:temporal+4
+hook eng:technological+3
+webhook eng:technological+3
+callback eng:technological+3
+thread eng:technological+4
+process eng:technological+4
+memory eng:cognitive+4
+cache eng:technological+4
+cookie eng:technological+3
+session eng:temporal+4
+token eng:technological+4
+encryption eng:technological+5
+ssl eng:technological+5
+tls eng:technological+5
+firewall eng:technological+5
+antivirus eng:technological+5
+malware eng:technological+5
+phishing eng:action+4
+breach eng:event+4
+incident eng:event+4
+forensics eng:science+4
+audit eng:action+4
+backup eng:action+4
+restore eng:action+4
+replicate eng:action+4
+cluster eng:technological+4
+node eng:technological+4
+container eng:technological+4
+virtual eng:cognitive+4
+vm eng:technological+4
+image eng:visual+4
+snapshot eng:temporal+4
+orchestration eng:action+4
+automation eng:action+4
+scripting eng:action+4
+cron eng:temporal+4
+job eng:action+4
+pipeline eng:action+4
+ci eng:action+4
+cd eng:action+4
+build eng:action+5
+deploy eng:action+5
+staging eng:location+4
+production eng:location+4
+rollback eng:action+4
+scale eng:action+4
+autoscale eng:action+4
+latency eng:temporal+5 eng:performance+4 eng:delay+4 eng:negative+3
+throughput eng:evaluative+5 eng:performance+5 eng:rate+4
+bandwidth eng:evaluative+5 eng:performance+5 eng:capacity+4
+uptime eng:temporal+5 eng:positive+4 eng:availability+5
+downtime eng:temporal+5 eng:negative+5 eng:state+4
+maintenance eng:action+5 eng:planned+4 eng:preventive+3 eng:work+4
+outage eng:event+5 eng:negative+5 eng:disruption+5 eng:failure+4
+sla eng:legal+5 eng:agreement+4 eng:service+4 eng:contractual+4
+status eng:informational+5 eng:state+5 eng:temporal+3
