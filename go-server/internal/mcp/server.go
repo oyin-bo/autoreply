@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
+	"sync/atomic"
 
 	"github.com/oyin-bo/autoreply/go-server/pkg/errors"
 )
@@ -32,12 +34,20 @@ type Server struct {
 	tools            map[string]Tool
 	clientInfo       *ClientInfo
 	clientCapability *ClientCapabilities
+
+	// For bidirectional RPC
+	encoder          *json.Encoder
+	encoderMu        sync.Mutex
+	nextRequestID    int64
+	pendingResponses map[interface{}]chan *JSONRPCResponse
+	pendingMu        sync.Mutex
 }
 
 // NewServer creates a new MCP server
 func NewServer() (*Server, error) {
 	return &Server{
-		tools: make(map[string]Tool),
+		tools:            make(map[string]Tool),
+		pendingResponses: make(map[interface{}]chan *JSONRPCResponse),
 	}, nil
 }
 
@@ -54,14 +64,70 @@ func (s *Server) RequestElicitation(ctx context.Context, message string, schema 
 		return nil, fmt.Errorf("client does not support elicitation")
 	}
 
-	_ = ElicitationRequest{
-		Message:         message,
-		RequestedSchema: schema,
+	if s.encoder == nil {
+		return nil, fmt.Errorf("server not initialized with stdio transport")
 	}
 
-	// This is a placeholder - actual implementation would need bidirectional transport
-	// For now, we return an error to indicate elicitation is unavailable
-	return nil, fmt.Errorf("elicitation transport not yet implemented")
+	// Generate unique request ID
+	requestID := atomic.AddInt64(&s.nextRequestID, 1)
+
+	// Create response channel
+	responseChan := make(chan *JSONRPCResponse, 1)
+	s.pendingMu.Lock()
+	s.pendingResponses[requestID] = responseChan
+	s.pendingMu.Unlock()
+
+	// Cleanup on exit
+	defer func() {
+		s.pendingMu.Lock()
+		delete(s.pendingResponses, requestID)
+		s.pendingMu.Unlock()
+	}()
+
+	// Send elicitation/create request
+	request := &JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      requestID,
+		Method:  "elicitation/create",
+		Params: func() json.RawMessage {
+			params := ElicitationRequest{
+				Message:         message,
+				RequestedSchema: schema,
+			}
+			data, _ := json.Marshal(params)
+			return data
+		}(),
+	}
+
+	s.encoderMu.Lock()
+	err := s.encoder.Encode(request)
+	s.encoderMu.Unlock()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to send elicitation request: %w", err)
+	}
+
+	log.Printf("Sent elicitation/create request ID=%v", requestID)
+
+	// Wait for response or context cancellation
+	select {
+	case response := <-responseChan:
+		if response.Error != nil {
+			return nil, fmt.Errorf("elicitation error: %s", response.Error.Message)
+		}
+
+		// Parse the response
+		var elicitationResp ElicitationResponse
+		responseBytes, _ := json.Marshal(response.Result)
+		if err := json.Unmarshal(responseBytes, &elicitationResp); err != nil {
+			return nil, fmt.Errorf("failed to parse elicitation response: %w", err)
+		}
+
+		return &elicitationResp, nil
+
+	case <-ctx.Done():
+		return nil, fmt.Errorf("elicitation cancelled: %w", ctx.Err())
+	}
 }
 
 // SupportsElicitation returns true if the connected client supports elicitation
@@ -80,7 +146,7 @@ func (s *Server) GetClientName() string {
 // ServeStdio starts the server in stdio mode
 func (s *Server) ServeStdio(ctx context.Context) error {
 	decoder := json.NewDecoder(os.Stdin)
-	encoder := json.NewEncoder(os.Stdout)
+	s.encoder = json.NewEncoder(os.Stdout)
 
 	for {
 		select {
@@ -89,19 +155,53 @@ func (s *Server) ServeStdio(ctx context.Context) error {
 		default:
 		}
 
-		var request JSONRPCRequest
-		if err := decoder.Decode(&request); err != nil {
+		var rawMsg json.RawMessage
+		if err := decoder.Decode(&rawMsg); err != nil {
 			if err == io.EOF {
 				return nil
 			}
-			log.Printf("Failed to decode request: %v", err)
+			log.Printf("Failed to decode message: %v", err)
+			continue
+		}
+
+		// Try to parse as response first (has "result" or "error" field)
+		var possibleResponse JSONRPCResponse
+		if err := json.Unmarshal(rawMsg, &possibleResponse); err == nil && possibleResponse.ID != nil && (possibleResponse.Result != nil || possibleResponse.Error != nil) {
+			// This is a response to one of our requests
+			s.handleClientResponse(&possibleResponse)
+			continue
+		}
+
+		// Otherwise it's a request from client
+		var request JSONRPCRequest
+		if err := json.Unmarshal(rawMsg, &request); err != nil {
+			log.Printf("Failed to parse as request: %v", err)
 			continue
 		}
 
 		response := s.handleRequest(ctx, &request)
-		if err := encoder.Encode(response); err != nil {
+
+		s.encoderMu.Lock()
+		err := s.encoder.Encode(response)
+		s.encoderMu.Unlock()
+
+		if err != nil {
 			log.Printf("Failed to encode response: %v", err)
 		}
+	}
+}
+
+// handleClientResponse delivers a response from client to waiting goroutine
+func (s *Server) handleClientResponse(response *JSONRPCResponse) {
+	s.pendingMu.Lock()
+	responseChan, exists := s.pendingResponses[response.ID]
+	s.pendingMu.Unlock()
+
+	if exists {
+		responseChan <- response
+		log.Printf("Delivered response for request ID=%v", response.ID)
+	} else {
+		log.Printf("Warning: Received response for unknown request ID=%v", response.ID)
 	}
 }
 

@@ -5,21 +5,119 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
+use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info};
 
-/// Server context for tracking client information
+/// Server context for tracking client information and bidirectional RPC
 #[derive(Clone)]
 pub struct ServerContext {
     pub client_info: Option<ClientInfo>,
     pub client_capabilities: Option<ClientCapabilities>,
+    pub rpc_sender: Option<Arc<RpcSender>>,
+}
+
+/// RPC sender for server-to-client requests
+pub struct RpcSender {
+    next_id: AtomicI64,
+    stdout: Arc<Mutex<tokio::io::Stdout>>,
+    pending_responses: Arc<Mutex<HashMap<i64, mpsc::Sender<McpResponse>>>>,
+}
+
+impl RpcSender {
+    pub fn new(stdout: tokio::io::Stdout) -> Self {
+        Self {
+            next_id: AtomicI64::new(1),
+            stdout: Arc::new(Mutex::new(stdout)),
+            pending_responses: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Send an elicitation/create request and wait for response
+    pub async fn request_elicitation(
+        &self,
+        message: String,
+        requested_schema: Value,
+    ) -> Result<ElicitationResponse> {
+        let request_id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        
+        // Create response channel
+        let (tx, mut rx) = mpsc::channel(1);
+        
+        // Register pending response
+        {
+            let mut pending = self.pending_responses.lock().await;
+            pending.insert(request_id, tx);
+        }
+        
+        // Build and send request
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "elicitation/create",
+            "params": {
+                "message": message,
+                "requestedSchema": requested_schema
+            }
+        });
+        
+        let request_json = serde_json::to_string(&request)?;
+        debug!("Sending elicitation/create request ID={}: {}", request_id, request_json);
+        
+        {
+            let mut stdout = self.stdout.lock().await;
+            stdout.write_all(request_json.as_bytes()).await?;
+            stdout.write_all(b"\n").await?;
+            stdout.flush().await?;
+        }
+        
+        // Wait for response
+        let response = rx.recv().await
+            .ok_or_else(|| anyhow::anyhow!("Elicitation response channel closed"))?;
+        
+        // Cleanup
+        {
+            let mut pending = self.pending_responses.lock().await;
+            pending.remove(&request_id);
+        }
+        
+        // Parse response
+        if let Some(error) = response.error {
+            return Err(anyhow::anyhow!("Elicitation error: {}", error.message));
+        }
+        
+        let result = response.result
+            .ok_or_else(|| anyhow::anyhow!("Elicitation response missing result"))?;
+        
+        let elicitation_response: ElicitationResponse = serde_json::from_value(result)?;
+        Ok(elicitation_response)
+    }
+
+    /// Handle incoming response from client
+    pub async fn handle_response(&self, response: McpResponse) {
+        if let Some(Value::Number(id_num)) = &response.id {
+            if let Some(id) = id_num.as_i64() {
+                let pending = self.pending_responses.lock().await;
+                if let Some(tx) = pending.get(&id) {
+                    let _ = tx.send(response).await;
+                    debug!("Delivered response for request ID={}", id);
+                } else {
+                    debug!("Warning: Received response for unknown request ID={}", id);
+                }
+            }
+        }
+    }
 }
 
 impl ServerContext {
-    pub fn new() -> Self {
+    pub fn new(rpc_sender: Option<Arc<RpcSender>>) -> Self {
         Self {
             client_info: None,
             client_capabilities: None,
+            rpc_sender,
         }
     }
 
@@ -36,6 +134,22 @@ impl ServerContext {
             .and_then(|info| info.name.as_ref())
             .cloned()
             .unwrap_or_else(|| "Unknown Client".to_string())
+    }
+    
+    /// Request elicitation from client (if supported)
+    pub async fn request_elicitation(
+        &self,
+        message: String,
+        requested_schema: Value,
+    ) -> Result<ElicitationResponse> {
+        let rpc_sender = self.rpc_sender.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("RPC sender not initialized"))?;
+        
+        if !self.supports_elicitation() {
+            return Err(anyhow::anyhow!("Client does not support elicitation"));
+        }
+        
+        rpc_sender.request_elicitation(message, requested_schema).await
     }
 }
 
@@ -79,8 +193,6 @@ pub struct ElicitationCapability {
 }
 
 /// Elicitation request (server -> client)
-/// Placeholder for future bidirectional RPC implementation
-#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 pub struct ElicitationRequest {
     pub message: String,
@@ -89,8 +201,6 @@ pub struct ElicitationRequest {
 }
 
 /// Elicitation response (client -> server)
-/// Placeholder for future bidirectional RPC implementation
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ElicitationResponse {
     pub action: String, // "accept", "decline", "cancel"
@@ -98,7 +208,7 @@ pub struct ElicitationResponse {
 }
 
 /// MCP JSON-RPC 2.0 response structure
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct McpResponse {
     pub jsonrpc: String,
     pub id: Option<Value>,
@@ -109,7 +219,7 @@ pub struct McpResponse {
 }
 
 /// MCP Error structure
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct McpError {
     pub code: String,
     pub message: String,
@@ -213,14 +323,32 @@ pub async fn handle_stdio() -> Result<()> {
 
     let stdin = tokio::io::stdin();
     let mut reader = AsyncBufReader::new(stdin).lines();
-    let mut stdout = tokio::io::stdout();
+    let stdout = tokio::io::stdout();
 
-    // Track server context
-    let mut context = ServerContext::new();
+    // Create RPC sender for bidirectional communication
+    let rpc_sender = Arc::new(RpcSender::new(stdout));
+    
+    // Track server context with RPC sender
+    let mut context = ServerContext::new(Some(rpc_sender.clone()));
 
     while let Some(line) = reader.next_line().await? {
-        debug!("Received request: {}", line);
+        debug!("Received message: {}", line);
 
+        // Try to parse as response first (has "result" or "error" but is response to our request)
+        if let Ok(response) = serde_json::from_str::<McpResponse>(&line) {
+            if response.id.is_some() && (response.result.is_some() || response.error.is_some()) {
+                // Check if this is a response to one of our pending requests
+                if let Some(Value::Number(id_num)) = &response.id {
+                    if id_num.as_i64().is_some() {
+                        // This looks like a response to our elicitation request
+                        rpc_sender.handle_response(response).await;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Otherwise parse as request from client
         let response = match parse_request(&line) {
             Ok(request) => handle_request(request, &mut context).await,
             Err(e) => {
@@ -232,9 +360,12 @@ pub async fn handle_stdio() -> Result<()> {
         let response_json = serialize_response(&response)?;
         debug!("Sending response: {}", response_json);
 
-        stdout.write_all(response_json.as_bytes()).await?;
-        stdout.write_all(b"\n").await?;
-        stdout.flush().await?;
+        {
+            let mut stdout = rpc_sender.stdout.lock().await;
+            stdout.write_all(response_json.as_bytes()).await?;
+            stdout.write_all(b"\n").await?;
+            stdout.flush().await?;
+        }
     }
 
     Ok(())
@@ -359,7 +490,7 @@ mod tests {
             method: "initialize".into(),
             params: None,
         };
-        let mut context = ServerContext::new();
+        let mut context = ServerContext::new(None);
         let resp = handle_request(req, &mut context).await;
         assert!(resp.error.is_none());
         let result = resp.result.expect("result present");
@@ -389,7 +520,7 @@ mod tests {
             method: "tools/list".into(),
             params: None,
         };
-        let mut context = ServerContext::new();
+        let mut context = ServerContext::new(None);
         let resp = handle_request(req, &mut context).await;
         assert!(resp.error.is_none());
         let result = resp.result.expect("result present");
@@ -408,4 +539,433 @@ mod tests {
         assert!(names.contains(&"profile".to_string()));
         assert!(names.contains(&"search".to_string()));
     }
+
+    #[tokio::test]
+    async fn test_server_context_supports_elicitation() {
+        // Test with elicitation support
+        let context_with = ServerContext {
+            client_info: None,
+            client_capabilities: Some(ClientCapabilities {
+                elicitation: Some(ElicitationCapability {}),
+            }),
+            rpc_sender: None,
+        };
+        assert!(context_with.supports_elicitation());
+
+        // Test without elicitation support
+        let context_without = ServerContext {
+            client_info: None,
+            client_capabilities: Some(ClientCapabilities { elicitation: None }),
+            rpc_sender: None,
+        };
+        assert!(!context_without.supports_elicitation());
+
+        // Test with no capabilities
+        let context_none = ServerContext::new(None);
+        assert!(!context_none.supports_elicitation());
+    }
+
+    #[tokio::test]
+    async fn test_server_context_get_client_name() {
+        // Test with client name
+        let context_with_name = ServerContext {
+            client_info: Some(ClientInfo {
+                name: Some("Test Client".to_string()),
+                version: None,
+            }),
+            client_capabilities: None,
+            rpc_sender: None,
+        };
+        assert_eq!(context_with_name.get_client_name(), "Test Client");
+
+        // Test without client name
+        let context_without = ServerContext::new(None);
+        assert_eq!(context_without.get_client_name(), "Unknown Client");
+
+        // Test with empty client name
+        let context_empty = ServerContext {
+            client_info: Some(ClientInfo {
+                name: Some("".to_string()),
+                version: None,
+            }),
+            client_capabilities: None,
+            rpc_sender: None,
+        };
+        assert_eq!(context_empty.get_client_name(), "");
+    }
+
+    #[tokio::test]
+    async fn test_request_elicitation_no_sender() {
+        // Context with capability but no RPC sender (checks sender first)
+        let context = ServerContext {
+            client_info: None,
+            client_capabilities: Some(ClientCapabilities {
+                elicitation: Some(ElicitationCapability {}),
+            }),
+            rpc_sender: None,
+        };
+
+        let result = context
+            .request_elicitation("Test".to_string(), json!({}))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("RPC sender not initialized"));
+    }
+
+    #[tokio::test]
+    async fn test_request_elicitation_no_capability() {
+        // Context with sender but no elicitation capability
+        // Need actual stdout for sender, so we'll create context differently
+        let stdout = tokio::io::stdout();
+        let rpc_sender = Arc::new(RpcSender::new(stdout));
+        
+        let context = ServerContext {
+            client_info: None,
+            client_capabilities: Some(ClientCapabilities { elicitation: None }),
+            rpc_sender: Some(rpc_sender),
+        };
+
+        let result = context
+            .request_elicitation("Test".to_string(), json!({}))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("does not support elicitation"));
+    }
+
+    #[tokio::test]
+    async fn test_rpc_sender_construction() {
+        let stdout = tokio::io::stdout();
+        let sender = RpcSender::new(stdout);
+        
+        // Verify initial state
+        assert_eq!(sender.next_id.load(Ordering::SeqCst), 1);
+        
+        // Verify pending responses is empty
+        let pending = sender.pending_responses.lock().await;
+        assert_eq!(pending.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_request_id_uniqueness() {
+        let stdout = tokio::io::stdout();
+        let sender = RpcSender::new(stdout);
+        
+        // Generate multiple IDs
+        let id1 = sender.next_id.fetch_add(1, Ordering::SeqCst);
+        let id2 = sender.next_id.fetch_add(1, Ordering::SeqCst);
+        let id3 = sender.next_id.fetch_add(1, Ordering::SeqCst);
+        
+        // Verify uniqueness and ordering
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+        assert_eq!(id3, 3);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_request_id_generation() {
+        use std::collections::HashSet;
+        use tokio::task;
+        
+        let stdout = tokio::io::stdout();
+        let sender = Arc::new(RpcSender::new(stdout));
+        
+        // Spawn 20 concurrent tasks generating IDs
+        let mut handles = vec![];
+        for _ in 0..20 {
+            let sender_clone = sender.clone();
+            let handle = task::spawn(async move {
+                sender_clone.next_id.fetch_add(1, Ordering::SeqCst)
+            });
+            handles.push(handle);
+        }
+        
+        // Collect all IDs
+        let mut ids = HashSet::new();
+        for handle in handles {
+            let id = handle.await.unwrap();
+            ids.insert(id);
+        }
+        
+        // Verify all IDs are unique
+        assert_eq!(ids.len(), 20, "All 20 IDs should be unique");
+        
+        // Verify IDs are in expected range (1-20)
+        for id in &ids {
+            assert!(*id >= 1 && *id <= 20, "ID {} should be in range 1-20", id);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_response_delivers_to_pending() {
+        let stdout = tokio::io::stdout();
+        let sender = RpcSender::new(stdout);
+        
+        // Create a pending response channel
+        let (tx, mut rx) = mpsc::channel(1);
+        {
+            let mut pending = sender.pending_responses.lock().await;
+            pending.insert(42, tx);
+        }
+        
+        // Simulate incoming response
+        let response = McpResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(42)),
+            result: Some(json!({"type": "response", "data": "test"})),
+            error: None,
+        };
+        
+        sender.handle_response(response.clone()).await;
+        
+        // Verify response was delivered
+        let received = rx.recv().await.expect("Should receive response");
+        assert_eq!(received.id, Some(json!(42)));
+        assert!(received.result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_handle_response_unknown_id() {
+        let stdout = tokio::io::stdout();
+        let sender = RpcSender::new(stdout);
+        
+        // No pending responses registered
+        
+        // Simulate incoming response with unknown ID
+        let response = McpResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(999)),
+            result: Some(json!({"type": "response"})),
+            error: None,
+        };
+        
+        // Should not panic, just log warning
+        sender.handle_response(response).await;
+        
+        // Verify pending is still empty
+        let pending = sender.pending_responses.lock().await;
+        assert_eq!(pending.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_handle_response_malformed_id_string() {
+        let stdout = tokio::io::stdout();
+        let sender = RpcSender::new(stdout);
+        
+        // Response with string ID (should be ignored - not a number)
+        let response = McpResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!("not-a-number")),
+            result: Some(json!({"data": "test"})),
+            error: None,
+        };
+        
+        sender.handle_response(response).await;
+        // Should not panic
+    }
+
+    #[tokio::test]
+    async fn test_handle_response_null_id() {
+        let stdout = tokio::io::stdout();
+        let sender = RpcSender::new(stdout);
+        
+        // Response with null ID
+        let response = McpResponse {
+            jsonrpc: "2.0".to_string(),
+            id: None,
+            result: Some(json!({"data": "test"})),
+            error: None,
+        };
+        
+        sender.handle_response(response).await;
+        // Should not panic
+    }
+
+    #[tokio::test]
+    async fn test_request_elicitation_error_response() {
+        use tokio::io::AsyncWriteExt;
+        use std::sync::Arc;
+        
+        // Create an in-memory buffer to capture stdout
+        let (_reader, _writer) = tokio::io::duplex(1024);
+        let sender = Arc::new(RpcSender::new(tokio::io::stdout()));
+        
+        // We can't easily test the full cycle without refactoring, but we can test
+        // error response handling by creating a mock response
+        let error_response = McpResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            result: None,
+            error: Some(McpError {
+                code: "-32602".to_string(),
+                message: "Invalid params".to_string(),
+            }),
+        };
+        
+        // Create channel to simulate pending request
+        let (tx, mut rx) = mpsc::channel(1);
+        {
+            let mut pending = sender.pending_responses.lock().await;
+            pending.insert(1, tx);
+        }
+        
+        // Deliver error response
+        sender.handle_response(error_response).await;
+        
+        // Verify error was delivered
+        let received = rx.recv().await.expect("Should receive error response");
+        assert!(received.error.is_some());
+        assert_eq!(received.error.as_ref().unwrap().message, "Invalid params");
+        assert!(received.result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_pending_response_cleanup_after_delivery() {
+        let stdout = tokio::io::stdout();
+        let sender = RpcSender::new(stdout);
+        
+        // Create pending response
+        let (tx, mut rx) = mpsc::channel(1);
+        {
+            let mut pending = sender.pending_responses.lock().await;
+            pending.insert(100, tx);
+        }
+        
+        // Verify it's registered
+        {
+            let pending = sender.pending_responses.lock().await;
+            assert_eq!(pending.len(), 1);
+        }
+        
+        // Deliver response
+        let response = McpResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(100)),
+            result: Some(json!({"status": "ok"})),
+            error: None,
+        };
+        sender.handle_response(response).await;
+        
+        // Receive it
+        let _ = rx.recv().await;
+        
+        // Note: In current implementation, cleanup happens in request_elicitation
+        // after receiving, not in handle_response. This test shows the response
+        // is still in pending map after delivery.
+        let pending = sender.pending_responses.lock().await;
+        assert_eq!(pending.len(), 1, "Cleanup happens in request_elicitation, not handle_response");
+    }
+
+    #[tokio::test]
+    async fn test_multiple_concurrent_pending_responses() {
+        use std::collections::HashSet;
+        
+        let stdout = tokio::io::stdout();
+        let sender = Arc::new(RpcSender::new(stdout));
+        
+        // Create 10 pending responses
+        let mut receivers = vec![];
+        for i in 1..=10 {
+            let (tx, rx) = mpsc::channel(1);
+            {
+                let mut pending = sender.pending_responses.lock().await;
+                pending.insert(i, tx);
+            }
+            receivers.push((i, rx));
+        }
+        
+        // Verify all registered
+        {
+            let pending = sender.pending_responses.lock().await;
+            assert_eq!(pending.len(), 10);
+        }
+        
+        // Send responses out of order
+        for i in vec![3, 7, 1, 9, 2, 5, 10, 4, 8, 6] {
+            let response = McpResponse {
+                jsonrpc: "2.0".to_string(),
+                id: Some(json!(i)),
+                result: Some(json!({"request_id": i})),
+                error: None,
+            };
+            sender.handle_response(response).await;
+        }
+        
+        // Verify all responses received correctly
+        let mut received_ids = HashSet::new();
+        for (expected_id, mut rx) in receivers {
+            let response = rx.recv().await.expect("Should receive response");
+            if let Some(Value::Number(id)) = response.id {
+                let id_val = id.as_i64().unwrap();
+                assert_eq!(id_val, expected_id);
+                received_ids.insert(id_val);
+            }
+        }
+        
+        assert_eq!(received_ids.len(), 10, "All 10 responses should be received");
+    }
+
+    #[tokio::test]
+    async fn test_response_with_missing_result() {
+        let stdout = tokio::io::stdout();
+        let sender = RpcSender::new(stdout);
+        
+        let (tx, mut rx) = mpsc::channel(1);
+        {
+            let mut pending = sender.pending_responses.lock().await;
+            pending.insert(50, tx);
+        }
+        
+        // Response with neither result nor error (malformed)
+        let response = McpResponse {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(50)),
+            result: None,
+            error: None,
+        };
+        
+        sender.handle_response(response).await;
+        
+        let received = rx.recv().await.expect("Should receive response");
+        assert!(received.result.is_none());
+        assert!(received.error.is_none());
+        // This would cause an error in request_elicitation which checks for result
+    }
+
+    #[tokio::test]
+    async fn test_elicitation_response_schema_parsing() {
+        // Test that ElicitationResponse can be parsed from valid JSON
+        let json_response = json!({
+            "action": "accept",
+            "content": {"field": "value"}
+        });
+        
+        let parsed: Result<ElicitationResponse, _> = serde_json::from_value(json_response);
+        assert!(parsed.is_ok());
+        
+        let response = parsed.unwrap();
+        assert_eq!(response.action, "accept");
+        assert!(response.content.is_some());
+        assert!(response.content.unwrap().is_object());
+    }
+
+    #[tokio::test]
+    async fn test_elicitation_response_schema_invalid() {
+        // Test that invalid schema fails to parse
+        let json_response = json!({
+            // Missing action field
+            "content": {"field": "value"}
+        });
+        
+        let parsed: Result<ElicitationResponse, _> = serde_json::from_value(json_response);
+        assert!(parsed.is_err(), "Should fail to parse invalid schema");
+    }
 }
+
