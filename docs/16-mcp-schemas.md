@@ -28,8 +28,7 @@ In both cases, the tool result is effectively a single block of text, formatted 
 - `login`
 	- Input schema: object with optional `handle` (string), optional `password` (string), optional `prompt_id` (string), optional `port` (integer).
 	- Output: returns `mcp.ToolResult` with `ContentItem`s. Behavior:
-		- For elicitation, returns an `input_text` content item with `Metadata` containing a JSON object with `prompt_id` and `field`.
-		- On success or informative failures, returns a `text` content item with Markdown. No dedicated structured success object is returned; metadata is only used for elicitation prompts.
+		- On success or informative failures, returns a `text` content item with Markdown. No dedicated structured success object is returned.
 
 - `logout`
 	- Input schema: object with optional `handle` (string).
@@ -48,7 +47,6 @@ In both cases, the tool result is effectively a single block of text, formatted 
 - `login` (handler `tools::login::handle_login`)
 	- Input schema: generated from `cli::LoginCommand` (exposed via `tools/list`). Typically contains `handle`, `password`, etc.
 	- Output: returns a `ToolResult` (serialized into the RPC `result`) with one or more `ContentItem`s:
-		- If elicitation is required, returns an `input_text` `ContentItem` and may also include a preceding `text` `ContentItem` with an explanatory message. The `input_text` metadata contains `prompt_id` and `field` as JSON.
 		- On success, returns a `text` `ContentItem` with Markdown. No distinct structured success object is returned.
 
 - `profile` (handler `tools::profile::handle_profile`)
@@ -72,8 +70,6 @@ Notes (non-functional)
 Acceptance criteria (final)
  - `tools/list` exposes `login`, `profile`, `search` with matching schemas.
  - Login subcommands `list|default|delete` replicate existing `accounts` behavior.
- - Elicitation uses `input_text` `ContentItem` with `metadata` containing `prompt_id` and `field`.
- - No loss of credential storage semantics (keyring + file fallback preserved).
 
 # Simplify tool schema: The Plan
 
@@ -100,13 +96,10 @@ Check out my project!
 And our tool outputs:
 
 ```markdown
-## Post 1 · 2h ago
-
-Check out my project!
+@alice/3kq6b3f1
 ## Features
 - Fast
 - Simple
-
 👍 12
 ```
 
@@ -117,14 +110,11 @@ How does the LLM know `## Features` is user content, not a tool section header?
 Prefix user content lines with `>` — the Markdown blockquote syntax. This clearly delimits content from structure:
 
 ```markdown
-## Post 1 · 2h ago · @alice
-
-> Check out my project!
+@alice/3kq6b3f1
 > ## Features
 > - Fast
 > - Simple
-
-👍 12  ♻️ 3
+👍 12  💬 4  2024-10-06T10:05:33Z
 ```
 
 **Why this works:**
@@ -137,147 +127,44 @@ Prefix user content lines with `>` — the Markdown blockquote syntax. This clea
 
 ## Design Conventions
 
-### Emoji Vocabulary
-- `👍 14` — likes
-- `♻️ 7` — reposts  
-- `💬 3` — reply count
-- `📷` / `🎥` — media
-- `✓` — success
-- `⚠️` — warnings
+### Posts in threads, search, feed: The Standard Format
 
-### Structure
-- **H1**: Tool result title  
-- **H2**: Individual items (posts, profiles)
-- **H3/H4**: Subsections (replies in threads)
-- **Relative time**: "2h ago" not ISO (unless debugging)
-- **Compact metrics**: One line, emoji-prefixed
-- **Progressive disclosure**: `<details>` for raw data/debugging
-
-## Example Outputs
-
-### Profile (Enhanced)
-```markdown
-# @alice.bsky.social
-
-Software engineer 🐕 dog lover | Building cool things
-
-📊 Joined May 2023 · 1.2K followers · 843 following
-
-<details><summary>Technical</summary>
-DID: did:plc:abc123...
-</details>
-```
-
-### Search (Enhanced)
-```markdown
-# Search: "climate" in @scientist
-
-Found 23 posts
-
----
-
-## Post 1 · 2h ago · @scientist
-
-  New IPCC report shows **climate** crisis acceleration.
-  We need action now. 🌍
-
-👍 142  ♻️ 67  💬 23
-
----
-
-## Post 2 · 1d ago · @scientist
-
-  Thread on **climate** solutions (1/5)...
-
-👍 89  ♻️ 34  💬 12
-```
-
-### Feed (New Tool)
-```markdown
-# Following · 50 posts
-
-## @bob.dev · 3m
-  Just shipped! 🚀
-👍 5  ♻️ 2
-
-## @carol · 15m  
-  Thread on writing... (1/7)
-👍 23  ♻️ 8  💬 4
-
-## @dave · 1h · ↻ @original
-  Amazing artwork... 📷
-👍 156  ♻️ 89
-
-→ More (cursor: abc123)
-```
-
-**Ultra-compact variant** for mass analysis:
-```markdown
-# Following · 50 posts
-
-@bob · 3m — Shipped! 🚀 · 👍5
-@carol · 15m — Writing thread (1/7) · 👍23 💬4
-@dave · 1h · ↻@original — Artwork 📷 · 👍156
-```
-
-### Thread (New Tool)
 ```markdown
 # Thread · 8 posts
 
-## Original · @alice · 4h ago
+@alice/3kq8a3f1
+> Hot take: Markdown > JSON for LLM tools
+👍 234  ♻️ 89  💬 45  2024-10-06T10:15:33Z
 
-  Hot take: Markdown > JSON for LLM tools
+└─@a/…a3f1 → @bob/3kq8b2e4
+> Agree! But what about content escaping?
+👍 12  2024-10-06T10:18:56Z
 
-👍 234  ♻️ 89  💬 45
+  └@b/…8b2e4 → @bob/3kq8b10F
+> Indent user content. Simple.
+👍 8  2024-10-06T10:25:33Z
 
----
+└─@a/…a3f1 → @carol/3kq8d9f3
+> Disagree. JSON has structure...
+👍 45  💬 7  2024-10-06T12:03:41Z
 
-### @bob · 3h ago
+  └─@c/…d9f3 → @alice/3kq8e5a2
+> Because LLMs parse language, not schemas
+👍 23  2024-10-06T12:30:15Z
 
-  Agree! But what about content escaping?
-
-👍 12
-
-#### @alice · 3h ago
-
-  Indent user content. Simple.
-
-👍 8
-
----
-
-### @carol · 2h ago
-
-  Disagree. JSON has structure...
-
-👍 45  💬 7
+   └─@c/…d9f3 → @alice/3kq8e5a2
+> What about nested threads?
+👍 5  2024-10-06T13:10:52Z
 ```
 
-### Action Confirmations
-```markdown
-✓ Logged in as @alice.bsky.social
+The thread indicators are only there on the first line of the post. That keeps the subsequent Markdown of the post content/stats untainted and valid blockquote-style.
 
-✓ Posted at://did:plc:.../3k...
+The indentation is reflecting from which level the reply is going.
 
-✓ Liked 3 posts
+The first extra-compacted link is for disambiguation to which post this one is replying. It uses only first letter of the handle, and only last four digits of the ref key. But if that replied-to post is not in the current thread, a full @handle/refkey is used without compaction.
 
-⚠️ Delete failed: Post not found
-```
+The content of the post is then block-quoted.
 
-## Implementation Notes
+Images are converted to Markdown notation below the text, (still inside block quote or no?) with ALT text used in the square brackets as intended.
 
-**Keep input schemas** — they're fine. Clear, typed, documented.
-
-**Eliminate output schemas** — just return `ToolResult { content: [text] }`. No `isError`, no metadata (except elicitation).
-
-**Token efficiency** — measured on real data: 45% reduction per post. For 50-post feeds: ~1000 tokens saved.
-
-**Testing** — validate with actual LLMs. Can they summarize feeds? Understand threads? Parse profiles? Success = comprehension, not JSON validity.
-
-**Future tools** need same treatment:
-- `feed` — critical (most-used tool)
-- `thread` — critical (conversation context)
-- `post_details` — useful for engagement analysis
-- `post` / `delete` / `like` — simple confirmations
-
-This positions **autoreply** as best-in-class for LLM-native tool design.
+The stats and the timestamp go last.
