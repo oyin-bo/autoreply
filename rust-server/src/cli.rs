@@ -46,10 +46,10 @@ pub struct ProfileArgs {
 /// Search tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
 pub struct SearchArgs {
-    /// Handle or DID
+    /// Handle or DID (optional when login is provided)
     #[arg(short = 'a', long)]
-    #[schemars(description = "Handle or DID")]
-    pub account: String,
+    #[schemars(description = "Handle or DID (optional when login is provided)")]
+    pub account: Option<String>,
 
     /// Search terms (case-insensitive)
     #[arg(short = 'q', long)]
@@ -60,6 +60,11 @@ pub struct SearchArgs {
     #[arg(short = 'l', long)]
     #[schemars(description = "Maximum number of results (default 50, max 200)")]
     pub limit: Option<usize>,
+
+    /// Login account name for authenticated search
+    #[arg(long)]
+    #[schemars(description = "Login account name for authenticated search")]
+    pub login: Option<String>,
 }
 
 /// Login command with subcommands for account management
@@ -120,11 +125,12 @@ mod tests {
     #[test]
     fn test_search_args() {
         let args = SearchArgs {
-            account: "bob.bsky.social".to_string(),
+            account: Some("bob.bsky.social".to_string()),
             query: "rust programming".to_string(),
             limit: Some(10),
+            login: None,
         };
-        assert_eq!(args.account, "bob.bsky.social");
+        assert_eq!(args.account, Some("bob.bsky.social".to_string()));
         assert_eq!(args.query, "rust programming");
         assert_eq!(args.limit, Some(10));
     }
