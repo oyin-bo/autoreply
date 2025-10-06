@@ -112,41 +112,28 @@ Check out my project!
 
 How does the LLM know `## Features` is user content, not a tool section header?
 
-### The Solution: Content Indentation
+### The Solution: Blockquote Prefix
 
-Indent user content by 2 spaces. Markdown headers require column-0 positioning, so indented `##` renders as plain text:
+Prefix user content lines with `>` — the Markdown blockquote syntax. This clearly delimits content from structure:
 
 ```markdown
 ## Post 1 · 2h ago · @alice
 
-  Check out my project!
-  ## Features
-  - Fast
-  - Simple
+> Check out my project!
+> ## Features
+> - Fast
+> - Simple
 
 👍 12  ♻️ 3
 ```
 
 **Why this works:**
-- Visually distinguishes content from structure
-- Preserves user's original text (no escaping)
-- Simple to implement (add 2 spaces per line)
-- Clean and readable
-- LLMs easily understand the convention
-
-**Edge case**: User lists still render (Markdown allows indented lists). If this becomes an issue, use a subtle prefix:
-
-```markdown
-## Post 1 · 2h ago · @alice
-
-│ Check out my project!
-│ ## Features
-│ - Fast
-
-👍 12
-```
-
-The `│` (box drawing char) clearly marks content boundaries while staying readable.
+- Unambiguous: blockquotes are visually distinct
+- Familiar: `>` is standard Markdown, widely understood
+- Simple: prepend `> ` to each content line
+- LLMs trained on this convention (email replies, forum quotes)
+- Renders nicely in Markdown viewers (indented block)
+- User's Markdown stays intact inside the quote
 
 ## Design Conventions
 
