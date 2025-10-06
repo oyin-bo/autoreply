@@ -30,16 +30,16 @@ func TestHighlightMatches(t *testing.T) {
 
 func TestValidateInput_Errors(t *testing.T) {
 	tool := NewSearchTool()
-	// Missing account
-	if _, _, _, err := tool.validateInput(map[string]interface{}{"query": "x"}); err == nil {
-		t.Fatal("expected error for missing account")
+	// Missing both account and login
+	if _, _, _, _, err := tool.validateInput(map[string]interface{}{"query": "x"}); err == nil {
+		t.Fatal("expected error for missing account and login")
 	}
 	// Non-string account
-	if _, _, _, err := tool.validateInput(map[string]interface{}{"account": 123, "query": "x"}); err == nil {
+	if _, _, _, _, err := tool.validateInput(map[string]interface{}{"account": 123, "query": "x"}); err == nil {
 		t.Fatal("expected error for non-string account")
 	}
 	// Empty query
-	if _, _, _, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": "  "}); err == nil {
+	if _, _, _, _, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": "  "}); err == nil {
 		t.Fatal("expected error for empty query")
 	}
 	// Very long query
@@ -47,14 +47,14 @@ func TestValidateInput_Errors(t *testing.T) {
 	for i := range long {
 		long[i] = 'a'
 	}
-	if _, _, _, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": string(long)}); err == nil {
+	if _, _, _, _, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": string(long)}); err == nil {
 		t.Fatal("expected error for too long query")
 	}
 }
 
 func TestValidateInput_OkAndLimit(t *testing.T) {
 	tool := NewSearchTool()
-	acc, q, lim, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": "HeLLo"})
+	acc, q, _, lim, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": "HeLLo"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestValidateInput_OkAndLimit(t *testing.T) {
 		t.Fatalf("default limit got %d want 50", lim)
 	}
 
-	_, _, lim2, err := tool.validateInput(map[string]interface{}{"account": "t.bsky.social", "query": "x", "limit": 500})
+	_, _, _, lim2, err := tool.validateInput(map[string]interface{}{"account": "t.bsky.social", "query": "x", "limit": 500})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -76,12 +76,71 @@ func TestValidateInput_OkAndLimit(t *testing.T) {
 		t.Fatalf("limit clamp got %d want 200", lim2)
 	}
 
-	_, _, lim3, err := tool.validateInput(map[string]interface{}{"account": "t.bsky.social", "query": "x", "limit": -5})
+	_, _, _, lim3, err := tool.validateInput(map[string]interface{}{"account": "t.bsky.social", "query": "x", "limit": -5})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if lim3 != 1 {
 		t.Fatalf("limit clamp got %d want 1", lim3)
+	}
+}
+
+func TestNormalizeHandle(t *testing.T) {
+	cases := []struct{ in, out string }{
+		{"alice.bsky.social", "alice.bsky.social"},
+		{"@alice.bsky.social", "alice.bsky.social"},
+		{"  @bob.bsky.social  ", "bob.bsky.social"},
+		{"   carol.bsky.social", "carol.bsky.social"},
+	}
+	for _, c := range cases {
+		got := normalizeHandle(c.in)
+		if got != c.out {
+			t.Fatalf("normalizeHandle(%q) = %q, want %q", c.in, got, c.out)
+		}
+	}
+}
+
+func TestValidateInput_WithLogin(t *testing.T) {
+	tool := NewSearchTool()
+	
+	// Test with login only
+	acc, q, login, lim, err := tool.validateInput(map[string]interface{}{"login": "alice.bsky.social", "query": "test"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if acc != "" {
+		t.Fatalf("account should be empty, got %q", acc)
+	}
+	if login != "alice.bsky.social" {
+		t.Fatalf("login got %q", login)
+	}
+	if q != "test" {
+		t.Fatalf("query got %q", q)
+	}
+	if lim != 50 {
+		t.Fatalf("default limit got %d want 50", lim)
+	}
+
+	// Test with both account and login
+	acc2, q2, login2, lim2, err := tool.validateInput(map[string]interface{}{
+		"account": "bob.bsky.social",
+		"login": "alice.bsky.social",
+		"query": "search",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if acc2 != "bob.bsky.social" {
+		t.Fatalf("account got %q", acc2)
+	}
+	if login2 != "alice.bsky.social" {
+		t.Fatalf("login got %q", login2)
+	}
+	if q2 != "search" {
+		t.Fatalf("query got %q", q2)
+	}
+	if lim2 != 50 {
+		t.Fatalf("default limit got %d want 50", lim2)
 	}
 }
 

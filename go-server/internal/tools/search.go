@@ -3,11 +3,14 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/oyin-bo/autoreply/go-server/internal/auth"
 	"github.com/oyin-bo/autoreply/go-server/internal/bluesky"
 	"github.com/oyin-bo/autoreply/go-server/internal/cache"
 	"github.com/oyin-bo/autoreply/go-server/internal/mcp"
@@ -47,7 +50,7 @@ func (t *SearchTool) InputSchema() mcp.InputSchema {
 		Properties: map[string]mcp.PropertySchema{
 			"account": {
 				Type:        "string",
-				Description: "Handle (alice.bsky.social) or DID (did:plc:...)",
+				Description: "Handle (alice.bsky.social) or DID (did:plc:...) - optional when login is provided",
 			},
 			"query": {
 				Type:        "string",
@@ -57,63 +60,66 @@ func (t *SearchTool) InputSchema() mcp.InputSchema {
 				Type:        "integer",
 				Description: "Maximum number of results (default 50, max 200)",
 			},
+			"login": {
+				Type:        "string",
+				Description: "Login account name for authenticated search",
+			},
 		},
-		Required: []string{"account", "query"},
+		Required: []string{"query"},
 	}
 }
 
 // Call executes the search tool
 func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp.Server) (*mcp.ToolResult, error) {
 	// Extract and validate parameters
-	account, query, limit, err := t.validateInput(args)
+	account, query, login, limit, err := t.validateInput(args)
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve handle to DID
-	did, err := t.didResolver.ResolveHandle(ctx, account)
-	if err != nil {
-		return nil, err
-	}
+	// Perform search based on parameters
+	var carPosts, apiPosts []*bluesky.ParsedPost
+	var displayHandle string
 
-	// Fetch repository if needed
-	if err := t.carProcessor.FetchRepository(ctx, did); err != nil {
-		return nil, err
-	}
+	if login != "" {
+		// Login-based search
+		normalizedLogin := normalizeHandle(login)
+		displayHandle = normalizedLogin
 
-	// Search posts
-	posts, err := t.carProcessor.SearchPosts(did, query)
-	if err != nil {
-		return nil, err
-	}
-
-	// Sort by CreatedAt descending (ISO8601 strings; parse for robustness)
-	sort.Slice(posts, func(i, j int) bool {
-		ti, ei := time.Parse(time.RFC3339, posts[i].CreatedAt)
-		tj, ej := time.Parse(time.RFC3339, posts[j].CreatedAt)
-		if ei == nil && ej == nil {
-			return tj.Before(ti)
+		// Perform API search
+		apiResults, err := t.searchViaAPI(ctx, normalizedLogin, query, limit)
+		if err != nil {
+			return nil, err
 		}
-		// Fallback to string compare
-		return posts[i].CreatedAt > posts[j].CreatedAt
-	})
+		apiPosts = apiResults
 
-	// Apply limit (default 50, max 200)
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
-	}
-	if len(posts) > limit {
-		posts = posts[:limit]
+		// If account is also provided, perform CAR search
+		if account != "" {
+			carResults, err := t.performCARSearch(ctx, account, query, limit)
+			if err != nil {
+				return nil, err
+			}
+			carPosts = carResults
+		}
+	} else if account != "" {
+		// Traditional CAR-only search
+		carResults, err := t.performCARSearch(ctx, account, query, limit)
+		if err != nil {
+			return nil, err
+		}
+		carPosts = carResults
+		displayHandle = account
 	}
 
-	// URIs are now constructed directly from MST during search
-	// No HTTP requests needed!
+	// Merge and deduplicate results
+	mergedPosts := mergeAndDeduplicateResults(carPosts, apiPosts)
+
+	if len(mergedPosts) == 0 {
+		return nil, errors.NewMCPError(errors.NotFound, fmt.Sprintf("No posts found matching query '%s'", query))
+	}
 
 	// Format results as markdown
-	markdown := t.formatSearchResults(account, query, posts)
+	markdown := t.formatSearchResults(displayHandle, query, mergedPosts)
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{
@@ -126,40 +132,48 @@ func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 }
 
 // validateInput validates the input parameters
-func (t *SearchTool) validateInput(args map[string]interface{}) (account, query string, limit int, err error) {
-	// Validate account
-	accountRaw, ok := args["account"]
-	if !ok {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "account parameter is required")
+func (t *SearchTool) validateInput(args map[string]interface{}) (account, query, login string, limit int, err error) {
+	// Extract account (optional if login is provided)
+	if accountRaw, ok := args["account"]; ok {
+		account, ok = accountRaw.(string)
+		if !ok {
+			return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "account must be a string")
+		}
+		account = strings.TrimSpace(account)
 	}
 
-	account, ok = accountRaw.(string)
-	if !ok {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "account must be a string")
+	// Extract login (optional)
+	if loginRaw, ok := args["login"]; ok {
+		login, ok = loginRaw.(string)
+		if !ok {
+			return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "login must be a string")
+		}
+		login = strings.TrimSpace(login)
 	}
 
-	if strings.TrimSpace(account) == "" {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "account cannot be empty")
+	// Validate that either account or login is provided
+	if account == "" && login == "" {
+		return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "Either 'account' or 'login' parameter must be provided")
 	}
 
 	// Validate query
 	queryRaw, ok := args["query"]
 	if !ok {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "query parameter is required")
+		return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "query parameter is required")
 	}
 
 	query, ok = queryRaw.(string)
 	if !ok {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "query must be a string")
+		return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "query must be a string")
 	}
 
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "query cannot be empty")
+		return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "query cannot be empty")
 	}
 
 	if len(query) > 500 {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "query cannot exceed 500 characters")
+		return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "query cannot exceed 500 characters")
 	}
 
 	// Normalize query for consistent search
@@ -188,7 +202,7 @@ func (t *SearchTool) validateInput(args map[string]interface{}) (account, query 
 		limit = 200
 	}
 
-	return account, query, limit, nil
+	return account, query, login, limit, nil
 }
 
 // normalizeText normalizes text for consistent searching
@@ -197,6 +211,150 @@ func normalizeText(text string) string {
 	normalized := norm.NFKC.String(text)
 
 	return strings.ToLower(normalized)
+}
+
+// normalizeHandle removes @ prefix and trims whitespace
+func normalizeHandle(handle string) string {
+	return strings.TrimPrefix(strings.TrimSpace(handle), "@")
+}
+
+// performCARSearch performs CAR-based search on an account's repository
+func (t *SearchTool) performCARSearch(ctx context.Context, account, query string, limit int) ([]*bluesky.ParsedPost, error) {
+	// Resolve handle to DID
+	did, err := t.didResolver.ResolveHandle(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch repository if needed
+	if err := t.carProcessor.FetchRepository(ctx, did); err != nil {
+		return nil, err
+	}
+
+	// Search posts
+	posts, err := t.carProcessor.SearchPosts(did, query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort by CreatedAt descending
+	sort.Slice(posts, func(i, j int) bool {
+		ti, ei := time.Parse(time.RFC3339, posts[i].CreatedAt)
+		tj, ej := time.Parse(time.RFC3339, posts[j].CreatedAt)
+		if ei == nil && ej == nil {
+			return tj.Before(ti)
+		}
+		return posts[i].CreatedAt > posts[j].CreatedAt
+	})
+
+	// Apply limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if len(posts) > limit {
+		posts = posts[:limit]
+	}
+
+	return posts, nil
+}
+
+// searchViaAPI performs authenticated API search using BlueSky searchPosts endpoint
+func (t *SearchTool) searchViaAPI(ctx context.Context, login, query string, limit int) ([]*bluesky.ParsedPost, error) {
+	// Load credentials from storage
+	store, err := auth.NewCredentialStore()
+	if err != nil {
+		return nil, errors.NewMCPError(errors.InternalError, fmt.Sprintf("Failed to initialize credential store: %v", err))
+	}
+
+	creds, err := store.Load(login)
+	if err != nil {
+		return nil, errors.NewMCPError(errors.InternalError, fmt.Sprintf("Login '%s' not found. Please login first using the login tool.", login))
+	}
+
+	// Make API request to searchPosts endpoint
+	client := &http.Client{Timeout: 30 * time.Second}
+	url := fmt.Sprintf("https://bsky.social/xrpc/app.bsky.feed.searchPosts?q=%s&limit=%d", 
+		query, limit)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, errors.NewMCPError(errors.InternalError, fmt.Sprintf("Failed to create request: %v", err))
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", creds.AccessToken))
+	req.Header.Set("User-Agent", "autoreply/1.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, errors.NewMCPError(errors.InternalError, fmt.Sprintf("Authenticated search failed: %v", err))
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.NewMCPError(errors.InternalError, fmt.Sprintf("Authenticated search failed: %s", resp.Status))
+	}
+
+	// Parse response
+	type SearchPostsResponse struct {
+		Posts []struct {
+			URI    string `json:"uri"`
+			CID    string `json:"cid"`
+			Record struct {
+				Text      string `json:"text"`
+				CreatedAt string `json:"createdAt"`
+			} `json:"record"`
+		} `json:"posts"`
+	}
+
+	var searchResult SearchPostsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
+		return nil, errors.NewMCPError(errors.InternalError, fmt.Sprintf("Failed to parse search response: %v", err))
+	}
+
+	// Convert to ParsedPost format
+	var posts []*bluesky.ParsedPost
+	for _, apiPost := range searchResult.Posts {
+		posts = append(posts, &bluesky.ParsedPost{
+			PostRecord: &bluesky.PostRecord{
+				URI:       apiPost.URI,
+				CID:       apiPost.CID,
+				Text:      apiPost.Record.Text,
+				CreatedAt: apiPost.Record.CreatedAt,
+			},
+		})
+	}
+
+	return posts, nil
+}
+
+// mergeAndDeduplicateResults merges and deduplicates search results from CAR and API sources
+func mergeAndDeduplicateResults(carPosts, apiPosts []*bluesky.ParsedPost) []*bluesky.ParsedPost {
+	postsByURI := make(map[string]*bluesky.ParsedPost)
+
+	// Add CAR posts first
+	for _, post := range carPosts {
+		postsByURI[post.URI] = post
+	}
+
+	// Add or merge API posts (API posts have priority)
+	for _, post := range apiPosts {
+		postsByURI[post.URI] = post
+	}
+
+	// Convert back to slice and sort by created_at descending
+	var merged []*bluesky.ParsedPost
+	for _, post := range postsByURI {
+		merged = append(merged, post)
+	}
+
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].CreatedAt > merged[j].CreatedAt
+	})
+
+	return merged
 }
 
 // highlightMatches highlights search matches in text with bold markdown
