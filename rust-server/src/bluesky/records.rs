@@ -126,7 +126,7 @@ impl ProfileRecord {
             for line in description.lines() {
                 markdown.push_str(&format!("> {}\n", line));
             }
-            markdown.push_str("\n");
+            markdown.push('\n');
         }
 
         if let Some(avatar) = &self.avatar {
@@ -489,7 +489,7 @@ mod tests {
         };
 
         let markdown = post.to_markdown("alice.bsky.social", "");
-        
+
         // Should have blockquoted lines
         assert!(markdown.contains("> Line 1"));
         assert!(markdown.contains("> Line 2"));
@@ -512,7 +512,7 @@ mod tests {
         };
 
         let markdown = profile.to_markdown("test.bsky.social", "did:plc:test");
-        
+
         // Description lines should be blockquoted
         assert!(markdown.contains("> First line"));
         assert!(markdown.contains("> Second line"));

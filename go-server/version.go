@@ -2,4 +2,4 @@
 package main
 
 // Version is the current version of autoreply
-const Version = "0.3.2"
+const Version = "0.3.3"

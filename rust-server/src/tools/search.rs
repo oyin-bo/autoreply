@@ -203,7 +203,7 @@ fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> St
 
         // Add separator between posts
         if i < posts.len() - 1 {
-            markdown.push_str("\n");
+            markdown.push('\n');
         }
     }
 

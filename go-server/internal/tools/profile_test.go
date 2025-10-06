@@ -170,7 +170,7 @@ func TestProfileToolAccountHandling(t *testing.T) {
 // TestProfileBlockquoteFormat tests that the profile description is blockquoted
 func TestProfileBlockquoteFormat(t *testing.T) {
 	_ = NewProfileTool()
-	
+
 	// Create a mock profile with multiline description
 	_ = &struct {
 		DisplayName *string
@@ -183,7 +183,7 @@ func TestProfileBlockquoteFormat(t *testing.T) {
 		Avatar:      nil,
 		CreatedAt:   "2024-01-01T00:00:00Z",
 	}
-	
+
 	// We can't directly call formatProfileMarkdown from outside the package in normal circumstances
 	// but the test validates the concept
 	t.Log("Blockquote format validation: profile descriptions should use > prefix for each line")

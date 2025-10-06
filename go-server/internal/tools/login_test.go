@@ -49,7 +49,7 @@ func TestLoginToolBasics(t *testing.T) {
 
 	t.Run("InputSchema_CommandDescription", func(t *testing.T) {
 		schema := tool.InputSchema()
-		
+
 		commandProp, ok := schema.Properties["command"]
 		if !ok {
 			t.Fatal("Schema missing 'command' property")
@@ -151,7 +151,7 @@ func TestLoginSubcommandDelete(t *testing.T) {
 
 		// Should handle gracefully (either error or success depending on implementation)
 		result, err := tool.Call(nil, args, nil)
-		
+
 		// Either error or success is acceptable for nonexistent account
 		if err == nil && result != nil {
 			// Success path is fine
@@ -192,7 +192,7 @@ func TestGeneratePromptID(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		id := generatePromptID()
-		
+
 		if id == "" {
 			t.Error("Generated prompt ID should not be empty")
 		}

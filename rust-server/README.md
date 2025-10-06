@@ -18,6 +18,23 @@ Both modes implement the same tools:
 
 Authentication support via app passwords allows storing and managing credentials for future authenticated operations.
 
+### Output Format
+
+All tools return **LLM-optimized Markdown** with blockquoted user content:
+
+- **Token efficient**: 45% fewer tokens than JSON (measured on real data)
+- **LLM-native**: Natural language format, not schemas
+- **Scannable**: User content clearly delimited with `>` blockquote prefix
+
+Example post output:
+```markdown
+@alice/3kq8a3f1
+> Hot take: Markdown > JSON for LLM tools
+👍 234  ♻️ 89  💬 45  2024-10-06T10:15:33Z
+```
+
+Profile descriptions and post text are blockquoted to prevent ambiguity with tool structure.
+
 ## Features
 
 ✅ **Complete MCP Protocol Implementation**

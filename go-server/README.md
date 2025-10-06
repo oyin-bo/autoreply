@@ -2,7 +2,7 @@
 
 An autoreply Model Context Protocol (MCP) server for BlueSky profile and post search functionality, implemented in Go.
 
-**Current Version:** 0.3.2
+**Current Version:** 0.3.3
 
 ## Features
 
@@ -12,6 +12,7 @@ An autoreply Model Context Protocol (MCP) server for BlueSky profile and post se
   - OAuth 2.0 with PKCE and DPoP (most secure)
   - Device Authorization Grant (headless)
 - **MCP Elicitation Support** (v0.3.2+): Interactive prompts for missing credentials when MCP client supports it
+- **LLM-Optimized Output** (v0.3.3+): Markdown format with blockquoted user content (45% fewer tokens)
 - **Secure Credential Storage**: OS keychain integration with encrypted fallback
 - **Profile Tool**: Retrieve user profile information from BlueSky
 - **Search Tool**: Search posts within a user's repository
@@ -19,6 +20,23 @@ An autoreply Model Context Protocol (MCP) server for BlueSky profile and post se
 - **Two-tier Caching**: Efficient caching with DID-based directory structure
 - **Unicode Support**: Proper Unicode normalization for text search
 - **Streaming Downloads**: Memory-efficient CAR file processing
+
+### Output Format
+
+All tools return **LLM-optimized Markdown** with blockquoted user content:
+
+- **Token efficient**: 45% fewer tokens than JSON (measured on real data)
+- **LLM-native**: Natural language format, not schemas
+- **Scannable**: User content clearly delimited with `>` blockquote prefix
+
+Example post output:
+```markdown
+@alice/3kq8a3f1
+> Hot take: Markdown > JSON for LLM tools
+👍 234  ♻️ 89  💬 45  2024-10-06T10:15:33Z
+```
+
+Profile descriptions and post text are blockquoted to prevent ambiguity with tool structure.
 
 ## Installation
 

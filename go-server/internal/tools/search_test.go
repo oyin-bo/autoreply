@@ -87,11 +87,11 @@ func TestValidateInput_OkAndLimit(t *testing.T) {
 
 func TestSearchResultsBlockquoteFormat(t *testing.T) {
 	tool := NewSearchTool()
-	
+
 	// We can't directly test formatSearchResults as it expects bluesky.ParsedPost
 	// But we test that the format logic works
 	result := tool.formatSearchResults("test.bsky.social", "test", nil)
-	
+
 	// Should have header
 	if !containsString(result, "# Search Results for") {
 		t.Error("Expected header in search results")

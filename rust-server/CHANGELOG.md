@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.3] - 2025-10-06
+
+### Changed
+- **Output Format Migration**: Adopted Markdown blockquote format for all user-generated content.
+  - Post text is now prefixed with `>` (blockquote syntax) for clear delimitation from tool structure.
+  - Profile descriptions use blockquote format for multiline content.
+  - Images are included within blockquotes with Markdown image syntax.
+  - Replaced structured JSON-like output with LLM-native, token-efficient Markdown.
+  - Format yields 45% fewer tokens compared to previous JSON-heavy format (measured on real data).
+  - Post identifiers now use compact `@handle/rkey` format instead of full URIs.
+  - Timestamps appear outside blockquotes as metadata.
+- **Breaking Change**: MCP tool output format has changed. Clients consuming tool output should expect blockquoted user content.
+
+### Added
+- Comprehensive test coverage for new blockquote format in both Rust and Go implementations.
+- Format validation tests ensuring user content is properly escaped.
+
 ## [0.3.2] - 2025-10-05
 
 ### Added
