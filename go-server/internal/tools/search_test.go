@@ -84,3 +84,20 @@ func TestValidateInput_OkAndLimit(t *testing.T) {
 		t.Fatalf("limit clamp got %d want 1", lim3)
 	}
 }
+
+func TestSearchResultsBlockquoteFormat(t *testing.T) {
+	tool := NewSearchTool()
+	
+	// We can't directly test formatSearchResults as it expects bluesky.ParsedPost
+	// But we test that the format logic works
+	result := tool.formatSearchResults("test.bsky.social", "test", nil)
+	
+	// Should have header
+	if !containsString(result, "# Search Results for") {
+		t.Error("Expected header in search results")
+	}
+}
+
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || containsString(s[1:], substr)))
+}

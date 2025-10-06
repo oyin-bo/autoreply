@@ -263,59 +263,54 @@ func (t *SearchTool) formatSearchResults(handle, query string, posts []*bluesky.
 
 	sb.WriteString(fmt.Sprintf("Found %d matching posts.\n\n", len(posts)))
 
-	// Format each post
+	// Format each post in the new blockquote format
 	for i, post := range posts {
-		sb.WriteString(fmt.Sprintf("## Post %d\n", i+1))
-
+		// Post identifier (handle/rkey)
+		rkey := ""
 		if post.URI != "" {
-			// Convert AT URI to Bluesky web URL
-			// at://did:plc:abc/app.bsky.feed.post/xyz -> https://bsky.app/profile/did:plc:abc/post/xyz
-			webURL := t.atURIToBskyURL(post.URI, handle)
-			sb.WriteString(fmt.Sprintf("**Link:** %s\n", webURL))
+			parts := strings.Split(post.URI, "/")
+			if len(parts) > 0 {
+				rkey = parts[len(parts)-1]
+			}
 		}
+		cleanHandle := strings.TrimPrefix(handle, "@")
+		sb.WriteString(fmt.Sprintf("@%s/%s\n", cleanHandle, rkey))
 
-		if post.CreatedAt != "" {
-			sb.WriteString(fmt.Sprintf("**Created:** %s\n", post.CreatedAt))
-		}
-
-		sb.WriteString("\n")
-
-		// Highlight matches in post text
+		// Blockquoted user content
 		if post.Text != "" {
 			highlightedText := t.highlightMatches(post.Text, query)
-			sb.WriteString(fmt.Sprintf("%s\n\n", highlightedText))
+			lines := strings.Split(highlightedText, "\n")
+			for _, line := range lines {
+				sb.WriteString(fmt.Sprintf("> %s\n", line))
+			}
 		}
 
-		// Format embeds if present
+		// Images in blockquote
 		if len(post.Embeds) > 0 {
-			sb.WriteString("**Embeds:**\n")
 			for _, embed := range post.Embeds {
-				if embed.External != nil {
-					sb.WriteString(fmt.Sprintf("- **External Link:** [%s](%s)\n",
-						embed.External.Title, embed.External.URI))
-					if embed.External.Description != "" {
-						highlightedDesc := t.highlightMatches(embed.External.Description, query)
-						sb.WriteString(fmt.Sprintf("  %s\n", highlightedDesc))
-					}
-				}
-
 				if len(embed.Images) > 0 {
-					sb.WriteString("- **Images:**\n")
-					for _, img := range embed.Images {
-						highlightedAlt := t.highlightMatches(img.Alt, query)
-						sb.WriteString(fmt.Sprintf("  ![%s](image)\n", highlightedAlt))
+					for j, img := range embed.Images {
+						altText := img.Alt
+						if altText == "" {
+							altText = fmt.Sprintf("Image %d", j+1)
+						}
+						sb.WriteString(fmt.Sprintf("> ![%s](image)\n", altText))
 					}
 				}
 			}
-			sb.WriteString("\n")
+		}
+
+		// Stats and metadata (outside blockquote) - timestamp
+		if post.CreatedAt != "" {
+			sb.WriteString(fmt.Sprintf("%s\n", post.CreatedAt))
 		}
 
 		if i < len(posts)-1 {
-			sb.WriteString("---\n\n")
+			sb.WriteString("\n")
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("\n**Results:** Showing %d of %d results.\n", len(posts), len(posts)))
+	sb.WriteString(fmt.Sprintf("\n---\n\n*Results: Showing %d of %d results.*\n", len(posts), len(posts)))
 
 	return sb.String()
 }

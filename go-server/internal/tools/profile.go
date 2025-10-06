@@ -116,7 +116,12 @@ func (t *ProfileTool) formatProfileMarkdown(handle, did string, profile *bluesky
 	// Description
 	if profile.Description != nil && *profile.Description != "" {
 		sb.WriteString("**Description:**\n")
-		sb.WriteString(fmt.Sprintf("%s\n\n", *profile.Description))
+		// Blockquote the user's description content
+		lines := strings.Split(*profile.Description, "\n")
+		for _, line := range lines {
+			sb.WriteString(fmt.Sprintf("> %s\n", line))
+		}
+		sb.WriteString("\n")
 	}
 
 	// Avatar

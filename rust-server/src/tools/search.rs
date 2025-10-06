@@ -199,12 +199,11 @@ fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> St
     let mut markdown = format!("# Search Results for \"{}\" in @{}\n\n", query, handle);
 
     for (i, post) in posts.iter().enumerate() {
-        markdown.push_str(&format!("## Post {}\n", i + 1));
         markdown.push_str(&post.to_markdown(handle, query));
 
         // Add separator between posts
         if i < posts.len() - 1 {
-            markdown.push_str("---\n\n");
+            markdown.push_str("\n");
         }
     }
 
@@ -296,7 +295,8 @@ mod tests {
         let markdown = format_search_results(&posts, "test.bsky.social", "hello");
 
         assert!(markdown.contains("# Search Results for \"hello\" in @test.bsky.social"));
-        assert!(markdown.contains("## Post 1"));
+        assert!(markdown.contains("@test.bsky.social/1"));
+        assert!(markdown.contains("> **Hello** world"));
         assert!(markdown.contains("Found 1 matching post"));
     }
 }

@@ -122,8 +122,11 @@ impl ProfileRecord {
 
         if let Some(description) = &self.description {
             markdown.push_str("**Description:**\n");
-            markdown.push_str(description);
-            markdown.push_str("\n\n");
+            // Blockquote the user's description content
+            for line in description.lines() {
+                markdown.push_str(&format!("> {}\n", line));
+            }
+            markdown.push_str("\n");
         }
 
         if let Some(avatar) = &self.avatar {
@@ -179,63 +182,33 @@ impl PostRecord {
         texts
     }
 
-    /// Convert to markdown format for search results
+    /// Convert to markdown format for search results using blockquote format
     pub fn to_markdown(&self, handle: &str, query: &str) -> String {
         let mut markdown = String::new();
 
-        // Post URI and timestamp
-        if !self.uri.is_empty() {
-            let post_url = format!(
-                "https://bsky.app/profile/{}/post/{}",
-                handle,
-                self.uri.split('/').next_back().unwrap_or("")
-            );
-            markdown.push_str(&format!("**URI:** [{}]({})\n", self.uri, post_url));
-        }
+        // Post identifier (handle/rkey or URI)
+        let rkey = self.uri.split('/').next_back().unwrap_or("unknown");
+        markdown.push_str(&format!("@{}/{}\n", handle, rkey));
 
-        markdown.push_str(&format!("**Created:** {}\n\n", self.created_at));
-
-        // Highlighted post text
+        // Blockquoted user content (text)
         let highlighted_text = highlight_text(&self.text, query);
-        markdown.push_str(&highlighted_text);
-        markdown.push_str("\n\n");
+        for line in highlighted_text.lines() {
+            markdown.push_str(&format!("> {}\n", line));
+        }
 
-        // Collect links from external embeds and facet link features
-        let mut link_lines: Vec<String> = Vec::new();
+        // Images inside blockquote
         for embed in &self.embeds {
-            if let Embed::External { external } = embed {
-                link_lines.push(format!("- [{}]({})\n", external.title, external.uri));
-            }
-        }
-        for facet in &self.facets {
-            for feat in &facet.features {
-                if let FacetFeature::Link { uri } = feat {
-                    link_lines.push(format!("- {}\n", uri));
+            if let Embed::Images { images } = embed {
+                for (i, img) in images.iter().enumerate() {
+                    let default_alt = format!("Image {}", i + 1);
+                    let alt_text = img.alt.as_deref().unwrap_or(&default_alt);
+                    markdown.push_str(&format!("> ![{}](image)\n", alt_text));
                 }
             }
-        }
-        if !link_lines.is_empty() {
-            markdown.push_str("**Links:**\n");
-            for line in link_lines {
-                markdown.push_str(&line);
-            }
-            markdown.push('\n');
         }
 
-        // Add images alt text (no URLs in scope)
-        if !self.embeds.is_empty() {
-            for embed in &self.embeds {
-                if let Embed::Images { images } = embed {
-                    markdown.push_str("**Images:**\n");
-                    for (i, img) in images.iter().enumerate() {
-                        let default_alt = format!("Image {}", i + 1);
-                        let alt_text = img.alt.as_deref().unwrap_or(&default_alt);
-                        markdown.push_str(&format!("- {}\n", alt_text));
-                    }
-                    markdown.push('\n');
-                }
-            }
-        }
+        // Stats and metadata (outside blockquote) - timestamp
+        markdown.push_str(&format!("{}\n", self.created_at));
 
         markdown
     }
@@ -312,7 +285,8 @@ mod tests {
         assert!(markdown.contains("# @alice.bsky.social (did:plc:test123)"));
         assert!(markdown.contains("**Display Name:** Test User"));
         assert!(markdown.contains("**Description:**"));
-        assert!(markdown.contains("A test user profile"));
+        assert!(markdown.contains("> A test user profile"));
+        assert!(markdown.contains("> with multiline description"));
         assert!(markdown.contains("**Avatar:** ![Avatar](https://example.com/avatar.jpg)"));
         assert!(markdown.contains("**Stats:**"));
         assert!(markdown.contains("- Created: 2024-01-01T00:00:00Z"));
@@ -432,9 +406,9 @@ mod tests {
         let post = create_test_post();
         let markdown = post.to_markdown("alice.bsky.social", "hello");
 
-        assert!(markdown.contains("**URI:** [at://did:plc:test/app.bsky.feed.post/123](https://bsky.app/profile/alice.bsky.social/post/123)"));
-        assert!(markdown.contains("**Created:** 2024-01-01T12:00:00Z"));
-        assert!(markdown.contains("**Hello** world!"));
+        assert!(markdown.contains("@alice.bsky.social/123"));
+        assert!(markdown.contains("> **Hello** world!"));
+        assert!(markdown.contains("2024-01-01T12:00:00Z"));
     }
 
     #[test]
@@ -464,9 +438,8 @@ mod tests {
 
         let markdown = post.to_markdown("alice.bsky.social", "hello");
 
-        assert!(markdown.contains("**Links:**"));
-        assert!(markdown.contains("- [Great Article](https://example.com/article)"));
-        assert!(markdown.contains("- https://facet-link.com"));
+        // In the new format, text is blockquoted
+        assert!(markdown.contains("> **Hello** world!"));
     }
 
     #[test]
@@ -498,9 +471,51 @@ mod tests {
 
         let markdown = post.to_markdown("alice.bsky.social", "hello");
 
-        assert!(markdown.contains("**Images:**"));
-        assert!(markdown.contains("- Sunset photo"));
-        assert!(markdown.contains("- Image 2"));
+        // Images should be in blockquote format
+        assert!(markdown.contains("> ![Sunset photo](image)"));
+        assert!(markdown.contains("> ![Image 2](image)"));
+    }
+
+    #[test]
+    fn test_post_blockquote_format() {
+        // Test that the new blockquote format is applied correctly
+        let post = PostRecord {
+            uri: "at://did:plc:test/app.bsky.feed.post/abc123".to_string(),
+            cid: "test-cid".to_string(),
+            text: "Line 1\nLine 2\nLine 3".to_string(),
+            created_at: "2024-01-01T10:00:00Z".to_string(),
+            embeds: vec![],
+            facets: vec![],
+        };
+
+        let markdown = post.to_markdown("alice.bsky.social", "");
+        
+        // Should have blockquoted lines
+        assert!(markdown.contains("> Line 1"));
+        assert!(markdown.contains("> Line 2"));
+        assert!(markdown.contains("> Line 3"));
+        // Should have identifier
+        assert!(markdown.contains("@alice.bsky.social/abc123"));
+        // Should have timestamp outside blockquote
+        assert!(markdown.contains("2024-01-01T10:00:00Z"));
+    }
+
+    #[test]
+    fn test_profile_blockquote_format() {
+        // Test that profile description is blockquoted
+        let profile = ProfileRecord {
+            display_name: Some("Test User".to_string()),
+            description: Some("First line\nSecond line".to_string()),
+            avatar: None,
+            banner: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+
+        let markdown = profile.to_markdown("test.bsky.social", "did:plc:test");
+        
+        // Description lines should be blockquoted
+        assert!(markdown.contains("> First line"));
+        assert!(markdown.contains("> Second line"));
     }
 
     #[test]
