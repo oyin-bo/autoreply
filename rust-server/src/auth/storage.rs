@@ -152,6 +152,9 @@ impl CredentialStorage {
                     AppError::ConfigError(format!("Platform secure storage failure: {}", e))
                 })?;
 
+                // Update account list after successful credential storage
+                self.update_account_list(handle, true)?;
+
                 Ok(())
             }
             StorageBackend::File => {
@@ -476,5 +479,36 @@ mod tests {
         let path = CredentialStorage::get_storage_file_path().unwrap();
         assert!(path.to_string_lossy().contains("autoreply"));
         assert!(path.to_string_lossy().ends_with("credentials.json"));
+    }
+
+    #[test]
+    fn test_file_storage_account_list() {
+        // Create a temporary file storage
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("test_autoreply_credentials.json");
+        
+        // Clean up any existing test file
+        let _ = std::fs::remove_file(&temp_file);
+        
+        let storage = CredentialStorage {
+            backend: StorageBackend::File,
+            file_path: Some(temp_file.clone()),
+        };
+
+        // Initially should have no accounts
+        let accounts = storage.list_accounts().unwrap();
+        assert_eq!(accounts.len(), 0);
+
+        // Store credentials
+        let creds = Credentials::new("did:plc:test123", "fake_token");
+        storage.store_credentials("test.bsky.social", creds).unwrap();
+
+        // Account should now be in the list
+        let accounts = storage.list_accounts().unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert!(accounts.contains(&"test.bsky.social".to_string()));
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_file);
     }
 }
