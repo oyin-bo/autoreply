@@ -10,7 +10,7 @@ This document defines the implementation plan for adding a `login` parameter to 
 
 All three implementations (JavaScript, Rust, Go) currently support:
 - **CAR-based search**: Downloads and searches through user's repository CAR files
-- **Required parameter**: `account` (handle or DID)
+- **Required parameter**: `from` (handle or DID of the account to search)
 - **Required parameter**: `query` (search terms)
 - **Optional parameter**: `limit` (max results)
 - **Output format**: Markdown following /docs/16-mcp-schemas.md conventions
@@ -36,9 +36,12 @@ All implementations have credential storage:
 
 ### Parameters
 
-The search tool will accept a new optional parameter:
+The search tool accepts these parameters:
 
-- `login` (string, optional): A login account name that was previously stored and cached
+- `from` (string, optional when `login` is provided): Handle or DID of the account to search posts from
+- `query` (string, required): Search terms
+- `limit` (number, optional): Maximum results (default 50, max 200)
+- `login` (string, optional): A login handle that was previously authenticated
   - When provided, enables authenticated BlueSky API search
   - Must be normalized before matching against stored credentials
   - If the login cannot be resolved to cached credentials, return an error
@@ -46,8 +49,8 @@ The search tool will accept a new optional parameter:
 ### Search Behavior
 
 #### When `login` is NOT specified:
-- **Behavior unchanged**: Use existing CAR-based search only
-- `account` parameter remains required
+- **Behavior**: Use existing CAR-based search only
+- `from` parameter is required
 
 #### When `login` IS specified:
 
@@ -57,11 +60,11 @@ The search tool will accept a new optional parameter:
    - Look up normalized login in credential storage
    - If not found, return error: "Login '{login}' not found. Please login first using the login tool."
 
-3. **Account parameter handling**:
-   - If `account` is provided:
+3. **From parameter handling**:
+   - If `from` is provided:
      - Perform BOTH CAR-based search AND authenticated API search
      - Merge and deduplicate results
-   - If `account` is NOT provided (made optional when login is specified):
+   - If `from` is NOT provided:
      - Perform ONLY authenticated API search
      - No CAR-based search
 
@@ -94,8 +97,8 @@ The search tool will accept a new optional parameter:
 1. Update `SearchArgs` struct:
    ```rust
    pub struct SearchArgs {
-       #[arg(short = 'a', long)]
-       pub account: Option<String>,  // Make optional
+       #[arg(short = 'f', long)]
+       pub from: Option<String>,  // Make optional
        
        #[arg(short = 'q', long)]
        pub query: String,
@@ -109,19 +112,20 @@ The search tool will accept a new optional parameter:
    ```
 
 2. Update `execute_search` function:
-   - Add validation: require either `account` or `login`
+   - Add validation: require either `from` or `login`
    - If `login` is provided:
      - Normalize the login handle
      - Load credentials from `CredentialStorage`
      - Create authenticated session
      - Perform API search via `app.bsky.feed.searchPosts`
-   - If both `account` and `login` provided:
+   - If both `from` and `login` provided:
      - Run CAR search and API search concurrently
      - Merge and deduplicate results
    - Format output according to /docs/16-mcp-schemas.md
 
 3. Add helper functions:
    - `normalize_login_handle(login: &str) -> String`
+   - `validate_from(from: &str) -> Result<()>`
    - `authenticate_from_login(login: &str) -> Result<Session>`
    - `search_via_api(session: &Session, query: &str, limit: usize) -> Result<Vec<PostRecord>>`
    - `merge_search_results(car_posts: Vec<PostRecord>, api_posts: Vec<PostRecord>) -> Vec<PostRecord>`
@@ -134,7 +138,7 @@ The search tool will accept a new optional parameter:
 1. Update `SearchTool.InputSchema()`:
    ```go
    Properties: map[string]mcp.PropertySchema{
-       "account": {
+       "from": {
            Type:        "string",
            Description: "Handle or DID (optional when login is provided)",
        },
@@ -148,14 +152,14 @@ The search tool will accept a new optional parameter:
        },
        "login": {
            Type:        "string",
-           Description: "Login account name for authenticated search",
+           Description: "Login handle for authenticated search",
        },
    }
    Required: []string{"query"},  // Only query is required
    ```
 
 2. Update `validateInput` function:
-   - Check for either `account` or `login` parameter
+   - Check for either `from` or `login` parameter
    - Extract and validate `login` if provided
 
 3. Update `Call` function:
@@ -164,7 +168,7 @@ The search tool will accept a new optional parameter:
      - Load credentials from `CredentialStore`
      - Create authenticated BlueSky client
      - Perform API search
-   - If both `account` and `login`:
+   - If both `from` and `login`:
      - Execute both searches
      - Merge and deduplicate
    - Format output per /docs/16-mcp-schemas.md
@@ -233,29 +237,30 @@ Following /docs/16-mcp-schemas.md, search results will be formatted as:
 ## Error Messages
 
 - **Login not found**: `"Login '{login}' not found. Please login first using the login tool."`
-- **Neither account nor login provided**: `"Either 'account' or 'login' parameter must be provided"`
+- **Neither from nor login provided**: `"Either 'from' or 'login' parameter must be provided"`
 - **Authentication failed**: `"Failed to authenticate with login '{login}': {error}"`
 - **API search failed**: `"Authenticated search failed: {error}"`
 
 ## Migration Notes
 
-- This is a backward-compatible change
-- Existing `account` + `query` searches continue to work unchanged
-- The `account` parameter becomes optional only when `login` is provided
+- The `from` parameter replaces the old `account` parameter
+- This is a breaking change - no backwards compatibility with `account`
+- Existing `from` + `query` searches work as before
+- The `from` parameter becomes optional only when `login` is provided
 - No changes to output format for existing searches
 - No changes to CAR-based search logic
 
 ## Implementation Checklist
 
-- [ ] Create this plan document
-- [ ] Update Rust SearchArgs to add login parameter and make account optional
-- [ ] Implement Rust authenticated API search
-- [ ] Implement Rust result merging and deduplication
-- [ ] Add Rust test coverage (8 tests minimum)
-- [ ] Update Go search input schema for login parameter
-- [ ] Implement Go authenticated API search
-- [ ] Implement Go result merging and deduplication
-- [ ] Add Go test coverage (8 tests minimum)
-- [ ] Verify Markdown output format matches /docs/16-mcp-schemas.md
-- [ ] Test thread formatting with compact refkey syntax
-- [ ] Document any edge cases or limitations
+- [x] Create this plan document
+- [x] Update Rust SearchArgs to add login parameter and rename account to from
+- [x] Implement Rust authenticated API search
+- [x] Implement Rust result merging and deduplication
+- [x] Add Rust test coverage (8 tests minimum)
+- [x] Update Go search input schema for login parameter and rename account to from
+- [x] Implement Go authenticated API search
+- [x] Implement Go result merging and deduplication
+- [x] Add Go test coverage (8 tests minimum)
+- [x] Verify Markdown output format matches /docs/16-mcp-schemas.md
+- [x] Test thread formatting with compact refkey syntax
+- [x] Document any edge cases or limitations

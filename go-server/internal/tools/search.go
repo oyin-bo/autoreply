@@ -48,9 +48,9 @@ func (t *SearchTool) InputSchema() mcp.InputSchema {
 	return mcp.InputSchema{
 		Type: "object",
 		Properties: map[string]mcp.PropertySchema{
-			"account": {
+			"from": {
 				Type:        "string",
-				Description: "Handle (alice.bsky.social) or DID (did:plc:...) - optional when login is provided",
+				Description: "Handle (alice.bsky.social) or DID (did:plc:...) of the account to search posts from - optional when login is provided",
 			},
 			"query": {
 				Type:        "string",
@@ -62,7 +62,7 @@ func (t *SearchTool) InputSchema() mcp.InputSchema {
 			},
 			"login": {
 				Type:        "string",
-				Description: "Login account name for authenticated search",
+				Description: "Login handle for authenticated search (must be previously authenticated)",
 			},
 		},
 		Required: []string{"query"},
@@ -72,7 +72,7 @@ func (t *SearchTool) InputSchema() mcp.InputSchema {
 // Call executes the search tool
 func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp.Server) (*mcp.ToolResult, error) {
 	// Extract and validate parameters
-	account, query, login, limit, err := t.validateInput(args)
+	from, query, login, limit, err := t.validateInput(args)
 	if err != nil {
 		return nil, err
 	}
@@ -93,22 +93,22 @@ func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 		}
 		apiPosts = apiResults
 
-		// If account is also provided, perform CAR search
-		if account != "" {
-			carResults, err := t.performCARSearch(ctx, account, query, limit)
+		// If from is also provided, perform CAR search
+		if from != "" {
+			carResults, err := t.performCARSearch(ctx, from, query, limit)
 			if err != nil {
 				return nil, err
 			}
 			carPosts = carResults
 		}
-	} else if account != "" {
+	} else if from != "" {
 		// Traditional CAR-only search
-		carResults, err := t.performCARSearch(ctx, account, query, limit)
+		carResults, err := t.performCARSearch(ctx, from, query, limit)
 		if err != nil {
 			return nil, err
 		}
 		carPosts = carResults
-		displayHandle = account
+		displayHandle = from
 	}
 
 	// Merge and deduplicate results
@@ -132,14 +132,14 @@ func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 }
 
 // validateInput validates the input parameters
-func (t *SearchTool) validateInput(args map[string]interface{}) (account, query, login string, limit int, err error) {
-	// Extract account (optional if login is provided)
-	if accountRaw, ok := args["account"]; ok {
-		account, ok = accountRaw.(string)
+func (t *SearchTool) validateInput(args map[string]interface{}) (from, query, login string, limit int, err error) {
+	// Extract from (optional if login is provided)
+	if fromRaw, ok := args["from"]; ok {
+		from, ok = fromRaw.(string)
 		if !ok {
-			return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "account must be a string")
+			return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "from must be a string")
 		}
-		account = strings.TrimSpace(account)
+		from = strings.TrimSpace(from)
 	}
 
 	// Extract login (optional)
@@ -151,9 +151,9 @@ func (t *SearchTool) validateInput(args map[string]interface{}) (account, query,
 		login = strings.TrimSpace(login)
 	}
 
-	// Validate that either account or login is provided
-	if account == "" && login == "" {
-		return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "Either 'account' or 'login' parameter must be provided")
+	// Validate that either from or login is provided
+	if from == "" && login == "" {
+		return "", "", "", 0, errors.NewMCPError(errors.InvalidInput, "Either 'from' or 'login' parameter must be provided")
 	}
 
 	// Validate query
@@ -202,7 +202,7 @@ func (t *SearchTool) validateInput(args map[string]interface{}) (account, query,
 		limit = 200
 	}
 
-	return account, query, login, limit, nil
+	return from, query, login, limit, nil
 }
 
 // normalizeText normalizes text for consistent searching
@@ -218,10 +218,10 @@ func normalizeHandle(handle string) string {
 	return strings.TrimPrefix(strings.TrimSpace(handle), "@")
 }
 
-// performCARSearch performs CAR-based search on an account's repository
-func (t *SearchTool) performCARSearch(ctx context.Context, account, query string, limit int) ([]*bluesky.ParsedPost, error) {
+// performCARSearch performs CAR-based search on a user's repository
+func (t *SearchTool) performCARSearch(ctx context.Context, from, query string, limit int) ([]*bluesky.ParsedPost, error) {
 	// Resolve handle to DID
-	did, err := t.didResolver.ResolveHandle(ctx, account)
+	did, err := t.didResolver.ResolveHandle(ctx, from)
 	if err != nil {
 		return nil, err
 	}

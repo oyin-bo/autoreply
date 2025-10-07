@@ -46,10 +46,10 @@ pub struct ProfileArgs {
 /// Search tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
 pub struct SearchArgs {
-    /// Handle or DID (optional when login is provided)
-    #[arg(short = 'a', long)]
-    #[schemars(description = "Handle or DID (optional when login is provided)")]
-    pub account: Option<String>,
+    /// Handle or DID of the account to search posts from (optional when login is provided)
+    #[arg(short = 'f', long)]
+    #[schemars(description = "Handle or DID of the account to search posts from (optional when login is provided)")]
+    pub from: Option<String>,
 
     /// Search terms (case-insensitive)
     #[arg(short = 'q', long)]
@@ -61,9 +61,9 @@ pub struct SearchArgs {
     #[schemars(description = "Maximum number of results (default 50, max 200)")]
     pub limit: Option<usize>,
 
-    /// Login account name for authenticated search
+    /// Login handle for authenticated search (must be previously authenticated)
     #[arg(long)]
-    #[schemars(description = "Login account name for authenticated search")]
+    #[schemars(description = "Login handle for authenticated search (must be previously authenticated)")]
     pub login: Option<String>,
 }
 
@@ -125,12 +125,12 @@ mod tests {
     #[test]
     fn test_search_args() {
         let args = SearchArgs {
-            account: Some("bob.bsky.social".to_string()),
+            from: Some("bob.bsky.social".to_string()),
             query: "rust programming".to_string(),
             limit: Some(10),
             login: None,
         };
-        assert_eq!(args.account, Some("bob.bsky.social".to_string()));
+        assert_eq!(args.from, Some("bob.bsky.social".to_string()));
         assert_eq!(args.query, "rust programming");
         assert_eq!(args.limit, Some(10));
     }

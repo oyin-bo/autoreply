@@ -1,12 +1,12 @@
 //! Search tool implementation
 //!
-//! Implements the `search(account, query)` MCP tool
+//! Implements the `search(from, query, login)` MCP tool
 
 use crate::bluesky::did::DidResolver;
 use crate::bluesky::provider::RepositoryProvider;
 use crate::bluesky::records::PostRecord;
 use crate::cli::SearchArgs;
-use crate::error::{normalize_text, validate_account, validate_query, AppError};
+use crate::error::{normalize_text, validate_query, AppError};
 use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
 
@@ -37,10 +37,10 @@ async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
 
 /// Execute search tool (shared implementation for MCP and CLI)
 pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppError> {
-    // Validate that either account or login is provided
-    if search_args.account.is_none() && search_args.login.is_none() {
+    // Validate that either from or login is provided
+    if search_args.from.is_none() && search_args.login.is_none() {
         return Err(AppError::InvalidInput(
-            "Either 'account' or 'login' parameter must be provided".to_string(),
+            "Either 'from' or 'login' parameter must be provided".to_string(),
         ));
     }
 
@@ -70,30 +70,30 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
         // Perform API search with authenticated user
         let api_results = search_via_api(&normalized_login, &search_args.query, limit).await?;
         
-        // If account is also provided, perform CAR search too
-        let car_results = if let Some(ref account) = search_args.account {
-            validate_account(account)?;
-            Some(perform_car_search(account, &normalized_query, limit).await?)
+        // If from is also provided, perform CAR search too
+        let car_results = if let Some(ref from) = search_args.from {
+            validate_from(from)?;
+            Some(perform_car_search(from, &normalized_query, limit).await?)
         } else {
             None
         };
 
         let handle = normalized_login;
         (car_results, Some(api_results), handle)
-    } else if let Some(ref account) = search_args.account {
+    } else if let Some(ref from) = search_args.from {
         // Traditional CAR-only search
-        validate_account(account)?;
+        validate_from(from)?;
         
         info!(
-            "Search request for account: {}, query: '{}'",
-            account, search_args.query
+            "Search request for from: {}, query: '{}'",
+            from, search_args.query
         );
 
-        let results = perform_car_search(account, &normalized_query, limit).await?;
-        let display_handle = if account.starts_with("did:plc:") {
-            account.clone()
+        let results = perform_car_search(from, &normalized_query, limit).await?;
+        let display_handle = if from.starts_with("did:plc:") {
+            from.clone()
         } else {
-            account.strip_prefix('@').unwrap_or(account).to_string()
+            from.strip_prefix('@').unwrap_or(from).to_string()
         };
 
         (Some(results), None, display_handle)
@@ -169,17 +169,26 @@ fn normalize_handle(handle: &str) -> String {
     handle.trim().trim_start_matches('@').to_string()
 }
 
-/// Perform CAR-based search on an account's repository
+/// Validate from parameter (handle or DID)
+fn validate_from(from: &str) -> Result<(), AppError> {
+    let trimmed = from.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::InvalidInput("'from' parameter cannot be empty".to_string()));
+    }
+    Ok(())
+}
+
+/// Perform CAR-based search on a user's repository
 async fn perform_car_search(
-    account: &str,
+    from: &str,
     normalized_query: &str,
     limit: usize,
 ) -> Result<Vec<PostRecord>, AppError> {
     // Resolve handle to DID
     let resolver = DidResolver::new();
-    let did = resolver.resolve_handle(account).await?;
+    let did = resolver.resolve_handle(from).await?;
 
-    debug!("Resolved {} to DID: {:?}", account, did);
+    debug!("Resolved {} to DID: {:?}", from, did);
 
     // Get posts using streaming iterator
     let provider = RepositoryProvider::new()?;
@@ -408,12 +417,12 @@ mod tests {
     #[tokio::test]
     async fn test_search_args_parsing() {
         let args = json!({
-            "account": "test.bsky.social",
+            "from": "test.bsky.social",
             "query": "hello world"
         });
 
         let parsed: SearchArgs = serde_json::from_value(args).unwrap();
-        assert_eq!(parsed.account, Some("test.bsky.social".to_string()));
+        assert_eq!(parsed.from, Some("test.bsky.social".to_string()));
         assert_eq!(parsed.query, "hello world");
 
         // Test with login parameter
@@ -425,7 +434,7 @@ mod tests {
         let parsed2: SearchArgs = serde_json::from_value(args_with_login).unwrap();
         assert_eq!(parsed2.login, Some("alice.bsky.social".to_string()));
         assert_eq!(parsed2.query, "test query");
-        assert_eq!(parsed2.account, None);
+        assert_eq!(parsed2.from, None);
     }
 
     #[test]
