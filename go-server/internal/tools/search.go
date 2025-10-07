@@ -213,9 +213,9 @@ func normalizeText(text string) string {
 	return strings.ToLower(normalized)
 }
 
-// normalizeHandle removes @ prefix and trims whitespace
+// normalizeHandle removes @ prefix, trims whitespace, and converts to lowercase
 func normalizeHandle(handle string) string {
-	return strings.TrimPrefix(strings.TrimSpace(handle), "@")
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(handle), "@"))
 }
 
 // performCARSearch performs CAR-based search on a user's repository

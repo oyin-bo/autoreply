@@ -164,9 +164,9 @@ fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> St
     markdown
 }
 
-/// Normalize handle by removing @ prefix and trimming whitespace
+/// Normalize handle by removing @ prefix and trimming whitespace, converting to lowercase
 fn normalize_handle(handle: &str) -> String {
-    handle.trim().trim_start_matches('@').to_string()
+    handle.trim().trim_start_matches('@').to_lowercase()
 }
 
 /// Validate from parameter (handle or DID)
@@ -509,6 +509,10 @@ mod tests {
         assert_eq!(normalize_handle("@alice.bsky.social"), "alice.bsky.social");
         assert_eq!(normalize_handle("  @bob.bsky.social  "), "bob.bsky.social");
         assert_eq!(normalize_handle("   carol.bsky.social"), "carol.bsky.social");
+        // Test case-insensitive normalization
+        assert_eq!(normalize_handle("Alice.Bsky.Social"), "alice.bsky.social");
+        assert_eq!(normalize_handle("@ALICE.BSKY.SOCIAL"), "alice.bsky.social");
+        assert_eq!(normalize_handle("  @Bob.BSKY.social  "), "bob.bsky.social");
     }
 
     #[test]

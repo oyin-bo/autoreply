@@ -91,6 +91,10 @@ func TestNormalizeHandle(t *testing.T) {
 		{"@alice.bsky.social", "alice.bsky.social"},
 		{"  @bob.bsky.social  ", "bob.bsky.social"},
 		{"   carol.bsky.social", "carol.bsky.social"},
+		// Test case-insensitive normalization
+		{"Alice.Bsky.Social", "alice.bsky.social"},
+		{"@ALICE.BSKY.SOCIAL", "alice.bsky.social"},
+		{"  @Bob.BSKY.social  ", "bob.bsky.social"},
 	}
 	for _, c := range cases {
 		got := normalizeHandle(c.in)

@@ -305,7 +305,7 @@ fn format_account_list(accounts: &[String], default: Option<&str>) -> String {
 
 fn normalize_handle(handle: &mut Option<String>) {
     if let Some(ref mut h) = handle {
-        let normalized = h.trim().trim_start_matches('@').to_string();
+        let normalized = h.trim().trim_start_matches('@').to_lowercase();
         if normalized.is_empty() {
             *handle = None;
         } else {
@@ -335,6 +335,15 @@ mod tests {
         let mut empty = Some("   @   ".to_string());
         normalize_handle(&mut empty);
         assert!(empty.is_none());
+
+        // Test case-insensitive normalization
+        let mut uppercase = Some("@Alice.Bsky.Social".to_string());
+        normalize_handle(&mut uppercase);
+        assert_eq!(uppercase.as_deref(), Some("alice.bsky.social"));
+
+        let mut mixed = Some("  @BOB.bsky.SOCIAL  ".to_string());
+        normalize_handle(&mut mixed);
+        assert_eq!(mixed.as_deref(), Some("bob.bsky.social"));
     }
 
     #[test]
