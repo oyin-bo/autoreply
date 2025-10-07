@@ -8,9 +8,10 @@ type ProfileArgs struct {
 
 // SearchArgs defines arguments for the search tool
 type SearchArgs struct {
-	Account string `json:"account" jsonschema:"required,description=Handle (alice.bsky.social) or DID (did:plc:...)" short:"a" long:"account"`
-	Query   string `json:"query" jsonschema:"required,description=Search terms (case-insensitive)" short:"q" long:"query"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"description=Maximum number of results (default 50 max 200)" short:"l" long:"limit"`
+	From  string `json:"from,omitempty" jsonschema:"description=Handle (alice.bsky.social) or DID (did:plc:...) to search posts from (optional when login is provided)" short:"f" long:"from"`
+	Query string `json:"query" jsonschema:"required,description=Search terms (case-insensitive)" short:"q" long:"query"`
+	Limit int    `json:"limit,omitempty" jsonschema:"description=Maximum number of results (default 50 max 200)" short:"l" long:"limit"`
+	Login string `json:"login,omitempty" jsonschema:"description=Login handle for authenticated search (must be previously authenticated)" long:"login"`
 }
 
 // LoginArgs defines arguments for the unified login tool with subcommands (matching Rust LoginCommand)

@@ -324,15 +324,19 @@ async fn search_via_api(
         record: ApiPostRecord,
         #[serde(default)]
         #[serde(rename = "likeCount")]
+        #[allow(dead_code)]
         like_count: Option<u32>,
         #[serde(default)]
         #[serde(rename = "replyCount")]
+        #[allow(dead_code)]
         reply_count: Option<u32>,
         #[serde(default)]
         #[serde(rename = "repostCount")]
+        #[allow(dead_code)]
         repost_count: Option<u32>,
         #[serde(default)]
         #[serde(rename = "quoteCount")]
+        #[allow(dead_code)]
         quote_count: Option<u32>,
     }
 
