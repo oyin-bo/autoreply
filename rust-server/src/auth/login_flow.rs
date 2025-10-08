@@ -37,7 +37,7 @@ impl LoginManager {
         })
     }
 
-    pub async fn execute(&self, request: LoginRequest) -> Result<LoginOutcome, AppError> {
+    pub async fn execute(&mut self, request: LoginRequest) -> Result<LoginOutcome, AppError> {
         match &request.payload.command {
             Some(LoginSubcommands::List) => {
                 let accounts = self.storage.list_accounts()?;
@@ -76,7 +76,7 @@ impl LoginManager {
         }
     }
 
-    async fn handle_login(&self, request: LoginRequest) -> Result<LoginOutcome, AppError> {
+    async fn handle_login(&mut self, request: LoginRequest) -> Result<LoginOutcome, AppError> {
         let LoginCommand {
             mut handle,
             password,
@@ -166,7 +166,7 @@ IMPORTANT Security Warning:
     }
 
     async fn authenticate_with_oauth(
-        &self,
+        &mut self,
         handle: &str,
         service: Option<&str>,
     ) -> Result<String, AppError> {
@@ -231,7 +231,7 @@ IMPORTANT Security Warning:
 
         self.storage.store_session(handle, session.clone())?;
 
-        ensure_default(&self.storage, handle)?;
+        ensure_default(&mut self.storage, handle)?;
 
         Ok(format!(
             "✓ Successfully authenticated as @{}\n  DID: {}\n  Method: OAuth (browser)\n  Storage: {}",
@@ -245,7 +245,7 @@ IMPORTANT Security Warning:
     }
 
     async fn authenticate_with_app_password(
-        &self,
+        &mut self,
         handle: &str,
         credentials: Credentials,
     ) -> Result<String, AppError> {
@@ -257,7 +257,7 @@ IMPORTANT Security Warning:
             .store_credentials_with_fallback(handle, credentials)?;
         self.storage.store_session(handle, session.clone())?;
 
-        ensure_default(&self.storage, handle)?;
+        ensure_default(&mut self.storage, handle)?;
 
         Ok(format!(
             "✓ Successfully authenticated as @{}\n  DID: {}\n  Method: app password\n  Storage: {}",
@@ -279,7 +279,7 @@ fn build_credentials(handle: &str, password: &str, service: Option<&str>) -> Cre
     }
 }
 
-fn ensure_default(storage: &CredentialStorage, handle: &str) -> Result<(), AppError> {
+fn ensure_default(storage: &mut CredentialStorage, handle: &str) -> Result<(), AppError> {
     if storage.get_default_account()?.is_none() {
         storage.set_default_account(handle)?;
     }

@@ -173,7 +173,7 @@ impl CredentialStorage {
 
     /// Store credentials with automatic fallback
     pub fn store_credentials_with_fallback(
-        &self,
+        &mut self,
         handle: &str,
         credentials: Credentials,
     ) -> Result<(), AppError> {
@@ -182,11 +182,13 @@ impl CredentialStorage {
             Err(e) if self.backend == StorageBackend::Keyring => {
                 // If keyring fails, try file storage
                 tracing::warn!("Keyring failed ({}), falling back to file storage", e);
-                let file_storage = Self {
-                    backend: StorageBackend::File,
-                    file_path: Some(Self::get_storage_file_path()?),
-                };
-                file_storage.store_credentials(handle, credentials)
+                
+                // Switch to file backend permanently
+                self.backend = StorageBackend::File;
+                self.file_path = Some(Self::get_storage_file_path()?);
+                
+                // Now store using the file backend
+                self.store_credentials(handle, credentials)
             }
             Err(e) => Err(e),
         }
@@ -220,7 +222,7 @@ impl CredentialStorage {
     }
 
     /// Store session for an account
-    pub fn store_session(&self, handle: &str, session: Session) -> Result<(), AppError> {
+    pub fn store_session(&mut self, handle: &str, session: Session) -> Result<(), AppError> {
         match self.backend {
             StorageBackend::Keyring => {
                 // For keyring, attempt to store session; on failure, fall back to file storage
@@ -236,16 +238,14 @@ impl CredentialStorage {
                 match entry.set_password(&data) {
                     Ok(()) => Ok(()),
                     Err(e) => {
-                        // On keyring failure, log and attempt file fallback
+                        // On keyring failure, switch to file backend permanently
                         tracing::warn!(
                             "Keyring session storage failed: {}, falling back to file storage",
                             e
                         );
-                        let file_storage = Self {
-                            backend: StorageBackend::File,
-                            file_path: Some(Self::get_storage_file_path()?),
-                        };
-                        file_storage.store_session(handle, session)
+                        self.backend = StorageBackend::File;
+                        self.file_path = Some(Self::get_storage_file_path()?);
+                        self.store_session(handle, session)
                     }
                 }
             }
@@ -414,7 +414,7 @@ impl CredentialStorage {
     }
 
     /// Set default account handle
-    pub fn set_default_account(&self, handle: &str) -> Result<(), AppError> {
+    pub fn set_default_account(&mut self, handle: &str) -> Result<(), AppError> {
         match self.backend {
             StorageBackend::Keyring => {
                 let entry =
@@ -425,18 +425,16 @@ impl CredentialStorage {
                 match entry.set_password(handle) {
                     Ok(()) => Ok(()),
                     Err(e) => {
-                        // If keyring fails, fall back to file storage
+                        // If keyring fails, switch to file backend permanently
                         tracing::warn!(
                             "Keyring set_default_account failed: {}, falling back to file storage",
                             e
                         );
-                        let file_storage = Self {
-                            backend: StorageBackend::File,
-                            file_path: Some(Self::get_storage_file_path()?),
-                        };
-                        let mut storage = file_storage.read_file_storage()?;
+                        self.backend = StorageBackend::File;
+                        self.file_path = Some(Self::get_storage_file_path()?);
+                        let mut storage = self.read_file_storage()?;
                         storage.default_account = Some(handle.to_string());
-                        file_storage.write_file_storage(&storage)
+                        self.write_file_storage(&storage)
                     }
                 }
             }

@@ -15,7 +15,7 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
     let mut command: LoginCommand = serde_json::from_value(args)
         .map_err(|e| AppError::InvalidInput(format!("Invalid arguments: {}", e)))?;
 
-    let manager = LoginManager::new()?;
+    let mut manager = LoginManager::new()?;
 
     // Check if we need elicitation for missing fields
     let needs_handle = command.handle.is_none();
