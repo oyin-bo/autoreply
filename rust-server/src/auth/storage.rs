@@ -58,10 +58,28 @@ impl CredentialStorage {
         }
     }
 
-    /// Test if keyring is available
+    /// Test if keyring is available by performing actual read/write operations
     fn test_keyring() -> bool {
-        let entry = keyring::Entry::new(SERVICE_NAME, "test");
-        entry.is_ok()
+        // Create a test entry
+        let entry = match keyring::Entry::new(SERVICE_NAME, "_test_probe") {
+            Ok(e) => e,
+            Err(_) => return false,
+        };
+        
+        // Test actual write operation - this is where D-Bus failures occur
+        if entry.set_password("test").is_err() {
+            return false;
+        }
+        
+        // Test actual read operation
+        if entry.get_password().is_err() {
+            let _ = entry.delete_password(); // cleanup attempt
+            return false;
+        }
+        
+        // Cleanup test entry
+        let _ = entry.delete_password();
+        true
     }
 
     /// Get the file storage path
@@ -152,6 +170,9 @@ impl CredentialStorage {
                     AppError::ConfigError(format!("Platform secure storage failure: {}", e))
                 })?;
 
+                // Update account list after successful credential storage
+                self.update_account_list(handle, true)?;
+
                 Ok(())
             }
             StorageBackend::File => {
@@ -170,7 +191,7 @@ impl CredentialStorage {
 
     /// Store credentials with automatic fallback
     pub fn store_credentials_with_fallback(
-        &self,
+        &mut self,
         handle: &str,
         credentials: Credentials,
     ) -> Result<(), AppError> {
@@ -179,11 +200,13 @@ impl CredentialStorage {
             Err(e) if self.backend == StorageBackend::Keyring => {
                 // If keyring fails, try file storage
                 tracing::warn!("Keyring failed ({}), falling back to file storage", e);
-                let file_storage = Self {
-                    backend: StorageBackend::File,
-                    file_path: Some(Self::get_storage_file_path()?),
-                };
-                file_storage.store_credentials(handle, credentials)
+                
+                // Switch to file backend permanently
+                self.backend = StorageBackend::File;
+                self.file_path = Some(Self::get_storage_file_path()?);
+                
+                // Now store using the file backend
+                self.store_credentials(handle, credentials)
             }
             Err(e) => Err(e),
         }
@@ -217,7 +240,7 @@ impl CredentialStorage {
     }
 
     /// Store session for an account
-    pub fn store_session(&self, handle: &str, session: Session) -> Result<(), AppError> {
+    pub fn store_session(&mut self, handle: &str, session: Session) -> Result<(), AppError> {
         match self.backend {
             StorageBackend::Keyring => {
                 // For keyring, attempt to store session; on failure, fall back to file storage
@@ -233,16 +256,14 @@ impl CredentialStorage {
                 match entry.set_password(&data) {
                     Ok(()) => Ok(()),
                     Err(e) => {
-                        // On keyring failure, log and attempt file fallback
+                        // On keyring failure, switch to file backend permanently
                         tracing::warn!(
                             "Keyring session storage failed: {}, falling back to file storage",
                             e
                         );
-                        let file_storage = Self {
-                            backend: StorageBackend::File,
-                            file_path: Some(Self::get_storage_file_path()?),
-                        };
-                        file_storage.store_session(handle, session)
+                        self.backend = StorageBackend::File;
+                        self.file_path = Some(Self::get_storage_file_path()?);
+                        self.store_session(handle, session)
                     }
                 }
             }
@@ -411,7 +432,7 @@ impl CredentialStorage {
     }
 
     /// Set default account handle
-    pub fn set_default_account(&self, handle: &str) -> Result<(), AppError> {
+    pub fn set_default_account(&mut self, handle: &str) -> Result<(), AppError> {
         match self.backend {
             StorageBackend::Keyring => {
                 let entry =
@@ -422,18 +443,16 @@ impl CredentialStorage {
                 match entry.set_password(handle) {
                     Ok(()) => Ok(()),
                     Err(e) => {
-                        // If keyring fails, fall back to file storage
+                        // If keyring fails, switch to file backend permanently
                         tracing::warn!(
                             "Keyring set_default_account failed: {}, falling back to file storage",
                             e
                         );
-                        let file_storage = Self {
-                            backend: StorageBackend::File,
-                            file_path: Some(Self::get_storage_file_path()?),
-                        };
-                        let mut storage = file_storage.read_file_storage()?;
+                        self.backend = StorageBackend::File;
+                        self.file_path = Some(Self::get_storage_file_path()?);
+                        let mut storage = self.read_file_storage()?;
                         storage.default_account = Some(handle.to_string());
-                        file_storage.write_file_storage(&storage)
+                        self.write_file_storage(&storage)
                     }
                 }
             }
@@ -476,5 +495,36 @@ mod tests {
         let path = CredentialStorage::get_storage_file_path().unwrap();
         assert!(path.to_string_lossy().contains("autoreply"));
         assert!(path.to_string_lossy().ends_with("credentials.json"));
+    }
+
+    #[test]
+    fn test_file_storage_account_list() {
+        // Create a temporary file storage
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("test_autoreply_credentials.json");
+        
+        // Clean up any existing test file
+        let _ = std::fs::remove_file(&temp_file);
+        
+        let storage = CredentialStorage {
+            backend: StorageBackend::File,
+            file_path: Some(temp_file.clone()),
+        };
+
+        // Initially should have no accounts
+        let accounts = storage.list_accounts().unwrap();
+        assert_eq!(accounts.len(), 0);
+
+        // Store credentials
+        let creds = Credentials::new("did:plc:test123", "fake_token");
+        storage.store_credentials("test.bsky.social", creds).unwrap();
+
+        // Account should now be in the list
+        let accounts = storage.list_accounts().unwrap();
+        assert_eq!(accounts.len(), 1);
+        assert!(accounts.contains(&"test.bsky.social".to_string()));
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_file);
     }
 }

@@ -139,7 +139,7 @@ async fn execute_search_cli(args: cli::SearchArgs) -> Result<String> {
 async fn execute_login_cli(args: cli::LoginCommand) -> Result<String> {
     use std::io::{self, Write};
 
-    let manager = LoginManager::new()?;
+    let mut manager = LoginManager::new()?;
     let mut command = args;
 
     loop {

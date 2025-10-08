@@ -20,13 +20,14 @@ func TestProfileArgsDeserialization(t *testing.T) {
 // TestSearchArgsDeserialization tests SearchArgs struct
 func TestSearchArgsDeserialization(t *testing.T) {
 	args := SearchArgs{
-		Account: "bob.bsky.social",
-		Query:   "test query",
-		Limit:   100,
+		From:  "bob.bsky.social",
+		Query: "test query",
+		Limit: 100,
+		Login: "alice.bsky.social",
 	}
 
-	if args.Account != "bob.bsky.social" {
-		t.Errorf("Expected account 'bob.bsky.social', got '%s'", args.Account)
+	if args.From != "bob.bsky.social" {
+		t.Errorf("Expected from 'bob.bsky.social', got '%s'", args.From)
 	}
 
 	if args.Query != "test query" {
@@ -35,6 +36,10 @@ func TestSearchArgsDeserialization(t *testing.T) {
 
 	if args.Limit != 100 {
 		t.Errorf("Expected limit 100, got %d", args.Limit)
+	}
+
+	if args.Login != "alice.bsky.social" {
+		t.Errorf("Expected login 'alice.bsky.social', got '%s'", args.Login)
 	}
 }
 
@@ -97,11 +102,12 @@ func TestArgsJSONTags(t *testing.T) {
 	t.Run("SearchArgs", func(t *testing.T) {
 		// SearchArgs should have json tags
 		args := SearchArgs{
-			Account: "test",
-			Query:   "query",
-			Limit:   50,
+			From:  "test",
+			Query: "query",
+			Limit: 50,
+			Login: "alice.bsky.social",
 		}
-		if args.Account == "" || args.Query == "" {
+		if args.From == "" || args.Query == "" {
 			t.Error("SearchArgs fields should be accessible")
 		}
 	})
@@ -132,11 +138,12 @@ func TestJSONSchemaDescriptions(t *testing.T) {
 
 	t.Run("SearchArgs has all required fields", func(t *testing.T) {
 		args := SearchArgs{
-			Account: "alice.bsky.social",
-			Query:   "rust",
-			Limit:   10,
+			From:  "alice.bsky.social",
+			Query: "rust",
+			Limit: 10,
+			Login: "bob.bsky.social",
 		}
-		if args.Account == "" || args.Query == "" || args.Limit == 0 {
+		if args.From == "" || args.Query == "" || args.Limit == 0 {
 			t.Error("SearchArgs fields should all be set")
 		}
 	})
