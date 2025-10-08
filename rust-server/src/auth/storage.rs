@@ -58,10 +58,28 @@ impl CredentialStorage {
         }
     }
 
-    /// Test if keyring is available
+    /// Test if keyring is available by performing actual read/write operations
     fn test_keyring() -> bool {
-        let entry = keyring::Entry::new(SERVICE_NAME, "test");
-        entry.is_ok()
+        // Create a test entry
+        let entry = match keyring::Entry::new(SERVICE_NAME, "_test_probe") {
+            Ok(e) => e,
+            Err(_) => return false,
+        };
+        
+        // Test actual write operation - this is where D-Bus failures occur
+        if entry.set_password("test").is_err() {
+            return false;
+        }
+        
+        // Test actual read operation
+        if entry.get_password().is_err() {
+            let _ = entry.delete_password(); // cleanup attempt
+            return false;
+        }
+        
+        // Cleanup test entry
+        let _ = entry.delete_password();
+        true
     }
 
     /// Get the file storage path
