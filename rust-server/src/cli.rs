@@ -62,6 +62,61 @@ pub struct SearchArgs {
     pub limit: Option<usize>,
 }
 
+/// Post tool arguments
+#[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+pub struct PostArgs {
+    /// Handle or DID to post as
+    #[arg(short = 'a', long)]
+    #[schemars(description = "Handle or DID to post as (postAs)")]
+    #[serde(rename = "postAs")]
+    pub post_as: String,
+
+    /// The text content of the post
+    #[arg(short = 't', long)]
+    #[schemars(description = "The text content of the post")]
+    pub text: String,
+
+    /// Optional post URI or URL to reply to
+    #[arg(short = 'r', long)]
+    #[schemars(description = "Optional at:// URI or https://bsky.app/... URL to reply to")]
+    #[serde(rename = "replyTo")]
+    pub reply_to: Option<String>,
+}
+
+/// React tool arguments
+#[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+pub struct ReactArgs {
+    /// Handle or DID to react as
+    #[arg(short = 'a', long)]
+    #[schemars(description = "Handle or DID to react as (reactAs)")]
+    #[serde(rename = "reactAs")]
+    pub react_as: String,
+
+    /// Post URIs/URLs to like
+    #[arg(long)]
+    #[schemars(description = "Array of post URIs/URLs to like")]
+    #[serde(default)]
+    pub like: Vec<String>,
+
+    /// Post URIs/URLs to unlike
+    #[arg(long)]
+    #[schemars(description = "Array of post URIs/URLs to unlike")]
+    #[serde(default)]
+    pub unlike: Vec<String>,
+
+    /// Post URIs/URLs to repost
+    #[arg(long)]
+    #[schemars(description = "Array of post URIs/URLs to repost")]
+    #[serde(default)]
+    pub repost: Vec<String>,
+
+    /// Post URIs/URLs to delete
+    #[arg(long)]
+    #[schemars(description = "Array of post URIs/URLs to delete")]
+    #[serde(default)]
+    pub delete: Vec<String>,
+}
+
 /// Login command with subcommands for account management
 #[derive(Parser, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LoginCommand {
@@ -121,5 +176,31 @@ mod tests {
         assert_eq!(args.account, "bob.bsky.social");
         assert_eq!(args.query, "rust programming");
         assert_eq!(args.limit, Some(10));
+    }
+
+    #[test]
+    fn test_post_args() {
+        let args = PostArgs {
+            post_as: "alice.bsky.social".to_string(),
+            text: "Hello, world!".to_string(),
+            reply_to: None,
+        };
+        assert_eq!(args.post_as, "alice.bsky.social");
+        assert_eq!(args.text, "Hello, world!");
+        assert!(args.reply_to.is_none());
+    }
+
+    #[test]
+    fn test_react_args() {
+        let args = ReactArgs {
+            react_as: "bob.bsky.social".to_string(),
+            like: vec!["at://did:plc:abc/app.bsky.feed.post/123".to_string()],
+            unlike: vec![],
+            repost: vec![],
+            delete: vec![],
+        };
+        assert_eq!(args.react_as, "bob.bsky.social");
+        assert_eq!(args.like.len(), 1);
+        assert_eq!(args.unlike.len(), 0);
     }
 }
