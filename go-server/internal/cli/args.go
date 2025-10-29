@@ -21,3 +21,19 @@ type LoginArgs struct {
 	Port     int    `json:"port,omitempty" jsonschema:"description=Local callback server port for OAuth (default: 8080)" long:"port"`
 	Service  string `json:"service,omitempty" jsonschema:"description=Service URL (defaults to https://bsky.social)" short:"s" long:"service"`
 }
+
+// PostArgs defines arguments for the post tool
+type PostArgs struct {
+	PostAs  string `json:"postAs,omitempty" jsonschema:"description=Handle or DID to post as (uses default if not specified)" long:"post-as"`
+	Text    string `json:"text" jsonschema:"required,description=Text content of the post" short:"t" long:"text"`
+	ReplyTo string `json:"replyTo,omitempty" jsonschema:"description=Post URI (at://...) or URL (https://bsky.app/...) to reply to" short:"r" long:"reply-to"`
+}
+
+// ReactArgs defines arguments for the react tool
+type ReactArgs struct {
+	ReactAs string   `json:"reactAs,omitempty" jsonschema:"description=Handle or DID to react as (uses default if not specified)" long:"react-as"`
+	Like    []string `json:"like,omitempty" jsonschema:"description=Post URIs/URLs to like" long:"like"`
+	Unlike  []string `json:"unlike,omitempty" jsonschema:"description=Post URIs/URLs to unlike" long:"unlike"`
+	Repost  []string `json:"repost,omitempty" jsonschema:"description=Post URIs/URLs to repost" long:"repost"`
+	Delete  []string `json:"delete,omitempty" jsonschema:"description=Post URIs/URLs to delete" long:"delete"`
+}
