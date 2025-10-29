@@ -134,49 +134,14 @@ async fn parse_and_fetch_reply(
     session: &crate::auth::Session,
     reply_to: &str,
 ) -> Result<serde_json::Value, AppError> {
-    // Parse the URI - support both at:// URIs and https://bsky.app/... URLs
-    let (did, rkey) = if reply_to.starts_with("at://") {
-        // Parse at:// URI: at://{did}/app.bsky.feed.post/{rkey}
-        let parts: Vec<&str> = reply_to.trim_start_matches("at://").split('/').collect();
-        if parts.len() < 3 {
-            return Err(AppError::InvalidInput(format!(
-                "Invalid at:// URI format: {}",
-                reply_to
-            )));
-        }
-        (parts[0].to_string(), parts[2].to_string())
-    } else if reply_to.contains("bsky.app/profile/") {
-        // Parse https://bsky.app/profile/{handle}/post/{rkey}
-        let url_parts: Vec<&str> = reply_to.split('/').collect();
-        if url_parts.len() < 6 {
-            return Err(AppError::InvalidInput(format!(
-                "Invalid bsky.app URL format: {}",
-                reply_to
-            )));
-        }
-        let handle = url_parts[4];
-        let rkey = url_parts[6];
-
-        // Resolve handle to DID
-        let resolver = crate::bluesky::did::DidResolver::new();
-        let did = resolver
-            .resolve_handle(handle)
-            .await?
-            .ok_or_else(|| AppError::DidResolveFailed(format!("Could not resolve {}", handle)))?;
-
-        (did, rkey.to_string())
-    } else {
-        return Err(AppError::InvalidInput(format!(
-            "Invalid post URI/URL format: {}",
-            reply_to
-        )));
-    };
+    // Parse the URI using the shared utility
+    let post_ref = crate::bluesky::uri::parse_post_uri(reply_to).await?;
 
     // Fetch the post to get its CID
     let client = crate::http::client_with_timeout(std::time::Duration::from_secs(30));
     let url = format!(
         "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection=app.bsky.feed.post&rkey={}",
-        session.service, did, rkey
+        session.service, post_ref.did, post_ref.rkey
     );
 
     debug!("Fetching reply-to post from: {}", url);

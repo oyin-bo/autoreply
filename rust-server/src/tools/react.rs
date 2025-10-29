@@ -189,6 +189,8 @@ async fn process_unlike(
     let (did, _rkey, uri, _cid) = fetch_post_info(client, session, post_uri).await?;
 
     // List likes to find the one for this post
+    // Note: This lists up to 100 likes. For users with more likes, this is a known limitation.
+    // A future improvement would be to implement pagination if the like is not found in the first page.
     let list_url = format!(
         "{}/xrpc/com.atproto.repo.listRecords?repo={}&collection=app.bsky.feed.like&limit=100",
         session.service, session.did
@@ -372,48 +374,13 @@ async fn fetch_post_info(
     session: &crate::auth::Session,
     post_uri: &str,
 ) -> Result<(String, String, String, String), AppError> {
-    // Parse the URI - support both at:// URIs and https://bsky.app/... URLs
-    let (did, rkey) = if post_uri.starts_with("at://") {
-        // Parse at:// URI: at://{did}/app.bsky.feed.post/{rkey}
-        let parts: Vec<&str> = post_uri.trim_start_matches("at://").split('/').collect();
-        if parts.len() < 3 {
-            return Err(AppError::InvalidInput(format!(
-                "Invalid at:// URI format: {}",
-                post_uri
-            )));
-        }
-        (parts[0].to_string(), parts[2].to_string())
-    } else if post_uri.contains("bsky.app/profile/") {
-        // Parse https://bsky.app/profile/{handle}/post/{rkey}
-        let url_parts: Vec<&str> = post_uri.split('/').collect();
-        if url_parts.len() < 6 {
-            return Err(AppError::InvalidInput(format!(
-                "Invalid bsky.app URL format: {}",
-                post_uri
-            )));
-        }
-        let handle = url_parts[4];
-        let rkey = url_parts[6];
-
-        // Resolve handle to DID
-        let resolver = crate::bluesky::did::DidResolver::new();
-        let did = resolver
-            .resolve_handle(handle)
-            .await?
-            .ok_or_else(|| AppError::DidResolveFailed(format!("Could not resolve {}", handle)))?;
-
-        (did, rkey.to_string())
-    } else {
-        return Err(AppError::InvalidInput(format!(
-            "Invalid post URI/URL format: {}",
-            post_uri
-        )));
-    };
+    // Parse the URI using the shared utility
+    let post_ref = crate::bluesky::uri::parse_post_uri(post_uri).await?;
 
     // Fetch the post to get its CID
     let url = format!(
         "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection=app.bsky.feed.post&rkey={}",
-        session.service, did, rkey
+        session.service, post_ref.did, post_ref.rkey
     );
 
     let response = client
@@ -449,7 +416,7 @@ async fn fetch_post_info(
         .ok_or_else(|| AppError::ParseError("No CID in post data".to_string()))?
         .to_string();
 
-    Ok((did, rkey, uri, cid))
+    Ok((post_ref.did, post_ref.rkey, uri, cid))
 }
 
 #[cfg(test)]
