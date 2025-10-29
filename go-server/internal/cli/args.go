@@ -21,3 +21,8 @@ type LoginArgs struct {
 	Port     int    `json:"port,omitempty" jsonschema:"description=Local callback server port for OAuth (default: 8080)" long:"port"`
 	Service  string `json:"service,omitempty" jsonschema:"description=Service URL (defaults to https://bsky.social)" short:"s" long:"service"`
 }
+
+// GenericArgs defines generic arguments that can be used for flexible tools
+type GenericArgs struct {
+	// This is intentionally empty - allows tools to accept arbitrary JSON arguments
+}

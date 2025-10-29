@@ -25,19 +25,27 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create login tool: %v", err)
 	}
+	feedTool, err := tools.NewFeedTool()
+	if err != nil {
+		log.Fatalf("Failed to create feed tool: %v", err)
+	}
+	threadTool, err := tools.NewThreadTool()
+	if err != nil {
+		log.Fatalf("Failed to create thread tool: %v", err)
+	}
 
 	// Detect mode: CLI if args present, MCP server otherwise
 	if len(os.Args) > 1 {
 		// CLI Mode
-		runCLIMode(profileTool, searchTool, loginTool)
+		runCLIMode(profileTool, searchTool, loginTool, feedTool, threadTool)
 	} else {
 		// MCP Server Mode
-		runMCPMode(cfg, profileTool, searchTool, loginTool)
+		runMCPMode(cfg, profileTool, searchTool, loginTool, feedTool, threadTool)
 	}
 }
 
 // runCLIMode executes the tool in CLI mode
-func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool) {
+func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool, feedTool *tools.FeedTool, threadTool *tools.ThreadTool) {
 	// Create registry
 	registry := cli.NewRegistry()
 
@@ -71,11 +79,33 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 	}
 	registry.RegisterTool(loginDef)
 
+	// Register feed tool
+	feedAdapter := cli.NewMCPToolAdapter(feedTool)
+	feedDef := &cli.ToolDefinition{
+		Name:        "feed",
+		Description: "Get the latest feed from BlueSky",
+		ArgsType:    &cli.GenericArgs{},
+		Execute:     feedAdapter.Execute,
+	}
+	registry.RegisterTool(feedDef)
+
+	// Register thread tool
+	threadAdapter := cli.NewMCPToolAdapter(threadTool)
+	threadDef := &cli.ToolDefinition{
+		Name:        "thread",
+		Description: "Fetch a thread by post URI",
+		ArgsType:    &cli.GenericArgs{},
+		Execute:     threadAdapter.Execute,
+	}
+	registry.RegisterTool(threadDef)
+
 	// Create and run CLI runner
 	runner := cli.NewRunner(registry)
 	runner.RegisterToolCommand(profileDef)
 	runner.RegisterToolCommand(searchDef)
 	runner.RegisterToolCommand(loginDef)
+	runner.RegisterToolCommand(feedDef)
+	runner.RegisterToolCommand(threadDef)
 
 	ctx := context.Background()
 	if err := runner.Run(ctx, os.Args[1:]); err != nil {
@@ -84,7 +114,7 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 }
 
 // runMCPMode starts the MCP server
-func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool) {
+func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool, feedTool *tools.FeedTool, threadTool *tools.ThreadTool) {
 	// Create MCP server
 	server, err := mcp.NewServer()
 	if err != nil {
@@ -95,6 +125,8 @@ func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *
 	server.RegisterTool("profile", profileTool)
 	server.RegisterTool("search", searchTool)
 	server.RegisterTool("login", loginTool)
+	server.RegisterTool("feed", feedTool)
+	server.RegisterTool("thread", threadTool)
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
