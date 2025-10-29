@@ -35,3 +35,19 @@ type ThreadArgs struct {
 	PostURI string `json:"postURI" jsonschema:"required,description=BlueSky URL or at:// URI of the post" short:"p" long:"post"`
 	Login   string `json:"login,omitempty" jsonschema:"description=BlueSky handle for authenticated fetch (optional - use 'anonymous' for incognito)" short:"u" long:"login"`
 }
+
+// PostArgs defines arguments for the post tool
+type PostArgs struct {
+	PostAs  string `json:"postAs,omitempty" jsonschema:"description=Handle or DID to post as (uses default if not specified)" long:"post-as"`
+	Text    string `json:"text" jsonschema:"required,description=Text content of the post" short:"t" long:"text"`
+	ReplyTo string `json:"replyTo,omitempty" jsonschema:"description=Post URI (at://...) or URL (https://bsky.app/...) to reply to" short:"r" long:"reply-to"`
+}
+
+// ReactArgs defines arguments for the react tool
+type ReactArgs struct {
+	ReactAs string   `json:"reactAs,omitempty" jsonschema:"description=Handle or DID to react as (uses default if not specified)" long:"react-as"`
+	Like    []string `json:"like,omitempty" jsonschema:"description=Post URIs/URLs to like" long:"like"`
+	Unlike  []string `json:"unlike,omitempty" jsonschema:"description=Post URIs/URLs to unlike" long:"unlike"`
+	Repost  []string `json:"repost,omitempty" jsonschema:"description=Post URIs/URLs to repost" long:"repost"`
+	Delete  []string `json:"delete,omitempty" jsonschema:"description=Post URIs/URLs to delete" long:"delete"`
+}

@@ -33,19 +33,34 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create thread tool: %v", err)
 	}
+	postTool, err := tools.NewPostTool()
+	if err != nil {
+		log.Fatalf("Failed to create post tool: %v", err)
+	}
+	reactTool, err := tools.NewReactTool()
+	if err != nil {
+		log.Fatalf("Failed to create react tool: %v", err)
+	}
 
 	// Detect mode: CLI if args present, MCP server otherwise
 	if len(os.Args) > 1 {
 		// CLI Mode
-		runCLIMode(profileTool, searchTool, loginTool, feedTool, threadTool)
+		runCLIMode(profileTool, searchTool, loginTool, feedTool, threadTool, postTool, reactTool)
 	} else {
 		// MCP Server Mode
-		runMCPMode(cfg, profileTool, searchTool, loginTool, feedTool, threadTool)
+		runMCPMode(cfg, profileTool, searchTool, loginTool, feedTool, threadTool, postTool, reactTool)
 	}
 }
 
 // runCLIMode executes the tool in CLI mode
-func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool, feedTool *tools.FeedTool, threadTool *tools.ThreadTool) {
+func runCLIMode(
+	profileTool *tools.ProfileTool,
+	searchTool *tools.SearchTool,
+	loginTool *tools.LoginTool,
+	feedTool *tools.FeedTool,
+	threadTool *tools.ThreadTool,
+	postTool *tools.PostTool,
+	reactTool *tools.ReactTool) {
 	// Create registry
 	registry := cli.NewRegistry()
 
@@ -99,6 +114,26 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 	}
 	registry.RegisterTool(threadDef)
 
+	// Register post tool
+	postAdapter := cli.NewMCPToolAdapter(postTool)
+	postDef := &cli.ToolDefinition{
+		Name:        "post",
+		Description: "Create new posts with text content and optional reply functionality",
+		ArgsType:    &cli.PostArgs{},
+		Execute:     postAdapter.Execute,
+	}
+	registry.RegisterTool(postDef)
+
+	// Register react tool
+	reactAdapter := cli.NewMCPToolAdapter(reactTool)
+	reactDef := &cli.ToolDefinition{
+		Name:        "react",
+		Description: "Perform batch reactions on posts: like, unlike, repost, and delete",
+		ArgsType:    &cli.ReactArgs{},
+		Execute:     reactAdapter.Execute,
+	}
+	registry.RegisterTool(reactDef)
+
 	// Create and run CLI runner
 	runner := cli.NewRunner(registry)
 	runner.RegisterToolCommand(profileDef)
@@ -106,6 +141,8 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 	runner.RegisterToolCommand(loginDef)
 	runner.RegisterToolCommand(feedDef)
 	runner.RegisterToolCommand(threadDef)
+	runner.RegisterToolCommand(postDef)
+	runner.RegisterToolCommand(reactDef)
 
 	ctx := context.Background()
 	if err := runner.Run(ctx, os.Args[1:]); err != nil {
@@ -114,7 +151,15 @@ func runCLIMode(profileTool *tools.ProfileTool, searchTool *tools.SearchTool, lo
 }
 
 // runMCPMode starts the MCP server
-func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *tools.SearchTool, loginTool *tools.LoginTool, feedTool *tools.FeedTool, threadTool *tools.ThreadTool) {
+func runMCPMode(
+	cfg *config.Config,
+	profileTool *tools.ProfileTool,
+	searchTool *tools.SearchTool,
+	loginTool *tools.LoginTool,
+	feedTool *tools.FeedTool,
+	threadTool *tools.ThreadTool,
+	postTool *tools.PostTool,
+	reactTool *tools.ReactTool) {
 	// Create MCP server
 	server, err := mcp.NewServer()
 	if err != nil {
@@ -127,6 +172,8 @@ func runMCPMode(cfg *config.Config, profileTool *tools.ProfileTool, searchTool *
 	server.RegisterTool("login", loginTool)
 	server.RegisterTool("feed", feedTool)
 	server.RegisterTool("thread", threadTool)
+	server.RegisterTool("post", postTool)
+	server.RegisterTool("react", reactTool)
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
