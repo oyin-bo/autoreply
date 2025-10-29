@@ -442,6 +442,8 @@ async fn handle_tool_call(request: McpRequest, context: &ServerContext) -> McpRe
         "profile" => crate::tools::profile::handle_profile(request.id, args.arguments).await,
         "search" => crate::tools::search::handle_search(request.id, args.arguments).await,
         "login" => crate::tools::login::handle_login(request.id, args.arguments, context).await,
+        "post" => crate::tools::post::handle_post(request.id, args.arguments).await,
+        "react" => crate::tools::react::handle_react(request.id, args.arguments).await,
         _ => McpResponse::error(
             request.id,
             "tool_not_found",
@@ -490,13 +492,15 @@ async fn handle_initialize(request: McpRequest, context: &mut ServerContext) -> 
 
 /// Build the tools array returned from tools/list and initialize
 pub(crate) fn build_tools_array() -> serde_json::Value {
-    use crate::cli::{LoginCommand, ProfileArgs, SearchArgs};
+    use crate::cli::{LoginCommand, PostArgs, ProfileArgs, ReactArgs, SearchArgs};
     use schemars::schema_for;
 
     // Generate JSON schemas from the CLI argument structs
     let profile_schema = schema_for!(ProfileArgs);
     let search_schema = schema_for!(SearchArgs);
     let login_schema = schema_for!(LoginCommand);
+    let post_schema = schema_for!(PostArgs);
+    let react_schema = schema_for!(ReactArgs);
 
     serde_json::json!([
         {
@@ -513,6 +517,16 @@ pub(crate) fn build_tools_array() -> serde_json::Value {
             "name": "login",
             "description": "Authenticate accounts and manage stored credentials (subcommands: list, default, delete)",
             "inputSchema": login_schema
+        },
+        {
+            "name": "post",
+            "description": "Create a new post or reply on BlueSky. Supports text content and replying to existing posts via at:// URI or https://bsky.app/... URL.",
+            "inputSchema": post_schema
+        },
+        {
+            "name": "react",
+            "description": "Perform batch reactions on BlueSky posts (like, unlike, repost, delete). All operations support both at:// URIs and https://bsky.app/... URLs. Partial success is allowed - some operations may succeed while others fail.",
+            "inputSchema": react_schema
         }
     ])
 }
