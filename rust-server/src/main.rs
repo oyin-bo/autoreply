@@ -4,9 +4,12 @@
 //! - MCP Server Mode (default): Model Context Protocol server using stdio
 //! - CLI Mode: Command-line utility for direct tool execution
 //!
-//! Implements two tools:
+//! Implements tools:
 //! - `profile(account)` - Retrieve user profile information
 //! - `search(account, query)` - Search posts within a user's repository
+//! - `login` - Manage authentication and credentials
+//! - `post(postAs, text, replyTo)` - Create posts with optional reply
+//! - `react(reactAs, like, unlike, repost, delete)` - React to posts with batch operations
 
 mod auth;
 mod bluesky;
