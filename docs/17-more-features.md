@@ -65,39 +65,47 @@ The JavaScript MCP server implementation provides a comprehensive BlueSky client
 - Reply-to URI handling
 - Text processing and validation
 
+**Input (MCP):**
+
+```json
+{
+  "postAs": "handle-or-did",
+	"text": "string (required)",
+	"replyTo": "string (optional, at:// URI or https://bsky.app/... URL)",
+}
+```
+
+Notes:
+- langs, facets, embed exist in BSki tooling but are not yet supported here (they will be implemented using Markdown)
+- Batching: not supported for `post` yet.
+- URI/URL interchangeability: `replyTo` accepts either an `at://` URI or a `https://bsky.app/...` URL; both are valid and can be used interchangeably.
+- posting requires authentication; the `postAs` field specifies the user identity (handle or DID) under which the post will be created (authentication flow might be required if credentials are not stored for that user).
+
 ## Priority 2: Engagement Tools
 
-### 4. Like Tool (`like`)
+### 4. React Tool
 **Impact**: Important for user engagement
-- Like/unlike posts by URI
-- Track like status and counts
+- multiple actions on posts by URI/URL
 
-**Implementation Requirements**:
-- `com.atproto.repo.createRecord` for likes
-- Like record management
-- Post URI validation
+**Input (MCP, batching supported):**
 
-### 5. Repost Tool (`repost`)
-**Impact**: Important for content sharing
-- Repost existing content
-- Quote post functionality
-- Repost validation and deduplication
+```json
+{
+  "reactAs": "handle-or-did",
+	"like": ["at://..."]
+	"unlike": ["https://bsky.app/..."]
+	"repost": ["at://...", "https://bsky.app/..."],
+	"delete": ["at://...", "https://bsky.app/..."]
+}
+```
 
-**Implementation Requirements**:
-- `com.atproto.repo.createRecord` for reposts
-- Repost record schema
-- Quote post handling
+- An array of post ids are allowed; mixing `at://` and `https://bsky.app/...` forms in the same array is allowed.
+- The tool normalizes ids; LLMs can use whichever form is convenient.
+- Any combination of operations are allowed in a single call.
+- Batch semantics: process all items; partial success is allowed and surfaced in Markdown.
+- reacting requires authentication; the `postAs` field specifies the user identity (handle or DID) under which the post will be created (authentication flow might be required if credentials are not stored for that user).
 
-### 6. Delete Tool (`delete`)
-**Impact**: Content management
-- Delete own posts by URI
-- Proper cleanup of associated records
-- Validation of ownership
 
-**Implementation Requirements**:
-- `com.atproto.repo.deleteRecord` API integration
-- Ownership validation
-- Associated record cleanup
 
 ## Priority 3: Enhanced CLI Experience
 
