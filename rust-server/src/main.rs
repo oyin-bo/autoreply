@@ -4,9 +4,12 @@
 //! - MCP Server Mode (default): Model Context Protocol server using stdio
 //! - CLI Mode: Command-line utility for direct tool execution
 //!
-//! Implements two tools:
+//! Implements five tools:
 //! - `profile(account)` - Retrieve user profile information
 //! - `search(account, query)` - Search posts within a user's repository
+//! - `feed(feed, login, password, cursor, limit)` - Get the latest feed from BlueSky
+//! - `thread(post_uri, login, password)` - Fetch a thread by post URI
+//! - `login(handle, password, service)` - Authenticate accounts and manage stored credentials
 
 mod auth;
 mod bluesky;
