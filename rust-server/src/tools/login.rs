@@ -141,7 +141,7 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
 }
 
 /// Create error message when elicitation is unavailable
-fn create_elicitation_unavailable_error(context: &ServerContext, field: &str) -> ToolResult {
+pub(crate) fn create_elicitation_unavailable_error(context: &ServerContext, field: &str) -> ToolResult {
     let client_name = context.get_client_name();
 
     let message = format!(
@@ -159,11 +159,11 @@ https://bsky.app/settings/app-passwords
         field, client_name
     );
 
-    ToolResult::text(message)
+    ToolResult::text(message).with_error_flag()
 }
 
 /// Create password-specific error message when elicitation is unavailable
-fn create_password_elicitation_unavailable_error(
+pub(crate) fn create_password_elicitation_unavailable_error(
     context: &ServerContext,
     handle: &str,
 ) -> ToolResult {
@@ -186,5 +186,5 @@ fn create_password_elicitation_unavailable_error(
         client_name, handle, handle
     );
 
-    ToolResult::text(message)
+    ToolResult::text(message).with_error_flag()
 }

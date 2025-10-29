@@ -208,15 +208,8 @@ fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> St
         }
     }
 
-    // Add summary
-    let summary = if posts.len() == 1 {
-        "Found 1 matching post".to_string()
-    } else {
-        format!("Found {} matching posts", posts.len())
-    };
-
-    // Add summary at the end
-    markdown.push_str(&format!("\n---\n\n*{}*\n", summary));
+    // Add summary footer aligned with Go output
+    markdown.push_str(&format!("\n**Results:** Showing {} of {} results.\n", posts.len(), posts.len()));
 
     markdown
 }
@@ -297,6 +290,6 @@ mod tests {
 
         assert!(markdown.contains("# Search Results for \"hello\" in @test.bsky.social"));
         assert!(markdown.contains("## Post 1"));
-        assert!(markdown.contains("Found 1 matching post"));
+        assert!(markdown.contains("**Results:** Showing 1 of 1 results."));
     }
 }

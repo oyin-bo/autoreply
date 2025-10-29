@@ -15,7 +15,7 @@ An autoreply Model Context Protocol (MCP) server for BlueSky profile and post se
 - **Secure Credential Storage**: OS keychain integration with encrypted fallback
 - **Profile Tool**: Retrieve user profile information from BlueSky
 - **Search Tool**: Search posts within a user's repository
-- **Account Management**: Multi-account support with login/logout/accounts commands
+- **Account Management**: Multi-account support; accounts management is via login subcommands (list/default/delete)
 - **Two-tier Caching**: Efficient caching with DID-based directory structure
 - **Unicode Support**: Proper Unicode normalization for text search
 - **Streaming Downloads**: Memory-efficient CAR file processing
@@ -104,9 +104,9 @@ Authenticate with BlueSky using handle and app password.
 }
 ```
 
-#### accounts
+#### login subcommands
 
-List authenticated accounts and manage default account.
+List accounts and manage credentials via the login tool:
 
 ```json
 {
@@ -114,17 +114,13 @@ List authenticated accounts and manage default account.
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "accounts",
-    "arguments": {
-      "action": "list"
-    }
+    "name": "login",
+    "arguments": { "command": "list" }
   }
 }
 ```
 
-#### logout
-
-Remove stored credentials for a BlueSky account.
+Delete credentials for an account:
 
 ```json
 {
@@ -132,10 +128,8 @@ Remove stored credentials for a BlueSky account.
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "logout",
-    "arguments": {
-      "handle": "alice.bsky.social"
-    }
+    "name": "login",
+    "arguments": { "command": "delete", "handle": "alice.bsky.social" }
   }
 }
 ```

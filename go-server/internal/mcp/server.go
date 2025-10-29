@@ -51,6 +51,24 @@ func NewServer() (*Server, error) {
 	}, nil
 }
 
+// SetWriterForTest sets the JSON encoder to write to the provided writer.
+// This is intended for tests to intercept server-to-client requests.
+func (s *Server) SetWriterForTest(w io.Writer) {
+	s.encoder = json.NewEncoder(w)
+}
+
+// SetClientCapabilitiesForTest sets the client capabilities.
+// This is intended for tests to simulate client feature support.
+func (s *Server) SetClientCapabilitiesForTest(c *ClientCapabilities) {
+	s.clientCapability = c
+}
+
+// InjectClientResponseForTest injects a client response into the pending response handler.
+// This is intended for tests to simulate client replies to server-initiated requests.
+func (s *Server) InjectClientResponseForTest(resp *JSONRPCResponse) {
+	s.handleClientResponse(resp)
+}
+
 // RegisterTool registers a tool with the server
 func (s *Server) RegisterTool(name string, tool Tool) {
 	s.tools[name] = tool

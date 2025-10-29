@@ -71,6 +71,55 @@ Acceptance criteria (final)
  - `tools/list` exposes `login`, `profile`, `search` with matching schemas.
  - Login subcommands `list|default|delete` replicate existing `accounts` behavior.
 
+# Immediate action: Small adjustments
+
+- Rust schema cleanup
+	- Remove `prompt_id` from the `tools/list` schema (keep it CLI-only if needed). Exclude it from `LoginCommand`’s MCP-facing schema so clients see only: `command`, `handle`, `password`, `service`, `port`.
+	- Ensure Rust and Go expose equivalent input schemas for `login`, `profile`, `search`.
+
+- Rust ToolResult error signaling
+	- Extend Rust `ToolResult` to include `isError: boolean` and set it for elicitation fallbacks and guidance-only failures, matching Go.
+	- Until then, document interim behavior or switch these cases to JSON-RPC errors for consistency; preferred path is adding `isError` for parity.
+
+- Tools list descriptions
+	- Align Rust `login` tool description to explicitly mention subcommands “list, default, delete” (Go already does). Keep descriptions consistent across both servers.
+
+- Tests to cover elicitation + fallbacks
+	- Go: Add unit tests for `login` covering:
+		- Elicitation flow when client supports it (accept / decline / cancel)
+		- Fallback text with `isError: true` when client lacks elicitation support
+		- Use `internal/testutil/MockServer` to simulate client behavior
+	- Rust: Add tests for `login` covering:
+		- Successful `elicitation/create` round trips (handle, then password)
+		- Transport errors and fallback messages
+		- Initialize handling of client capabilities (elicitation present vs absent)
+
+- Documentation and compatibility
+	- Update Go docs to stop recommending the legacy `accounts` tool. Replace examples with `login` subcommands (`list`, `default`, `delete`).
+	- If external clients rely on `accounts`, provide a short-lived compatibility alias that forwards to `login` subcommands and document a deprecation window.
+
+- Message copy consistency (non-functional)
+	- Keep security guidance uniform across Go and Rust: don’t use main account password; link to app-password page; prefer OAuth by default.
+
+- Minor output alignment (non-blockquote)
+	- Standardize placement of the “Created” timestamp and summary footer between Go and Rust search outputs (choose one ordering and apply in both).
+	- Keep the existing readable Markdown; do not introduce blockquote conventions here (tracked separately under the Markdown plan).
+
+## Progress Log
+
+2025-10-29
+- Rust
+	- ToolResult now includes optional isError (serialized as isError) and helper with_error_flag; applied to login fallback messages.
+	- Excluded prompt_id from MCP-facing login schema via schemars skip on LoginCommand; tools/list schema reflects only command, handle, password, service, port.
+	- Exposed build_tools_array for testing; made login fallback helpers pub(crate).
+	- Added tests: schema excludes prompt_id; login fallback sets isError. All cargo tests passing.
+- Go
+	- Added unit test covering login fallback when client lacks elicitation support; asserts IsError and guidance copy.
+	- Updated MCP docs to replace legacy accounts/logout examples with login subcommands (list/delete).
+	- Confirmed tools/list descriptions mention subcommands; existing tests remain green.
+- Notes
+	- Elicitation round-trip tests (accept/decline/cancel) are planned; current Server signature (concrete type) complicates mocking. Will consider introducing an interface or adapter to enable mocking in unit tests.
+
 # Simplify tool schema: The Plan
 
 ## Vision: Markdown-Structured Output for LLM Consumption

@@ -183,14 +183,14 @@ impl PostRecord {
     pub fn to_markdown(&self, handle: &str, query: &str) -> String {
         let mut markdown = String::new();
 
-        // Post URI and timestamp
+        // Link (web URL) and timestamp
         if !self.uri.is_empty() {
             let post_url = format!(
                 "https://bsky.app/profile/{}/post/{}",
                 handle,
                 self.uri.split('/').next_back().unwrap_or("")
             );
-            markdown.push_str(&format!("**URI:** [{}]({})\n", self.uri, post_url));
+            markdown.push_str(&format!("**Link:** {}\n", post_url));
         }
 
         markdown.push_str(&format!("**Created:** {}\n\n", self.created_at));
@@ -432,7 +432,7 @@ mod tests {
         let post = create_test_post();
         let markdown = post.to_markdown("alice.bsky.social", "hello");
 
-        assert!(markdown.contains("**URI:** [at://did:plc:test/app.bsky.feed.post/123](https://bsky.app/profile/alice.bsky.social/post/123)"));
+    assert!(markdown.contains("**Link:** https://bsky.app/profile/alice.bsky.social/post/123"));
         assert!(markdown.contains("**Created:** 2024-01-01T12:00:00Z"));
         assert!(markdown.contains("**Hello** world!"));
     }

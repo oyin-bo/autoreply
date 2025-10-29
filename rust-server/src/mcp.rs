@@ -18,6 +18,8 @@ pub struct ServerContext {
     pub client_info: Option<ClientInfo>,
     pub client_capabilities: Option<ClientCapabilities>,
     pub rpc_sender: Option<Arc<RpcSender>>,
+    #[cfg(test)]
+    pub test_elicitation_hook: Option<Arc<dyn Fn(String, Value) -> anyhow::Result<ElicitationResponse> + Send + Sync>>, 
 }
 
 /// RPC sender for server-to-client requests
@@ -124,6 +126,8 @@ impl ServerContext {
             client_info: None,
             client_capabilities: None,
             rpc_sender,
+            #[cfg(test)]
+            test_elicitation_hook: None,
         }
     }
 
@@ -148,6 +152,12 @@ impl ServerContext {
         message: String,
         requested_schema: Value,
     ) -> Result<ElicitationResponse> {
+        // In tests, allow injecting a synthetic elicitation response without stdio
+        #[cfg(test)]
+        if let Some(hook) = &self.test_elicitation_hook {
+            return hook(message, requested_schema);
+        }
+
         let rpc_sender = self
             .rpc_sender
             .as_ref()
@@ -160,6 +170,16 @@ impl ServerContext {
         rpc_sender
             .request_elicitation(message, requested_schema)
             .await
+    }
+}
+
+#[cfg(test)]
+impl ServerContext {
+    pub fn set_test_elicitation_hook<F>(&mut self, f: F)
+    where
+        F: Fn(String, Value) -> anyhow::Result<ElicitationResponse> + Send + Sync + 'static,
+    {
+        self.test_elicitation_hook = Some(Arc::new(f));
     }
 }
 
@@ -256,6 +276,8 @@ pub struct ContentItem {
 #[derive(Debug, Serialize)]
 pub struct ToolResult {
     pub content: Vec<ContentItem>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isError")]
+    pub is_error: Option<bool>,
 }
 
 impl McpResponse {
@@ -288,12 +310,19 @@ impl ToolResult {
     pub fn text(content: impl Into<String>) -> Self {
         Self {
             content: vec![ContentItem::text(content)],
+            is_error: None,
         }
     }
 
     /// Create a result from explicit content items
     pub fn from_items(content: Vec<ContentItem>) -> Self {
-        Self { content }
+        Self { content, is_error: None }
+    }
+
+    /// Mark this result as an error with user-facing guidance
+    pub fn with_error_flag(mut self) -> Self {
+        self.is_error = Some(true);
+        self
     }
 }
 
@@ -460,7 +489,7 @@ async fn handle_initialize(request: McpRequest, context: &mut ServerContext) -> 
 }
 
 /// Build the tools array returned from tools/list and initialize
-fn build_tools_array() -> serde_json::Value {
+pub(crate) fn build_tools_array() -> serde_json::Value {
     use crate::cli::{LoginCommand, ProfileArgs, SearchArgs};
     use schemars::schema_for;
 
@@ -482,7 +511,7 @@ fn build_tools_array() -> serde_json::Value {
         },
         {
             "name": "login",
-            "description": "Authenticate accounts and manage stored credentials",
+            "description": "Authenticate accounts and manage stored credentials (subcommands: list, default, delete)",
             "inputSchema": login_schema
         }
     ])
@@ -560,6 +589,8 @@ mod tests {
                 elicitation: Some(ElicitationCapability {}),
             }),
             rpc_sender: None,
+            #[cfg(test)]
+            test_elicitation_hook: None,
         };
         assert!(context_with.supports_elicitation());
 
@@ -568,6 +599,8 @@ mod tests {
             client_info: None,
             client_capabilities: Some(ClientCapabilities { elicitation: None }),
             rpc_sender: None,
+            #[cfg(test)]
+            test_elicitation_hook: None,
         };
         assert!(!context_without.supports_elicitation());
 
@@ -586,6 +619,8 @@ mod tests {
             }),
             client_capabilities: None,
             rpc_sender: None,
+            #[cfg(test)]
+            test_elicitation_hook: None,
         };
         assert_eq!(context_with_name.get_client_name(), "Test Client");
 
@@ -601,6 +636,8 @@ mod tests {
             }),
             client_capabilities: None,
             rpc_sender: None,
+            #[cfg(test)]
+            test_elicitation_hook: None,
         };
         assert_eq!(context_empty.get_client_name(), "");
     }
@@ -614,6 +651,8 @@ mod tests {
                 elicitation: Some(ElicitationCapability {}),
             }),
             rpc_sender: None,
+            #[cfg(test)]
+            test_elicitation_hook: None,
         };
 
         let result = context
@@ -638,6 +677,8 @@ mod tests {
             client_info: None,
             client_capabilities: Some(ClientCapabilities { elicitation: None }),
             rpc_sender: Some(rpc_sender),
+            #[cfg(test)]
+            test_elicitation_hook: None,
         };
 
         let result = context

@@ -84,7 +84,7 @@ pub struct LoginCommand {
     /// Opaque prompt identifier used by MCP login elicitation
     #[arg(skip = Option::<String>::None)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "Opaque prompt identifier used when responding to MCP login prompts")]
+    #[schemars(skip)]
     pub prompt_id: Option<String>,
 }
 

@@ -147,13 +147,13 @@ Start the MCP server (authentication tools available via JSON-RPC):
   "id": 2,
   "method": "tools/call",
   "params": {
-    "name": "accounts",
-    "arguments": {}
+    "name": "login",
+    "arguments": { "command": "list" }
   }
 }
 ```
 
-### Example MCP Request - Logout
+### Example MCP Request - Logout (remove credentials)
 
 ```json
 {
@@ -161,10 +161,8 @@ Start the MCP server (authentication tools available via JSON-RPC):
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "logout",
-    "arguments": {
-      "handle": "your.handle.bsky.social"
-    }
+    "name": "login",
+    "arguments": { "command": "delete", "handle": "your.handle.bsky.social" }
   }
 }
 ```
