@@ -441,6 +441,8 @@ async fn handle_tool_call(request: McpRequest, context: &ServerContext) -> McpRe
     match args.name.as_str() {
         "profile" => crate::tools::profile::handle_profile(request.id, args.arguments).await,
         "search" => crate::tools::search::handle_search(request.id, args.arguments).await,
+        "feed" => crate::tools::feed::handle_feed(request.id, args.arguments).await,
+        "thread" => crate::tools::thread::handle_thread(request.id, args.arguments).await,
         "login" => crate::tools::login::handle_login(request.id, args.arguments, context).await,
         _ => McpResponse::error(
             request.id,
@@ -490,12 +492,14 @@ async fn handle_initialize(request: McpRequest, context: &mut ServerContext) -> 
 
 /// Build the tools array returned from tools/list and initialize
 pub(crate) fn build_tools_array() -> serde_json::Value {
-    use crate::cli::{LoginCommand, ProfileArgs, SearchArgs};
+    use crate::cli::{FeedArgs, LoginCommand, ProfileArgs, SearchArgs, ThreadArgs};
     use schemars::schema_for;
 
     // Generate JSON schemas from the CLI argument structs
     let profile_schema = schema_for!(ProfileArgs);
     let search_schema = schema_for!(SearchArgs);
+    let feed_schema = schema_for!(FeedArgs);
+    let thread_schema = schema_for!(ThreadArgs);
     let login_schema = schema_for!(LoginCommand);
 
     serde_json::json!([
@@ -508,6 +512,16 @@ pub(crate) fn build_tools_array() -> serde_json::Value {
             "name": "search",
             "description": "Search posts within a user's repository",
             "inputSchema": search_schema
+        },
+        {
+            "name": "feed",
+            "description": "Get the latest feed from BlueSky. Returns a list of posts. These feeds are paginated, you get the top chunk and a cursor, you can call the same tool again with the cursor to get more posts.",
+            "inputSchema": feed_schema
+        },
+        {
+            "name": "thread",
+            "description": "Fetch a thread by post URI, it returns all the replies and replies to replies, the whole bunch.",
+            "inputSchema": thread_schema
         },
         {
             "name": "login",

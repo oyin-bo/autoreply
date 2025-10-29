@@ -30,6 +30,10 @@ pub enum Commands {
     Profile(ProfileArgs),
     /// Search posts within a user's repository
     Search(SearchArgs),
+    /// Get the latest feed from BlueSky
+    Feed(FeedArgs),
+    /// Fetch a thread by post URI
+    Thread(ThreadArgs),
     /// Manage authentication and accounts
     Login(LoginCommand),
 }
@@ -60,6 +64,54 @@ pub struct SearchArgs {
     #[arg(short = 'l', long)]
     #[schemars(description = "Maximum number of results (default 50, max 200)")]
     pub limit: Option<usize>,
+}
+
+/// Feed tool arguments
+#[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+pub struct FeedArgs {
+    /// (Optional) The feed to retrieve, can be a BlueSky feed URI, or a name for a feed to search for
+    #[arg(short = 'f', long)]
+    #[schemars(description = "(Optional) The feed to retrieve, can be a BlueSky feed URI, or a name for a feed to search for")]
+    pub feed: Option<String>,
+
+    /// (Optional) BlueSky handle for which the feed is requested
+    #[arg(short = 'l', long)]
+    #[schemars(description = "(Optional) BlueSky handle for which the feed is requested")]
+    pub login: Option<String>,
+
+    /// (Optional) BlueSky password to use
+    #[arg(short = 'p', long)]
+    #[schemars(description = "(Optional) BlueSky password to use")]
+    pub password: Option<String>,
+
+    /// (Optional) Cursor for pagination
+    #[arg(short = 'c', long)]
+    #[schemars(description = "(Optional) Cursor for pagination")]
+    pub cursor: Option<String>,
+
+    /// (Optional) Limit the number of posts returned, defaults to 20, max 100
+    #[arg(long)]
+    #[schemars(description = "(Optional) Limit the number of posts returned, defaults to 20, max 100")]
+    pub limit: Option<u32>,
+}
+
+/// Thread tool arguments
+#[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+pub struct ThreadArgs {
+    /// The BlueSky URL of the post, or also can be at:// URI of the post to fetch the thread for
+    #[arg(short = 'u', long)]
+    #[schemars(description = "The BlueSky URL of the post, or also can be at:// URI of the post to fetch the thread for")]
+    pub post_uri: String,
+
+    /// (Optional) BlueSky handle to use for authenticated fetch
+    #[arg(short = 'l', long)]
+    #[schemars(description = "(Optional) BlueSky handle to use for authenticated fetch")]
+    pub login: Option<String>,
+
+    /// (Optional) BlueSky password to use
+    #[arg(short = 'p', long)]
+    #[schemars(description = "(Optional) BlueSky password to use")]
+    pub password: Option<String>,
 }
 
 /// Login command with subcommands for account management

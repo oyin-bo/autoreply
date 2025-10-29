@@ -67,6 +67,8 @@ async fn run_cli_mode() -> Result<()> {
     let result = match cli.command {
         Some(Commands::Profile(args)) => execute_profile_cli(args).await,
         Some(Commands::Search(args)) => execute_search_cli(args).await,
+        Some(Commands::Feed(args)) => execute_feed_cli(args).await,
+        Some(Commands::Thread(args)) => execute_thread_cli(args).await,
         Some(Commands::Login(args)) => execute_login_cli(args).await,
         None => {
             eprintln!("Error: No command specified. Use --help for usage information.");
@@ -131,6 +133,54 @@ async fn execute_search_cli(args: cli::SearchArgs) -> Result<String> {
                 .unwrap_or_default())
         }
         Ok(Err(e)) => Err(anyhow::anyhow!(e.message())),
+        Err(_) => Err(anyhow::anyhow!("Request exceeded 120 second timeout")),
+    }
+}
+
+/// Execute feed command in CLI mode
+async fn execute_feed_cli(args: cli::FeedArgs) -> Result<String> {
+    use tokio::time::{timeout, Duration};
+
+    let result = timeout(
+        Duration::from_secs(120),
+        tools::feed::execute_feed(args),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(tool_result)) => {
+            // Extract markdown text from ToolResult
+            Ok(tool_result
+                .content
+                .first()
+                .map(|c| c.text.clone())
+                .unwrap_or_default())
+        }
+        Ok(Err(e)) => Err(anyhow::anyhow!(e.to_string())),
+        Err(_) => Err(anyhow::anyhow!("Request exceeded 120 second timeout")),
+    }
+}
+
+/// Execute thread command in CLI mode
+async fn execute_thread_cli(args: cli::ThreadArgs) -> Result<String> {
+    use tokio::time::{timeout, Duration};
+
+    let result = timeout(
+        Duration::from_secs(120),
+        tools::thread::execute_thread(args),
+    )
+    .await;
+
+    match result {
+        Ok(Ok(tool_result)) => {
+            // Extract markdown text from ToolResult
+            Ok(tool_result
+                .content
+                .first()
+                .map(|c| c.text.clone())
+                .unwrap_or_default())
+        }
+        Ok(Err(e)) => Err(anyhow::anyhow!(e.to_string())),
         Err(_) => Err(anyhow::anyhow!("Request exceeded 120 second timeout")),
     }
 }
