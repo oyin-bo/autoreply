@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.3.4] - 2025-10-30
+
+### Added
+- **Feed Tool**: New `feed` tool for fetching BlueSky feeds.
+  - Supports default "What's Hot" feed and custom feed URIs.
+  - Pagination support with cursor parameter.
+  - Limit parameter (default 20, max 100 posts per request).
+  - Returns formatted markdown with post content, author info, and engagement stats.
+- **Thread Tool**: New `thread` tool for fetching complete conversation threads.
+  - Takes post URI (at:// format) as input.
+  - Recursively fetches all replies and nested conversations.
+  - Returns formatted markdown with indented reply structure.
+  - Handles blocked and not-found posts gracefully.
+- **Post Tool**: New `post` tool for creating posts and replies on BlueSky.
+  - Create standalone posts with text content.
+  - Reply to existing posts with proper threading (preserves reply chain root).
+  - Automatic reply-to post fetching for CID and reply metadata.
+  - Returns post URI and formatted markdown confirmation.
+- **React Tool**: New `react` tool for interacting with BlueSky posts.
+  - Batch operations support: like, unlike, repost, and delete in a single call.
+  - Array-based parameters for each action type (can perform multiple reactions at once).
+  - Post URI resolution (supports both `at://` URIs and `bsky.app` URLs).
+  - Validation to prevent deleting posts that don't belong to the authenticated user.
+  - Returns detailed markdown report of successful and failed operations.
+
 ## [0.3.2] - 2025-10-05
 
 ### Added

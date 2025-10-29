@@ -12,6 +12,10 @@ This application supports two operational modes:
 Both modes implement the same tools:
 - `profile(account)` - Retrieve user profile information  
 - `search(account, query)` - Search posts within a user's repository
+- `feed` - Get the latest feed from BlueSky (Discovery feed or curated feeds)
+- `thread(postURI)` - Fetch a complete thread with all replies
+- `post(postAs, text, replyTo)` - Create posts and replies to the BlueSky network
+- `react(reactAs, like, unlike, repost, delete)` - Interact with posts (likes, reposts, deletions)
 - `login(...)` - Authenticate accounts and manage stored credentials (OAuth + app password)
   - Supports **interactive elicitation** for missing credentials when used via MCP clients that support the elicitation capability
   - Falls back to clear error messages with instructions for non-supporting clients
@@ -161,12 +165,48 @@ Notes:
 ```
 
 **Get user profile:**
+```json
 {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "profile", "arguments": {"account": "alice.bsky.social"}}}
 ```
+
 **Search user's posts:**
 ```json
 {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "search", "arguments": {"account": "alice.bsky.social", "query": "hello world"}}}
 ```
+
+**Create a post:**
+```json
+{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "post", "arguments": {"postAs": "alice.bsky.social", "text": "Hello from MCP!"}}}
+```
+
+**Reply to a post:**
+```json
+{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "post", "arguments": {"postAs": "alice.bsky.social", "text": "Great point!", "replyTo": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3l47qoztfqi2w"}}}
+```
+
+**React to posts:**
+```json
+{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "react", "arguments": {"reactAs": "alice.bsky.social", "like": ["at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3l47qoztfqi2w"]}}}
+```
+
+**Get feed:**
+```json
+{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "feed", "arguments": {"limit": 20}}}
+```
+*Note: Omit the `feed` argument to use the default "What's Hot" feed, or provide a feed URI like `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot`*
+
+**Get thread:**
+```json
+{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "thread", "arguments": {"postURI": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3l47qoztfqi2w"}}}
+```
+*Note: The `postURI` should be in `at://` format, e.g., `at://{did}/app.bsky.feed.post/{postId}`*
+
 **Login / manage credentials:**
 ```json
-{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "login", "arguments": {"handle": "alice.bsky.social"}}}
+{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "login", "arguments": {"handle": "alice.bsky.social"}}}
+```
+```
+
+**Login / manage credentials:**
+```json
+{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "login", "arguments": {"handle": "alice.bsky.social"}}}

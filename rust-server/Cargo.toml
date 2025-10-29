@@ -1,6 +1,6 @@
 [package]
 name = "autoreply"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 description = "autoreply: Model Context Protocol server for Bluesky profile and post search functionality"
 authors = ["Oleg Mihailik"]
