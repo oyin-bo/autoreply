@@ -111,7 +111,7 @@ async fn execute_profile_cli(args: cli::ProfileArgs) -> Result<String> {
                 .map(|c| c.text.clone())
                 .unwrap_or_default())
         }
-        Ok(Err(e)) => Err(anyhow::anyhow!(e.message())),
+        Ok(Err(e)) => Err(anyhow::anyhow!(e.to_string())),
         Err(_) => Err(anyhow::anyhow!("Request exceeded 120 second timeout")),
     }
 }
@@ -135,7 +135,7 @@ async fn execute_search_cli(args: cli::SearchArgs) -> Result<String> {
                 .map(|c| c.text.clone())
                 .unwrap_or_default())
         }
-        Ok(Err(e)) => Err(anyhow::anyhow!(e.message())),
+        Ok(Err(e)) => Err(anyhow::anyhow!(e.to_string())),
         Err(_) => Err(anyhow::anyhow!("Request exceeded 120 second timeout")),
     }
 }
