@@ -32,6 +32,10 @@ pub enum Commands {
     Search(SearchArgs),
     /// Manage authentication and accounts
     Login(LoginCommand),
+    /// Post a message to BlueSky
+    Post(PostArgs),
+    /// React to posts (like, unlike, repost, delete)
+    React(ReactArgs),
 }
 
 /// Profile tool arguments
@@ -80,6 +84,57 @@ pub struct LoginCommand {
     /// Service URL (defaults to <https://bsky.social>)
     #[arg(short = 's', long, global = true)]
     pub service: Option<String>,
+}
+
+/// Post tool arguments
+#[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+pub struct PostArgs {
+    /// Handle or DID to post as
+    #[arg(short = 'a', long)]
+    #[serde(rename = "postAs")]
+    #[schemars(description = "Handle or DID to post as", rename = "postAs")]
+    pub post_as: Option<String>,
+
+    /// The text of the post
+    #[arg(short = 't', long)]
+    #[schemars(description = "The text of the post")]
+    pub text: String,
+
+    /// Post URI or URL to reply to
+    #[arg(short = 'r', long)]
+    #[serde(rename = "replyTo")]
+    #[schemars(description = "Post URI (at://) or URL (https://bsky.app/...) to reply to", rename = "replyTo")]
+    pub reply_to: Option<String>,
+}
+
+/// React tool arguments
+#[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+pub struct ReactArgs {
+    /// Handle or DID to react as
+    #[arg(short = 'a', long)]
+    #[serde(rename = "reactAs")]
+    #[schemars(description = "Handle or DID to react as", rename = "reactAs")]
+    pub react_as: Option<String>,
+
+    /// Post URIs to like
+    #[arg(long)]
+    #[schemars(description = "Post URIs or URLs to like")]
+    pub like: Option<Vec<String>>,
+
+    /// Post URIs to unlike
+    #[arg(long)]
+    #[schemars(description = "Post URIs or URLs to unlike")]
+    pub unlike: Option<Vec<String>>,
+
+    /// Post URIs to repost
+    #[arg(long)]
+    #[schemars(description = "Post URIs or URLs to repost")]
+    pub repost: Option<Vec<String>>,
+
+    /// Post URIs to delete
+    #[arg(long)]
+    #[schemars(description = "Post URIs or URLs to delete")]
+    pub delete: Option<Vec<String>>,
 }
 
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, JsonSchema)]
