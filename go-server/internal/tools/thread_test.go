@@ -3,6 +3,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/bluesky"
@@ -130,7 +131,7 @@ func TestThreadTool_NormalizePostURI_BlueSkyURL(t *testing.T) {
 
 	// Should convert to AT URI format
 	expectedContains := "test.bsky.social"
-	if !containsString(normalized, expectedContains) {
+	if !strings.Contains(normalized, expectedContains) {
 		t.Errorf("Expected normalized URI to contain '%s', got '%s'", expectedContains, normalized)
 	}
 }
@@ -182,7 +183,7 @@ func TestThreadTool_FormatMarkdown(t *testing.T) {
 	}
 
 	for _, expected := range expectedStrings {
-		if !containsString(markdown, expected) {
+		if !strings.Contains(markdown, expected) {
 			t.Errorf("Expected markdown to contain '%s'", expected)
 		}
 	}
@@ -202,7 +203,7 @@ func TestThreadTool_FormatMarkdown_EmptyThread(t *testing.T) {
 	markdown := tool.formatThreadAsMarkdown(mockThread)
 
 	// Verify markdown contains "No posts found"
-	if !containsString(markdown, "No posts found") {
+	if !strings.Contains(markdown, "No posts found") {
 		t.Error("Expected markdown to contain 'No posts found' for empty thread")
 	}
 }

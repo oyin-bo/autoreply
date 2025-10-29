@@ -3,6 +3,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/bluesky"
@@ -113,7 +114,7 @@ func TestFeedTool_FormatMarkdown(t *testing.T) {
 	}
 
 	for _, expected := range expectedStrings {
-		if !containsString(markdown, expected) {
+		if !strings.Contains(markdown, expected) {
 			t.Errorf("Expected markdown to contain '%s'", expected)
 		}
 	}
@@ -134,21 +135,7 @@ func TestFeedTool_FormatMarkdown_EmptyFeed(t *testing.T) {
 	markdown := tool.formatFeedAsMarkdown(mockFeed, "")
 
 	// Verify markdown contains "No posts found"
-	if !containsString(markdown, "No posts found") {
+	if !strings.Contains(markdown, "No posts found") {
 		t.Error("Expected markdown to contain 'No posts found' for empty feed")
 	}
-}
-
-// Helper function to check if a string contains a substring
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
