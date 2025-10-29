@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -90,7 +91,7 @@ func TestReactTool_Description(t *testing.T) {
 	keywords := []string{"like", "repost", "delete"}
 	foundKeyword := false
 	for _, keyword := range keywords {
-		if contains(desc, keyword) {
+		if strings.Contains(desc, keyword) {
 			foundKeyword = true
 			break
 		}
@@ -118,19 +119,19 @@ func TestReactionResults_FormatMarkdown(t *testing.T) {
 	}
 	
 	// Check that markdown contains expected sections
-	if !contains(markdown, "Reaction Results") {
+	if !strings.Contains(markdown, "Reaction Results") {
 		t.Error("Markdown should contain 'Reaction Results' header")
 	}
 	
-	if !contains(markdown, "test.bsky.social") {
+	if !strings.Contains(markdown, "test.bsky.social") {
 		t.Error("Markdown should contain handle")
 	}
 	
-	if !contains(markdown, "Likes") {
+	if !strings.Contains(markdown, "Likes") {
 		t.Error("Markdown should contain 'Likes' section")
 	}
 	
-	if !contains(markdown, "Unlikes") {
+	if !strings.Contains(markdown, "Unlikes") {
 		t.Error("Markdown should contain 'Unlikes' section")
 	}
 }

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -116,22 +117,7 @@ func TestPostTool_Description(t *testing.T) {
 	}
 	
 	// Description should mention key functionality
-	if !contains(desc, "post") && !contains(desc, "Post") {
+	if !strings.Contains(desc, "post") && !strings.Contains(desc, "Post") {
 		t.Error("Description should mention 'post'")
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && 
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
-			containsHelper(s, substr)))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
