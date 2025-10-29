@@ -1,8 +1,8 @@
-// Package tools provides MCP tool implementations
 package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/mcp"
@@ -104,19 +104,19 @@ func TestFeedToolFormatting(t *testing.T) {
 	markdown := tool.formatFeedMarkdown(feedData)
 
 	// Verify markdown contains expected elements
-	if !contains(markdown, "BlueSky Feed") {
+	if !strings.Contains(markdown, "BlueSky Feed") {
 		t.Error("Expected markdown to contain 'BlueSky Feed' header")
 	}
-	if !contains(markdown, "@test.bsky.social") {
+	if !strings.Contains(markdown, "@test.bsky.social") {
 		t.Error("Expected markdown to contain author handle")
 	}
-	if !contains(markdown, "This is a test post") {
+	if !strings.Contains(markdown, "This is a test post") {
 		t.Error("Expected markdown to contain post text")
 	}
-	if !contains(markdown, "5 likes") {
+	if !strings.Contains(markdown, "5 likes") {
 		t.Error("Expected markdown to contain like count")
 	}
-	if !contains(markdown, "next-page-cursor") {
+	if !strings.Contains(markdown, "next-page-cursor") {
 		t.Error("Expected markdown to contain cursor for pagination")
 	}
 }
@@ -207,20 +207,6 @@ func TestFeedToolATURIConversion(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestFeedToolCall_InvalidContext(t *testing.T) {

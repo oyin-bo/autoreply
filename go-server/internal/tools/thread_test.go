@@ -1,8 +1,8 @@
-// Package tools provides MCP tool implementations
 package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/mcp"
@@ -177,22 +177,22 @@ func TestThreadToolFormatting(t *testing.T) {
 	markdown := tool.formatThreadMarkdown(threadData)
 
 	// Verify markdown contains expected elements
-	if !contains(markdown, "BlueSky Thread") {
+	if !strings.Contains(markdown, "BlueSky Thread") {
 		t.Error("Expected markdown to contain 'BlueSky Thread' header")
 	}
-	if !contains(markdown, "@test.bsky.social") {
+	if !strings.Contains(markdown, "@test.bsky.social") {
 		t.Error("Expected markdown to contain main post author handle")
 	}
-	if !contains(markdown, "This is the main post") {
+	if !strings.Contains(markdown, "This is the main post") {
 		t.Error("Expected markdown to contain main post text")
 	}
-	if !contains(markdown, "@reply.bsky.social") {
+	if !strings.Contains(markdown, "@reply.bsky.social") {
 		t.Error("Expected markdown to contain reply author handle")
 	}
-	if !contains(markdown, "This is a reply") {
+	if !strings.Contains(markdown, "This is a reply") {
 		t.Error("Expected markdown to contain reply text")
 	}
-	if !contains(markdown, "10 likes") {
+	if !strings.Contains(markdown, "10 likes") {
 		t.Error("Expected markdown to contain like count")
 	}
 }
