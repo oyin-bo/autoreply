@@ -3,8 +3,6 @@ package tools
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -241,9 +239,7 @@ func (t *LoginTool) performLogin(ctx context.Context, args map[string]interface{
 		}
 	}
 
-	// Check if we're in CLI mode (server is nil) - use legacy input_text pattern
-	// In CLI mode, we still use prompt_id for backward compatibility
-	isCliMode := server == nil
+	// Determine execution context (unused now that CLI handles prompts)
 
 	// Check if password parameter is present (forces app password mode)
 	// If the key exists in args, even with empty value, we use app password mode
@@ -257,18 +253,6 @@ func (t *LoginTool) performLogin(ctx context.Context, args map[string]interface{
 
 		// If handle is missing
 		if !hasHandle || handle == "" {
-			if isCliMode {
-				// CLI mode - use legacy input_text pattern
-				promptID := generatePromptID()
-				metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"handle","message":"Enter Bluesky handle (e.g., alice.bsky.social)"}`, promptID)
-				return &mcp.ToolResult{
-					Content: []mcp.ContentItem{{
-						Type:     "input_text",
-						Text:     "Enter Bluesky handle (e.g., alice.bsky.social)",
-						Metadata: []byte(metadata),
-					}},
-				}, nil
-			}
 			if server.SupportsElicitation() {
 				// Use standard MCP elicitation/create
 				schema := map[string]interface{}{
@@ -296,25 +280,13 @@ func (t *LoginTool) performLogin(ctx context.Context, args map[string]interface{
 					hasHandle = true
 				}
 			} else {
-				// Client doesn't support elicitation - return error with guidance
+				// No elicitation support (or CLI mode): return guidance with isError
 				return createElicitationUnavailableError(server, "handle"), nil
 			}
 		}
 
 		// If password is empty
 		if password == "" {
-			if isCliMode {
-				// CLI mode - use legacy input_text pattern
-				promptID := generatePromptID()
-				metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"password","message":"App password for @%s"}`, promptID, handle)
-				return &mcp.ToolResult{
-					Content: []mcp.ContentItem{{
-						Type:     "input_text",
-						Text:     fmt.Sprintf("App password for @%s", handle),
-						Metadata: []byte(metadata),
-					}},
-				}, nil
-			}
 			if server.SupportsElicitation() {
 				schema := map[string]interface{}{
 					"type": "object",
@@ -353,6 +325,7 @@ Alternatively, cancel and use OAuth authentication instead.`, handle)
 					password = p
 				}
 			} else {
+				// No elicitation support (or CLI mode): return guidance with isError
 				return createPasswordElicitationUnavailableError(server, handle), nil
 			}
 		}
@@ -362,18 +335,6 @@ Alternatively, cancel and use OAuth authentication instead.`, handle)
 
 	// If handle is missing
 	if !hasHandle || handle == "" {
-		if isCliMode {
-			// CLI mode - use legacy input_text pattern
-			promptID := generatePromptID()
-			metadata := fmt.Sprintf(`{"prompt_id":"%s","field":"handle","message":"Enter Bluesky handle (e.g., alice.bsky.social)"}`, promptID)
-			return &mcp.ToolResult{
-				Content: []mcp.ContentItem{{
-					Type:     "input_text",
-					Text:     "Enter Bluesky handle (e.g., alice.bsky.social)",
-					Metadata: []byte(metadata),
-				}},
-			}, nil
-		}
 		if server.SupportsElicitation() {
 			schema := map[string]interface{}{
 				"type": "object",
@@ -399,6 +360,7 @@ Alternatively, cancel and use OAuth authentication instead.`, handle)
 				hasHandle = true
 			}
 		} else {
+			// No elicitation support (or CLI mode): return guidance with isError
 			return createElicitationUnavailableError(server, "handle"), nil
 		}
 	}
@@ -641,14 +603,5 @@ The server will automatically receive the authorization code and complete the lo
 	}, nil
 }
 
-// generatePromptID returns a short opaque identifier similar to the Rust implementation
-// (16 random bytes, hex-encoded -> 32 chars). This is used when MCP elicitation needs
-// an id to correlate prompts and responses.
-func generatePromptID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// fallback to a simple timestamp-based id if crypto rand fails (very unlikely)
-		return fmt.Sprintf("fallback-%d", os.Getpid())
-	}
-	return hex.EncodeToString(b)
-}
+// Note: CLI mode no longer uses legacy input_text prompts or prompt identifiers.
+// Interactive prompting is handled entirely by the CLI adapter before invoking this tool.

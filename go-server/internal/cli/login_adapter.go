@@ -3,7 +3,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -120,9 +119,8 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 		argsMap["service"] = loginArgs.Service
 	}
 
-	// Do not generate prompt_id from the CLI. The tool will generate a prompt_id when
-	// it needs to elicit input back to the caller (MCP-style). The CLI should only
-	// forward prompt_id if it received one from another MCP controller.
+	// Note: CLI no longer uses tool-driven elicitation via input_text metadata.
+	// All interactive prompts are handled here before calling the tool.
 
 	// If password flag was provided, include password parameter (even if empty)
 	// This signals to use app password mode
@@ -136,48 +134,7 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 		return "", err
 	}
 
-	// If the tool returned an elicitation (input_text with metadata), handle it locally by
-	// prompting the user for the requested field and re-calling the tool with the response.
-	if len(result.Content) > 0 && result.Content[0].Type == "input_text" {
-		// Attempt to parse metadata
-		var meta struct {
-			PromptID string `json:"prompt_id"`
-			Field    string `json:"field"`
-			Message  string `json:"message"`
-		}
-		if err := json.Unmarshal(result.Content[0].Metadata, &meta); err == nil {
-			// Prompt locally for the requested field
-			if meta.Field == "handle" {
-				prompted, err := PromptForInput(meta.Message + " ")
-				if err != nil {
-					return "", fmt.Errorf("failed to read handle: %w", err)
-				}
-				if prompted == "" {
-					return "", fmt.Errorf("handle cannot be empty")
-				}
-				argsMap["handle"] = prompted
-			} else if meta.Field == "password" {
-				prompted, err := PromptForPassword(meta.Message + " ")
-				if err != nil {
-					return "", fmt.Errorf("failed to read password: %w", err)
-				}
-				if prompted == "" {
-					return "", fmt.Errorf("password cannot be empty")
-				}
-				argsMap["password"] = prompted
-			}
-			// Forward prompt_id so the tool knows this is a response
-			if meta.PromptID != "" {
-				argsMap["prompt_id"] = meta.PromptID
-			}
-
-			// Re-call the tool with the elicited value
-			result, err = a.tool.Call(ctx, argsMap, nil)
-			if err != nil {
-				return "", err
-			}
-		}
-	}
+	// Tool no longer emits input_text prompts; all prompting done above.
 
 	// If OAuth failed and we're in interactive mode, offer to try app password
 	if result.IsError && !passwordFlagProvided && needsPrompt {

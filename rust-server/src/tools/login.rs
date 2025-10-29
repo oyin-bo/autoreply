@@ -1,7 +1,7 @@
 use crate::auth::{LoginManager, LoginRequest};
 use crate::cli::LoginCommand;
 use crate::error::AppError;
-use crate::mcp::{ContentItem, McpResponse, ServerContext, ToolResult};
+use crate::mcp::{McpResponse, ServerContext, ToolResult};
 use serde_json::{json, Value};
 
 pub async fn handle_login(id: Option<Value>, args: Value, context: &ServerContext) -> McpResponse {
@@ -120,21 +120,9 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
 
     let outcome = manager.execute(request).await?;
 
-    if let Some(elicitation) = outcome.elicitation {
-        // This shouldn't happen anymore since we handle elicitation above
-        // But keep for backward compatibility with CLI mode
-        let mut content = Vec::new();
-        if !outcome.message.is_empty() {
-            content.push(ContentItem::text(outcome.message));
-        }
-        content.push(ContentItem::input_text(
-            elicitation.message,
-            json!({
-                "prompt_id": elicitation.prompt_id,
-                "field": elicitation.field,
-            }),
-        ));
-        return Ok(ToolResult::from_items(content));
+    if let Some(_elicitation) = outcome.elicitation {
+        // Elicitation should have been handled via MCP requests above; return message only.
+        return Ok(ToolResult::text(outcome.message));
     }
 
     Ok(ToolResult::text(outcome.message))

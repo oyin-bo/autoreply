@@ -158,8 +158,6 @@ async fn execute_login_cli(args: cli::LoginCommand) -> Result<String> {
                 eprintln!("{}", outcome.message);
             }
 
-            command.prompt_id = Some(elicitation.prompt_id.clone());
-
             match elicitation.field.as_str() {
                 "handle" => {
                     eprint!("{}: ", elicitation.message);

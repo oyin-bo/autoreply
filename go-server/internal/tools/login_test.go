@@ -49,7 +49,7 @@ func TestLoginToolBasics(t *testing.T) {
 
 	t.Run("InputSchema_CommandDescription", func(t *testing.T) {
 		schema := tool.InputSchema()
-		
+
 		commandProp, ok := schema.Properties["command"]
 		if !ok {
 			t.Fatal("Schema missing 'command' property")
@@ -151,7 +151,7 @@ func TestLoginSubcommandDelete(t *testing.T) {
 
 		// Should handle gracefully (either error or success depending on implementation)
 		result, err := tool.Call(nil, args, nil)
-		
+
 		// Either error or success is acceptable for nonexistent account
 		if err == nil && result != nil {
 			// Success path is fine
@@ -182,29 +182,5 @@ func TestLoginInvalidCommand(t *testing.T) {
 	errMsg := strings.ToLower(err.Error())
 	if !strings.Contains(errMsg, "unknown") && !strings.Contains(errMsg, "invalid") {
 		t.Errorf("Expected 'unknown' or 'invalid' in error, got: %v", err)
-	}
-}
-
-// TestGeneratePromptID tests that prompt ID generation works
-func TestGeneratePromptID(t *testing.T) {
-	// Generate multiple IDs and verify they're different
-	seen := make(map[string]bool)
-
-	for i := 0; i < 10; i++ {
-		id := generatePromptID()
-		
-		if id == "" {
-			t.Error("Generated prompt ID should not be empty")
-		}
-
-		if seen[id] {
-			t.Errorf("Generated duplicate prompt ID: %s", id)
-		}
-		seen[id] = true
-
-		// Should be hex encoded (32 chars for 16 bytes)
-		if len(id) != 32 && !strings.HasPrefix(id, "fallback-") {
-			t.Errorf("Expected 32-char hex string, got %d chars: %s", len(id), id)
-		}
 	}
 }

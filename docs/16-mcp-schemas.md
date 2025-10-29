@@ -105,6 +105,66 @@ Acceptance criteria (final)
 	- Standardize placement of the “Created” timestamp and summary footer between Go and Rust search outputs (choose one ordering and apply in both).
 	- Keep the existing readable Markdown; do not introduce blockquote conventions here (tracked separately under the Markdown plan).
 
+## Followups
+
+- Rust login schema parity
+	- Add optional `port` to `LoginCommand` so `tools/list` matches Go’s `login` schema exactly. If Rust will keep using a random local port by default, document that behavior and treat `port` as an override.
+	- Add a unit test asserting the Rust `login` input schema includes `port` and remains free of `prompt_id`.
+
+- Go documentation cleanup
+	- Update `go-server/README.md` and any other docs still referencing legacy tools to replace legacy `accounts`/`logout` CLI examples with `login` subcommands: `list`, `default`, `delete`.
+
+- Go prompt_id removal (schema and code)
+	- Remove `prompt_id` from the Go `login` tool input schema exposed via `tools/list`. This field is CLI-internal and should not appear in MCP-facing schemas.
+	- Where it exists now (examples, not exhaustive):
+		- `go-server/internal/tools/login.go`: metadata assembly and helper that generate and inject `prompt_id` (e.g., `generatePromptID()`, and JSON metadata strings with `"prompt_id"`).
+		- `go-server/internal/cli/login_adapter.go`: forwarding of `prompt_id` from elicitation metadata back into tool args (e.g., `argsMap["prompt_id"] = meta.PromptID`) and the temporary struct field for `prompt_id` in metadata parsing.
+		- `go-server/internal/testutil/mock_server.go`: assertions that expect `prompt_id` to be present in metadata.
+		- `go-server/internal/mcp/types.go`: comments/examples that still mention `prompt_id` in `ContentItem` metadata.
+		- `go-server/internal/tools/login_test.go`: tests for `generatePromptID` or flows that rely on argument-level `prompt_id`.
+		- Docs: `docs/11.1-auth-mcp-cli.md` and this file’s Go per-tool summary where `prompt_id` is listed in the input shape.
+	- Conceptual patch steps (plain text, no code):
+		1) Schema: remove `prompt_id` from the Go `login` InputSchema definition so it is no longer advertised by `tools/list`.
+		2) Argument handling: delete any code that reads `prompt_id` from tool arguments; treat any stray `prompt_id` in requests as ignored (optionally log a deprecation warning for one release).
+		3) Elicitation: rely exclusively on standard `elicitation/create` correlation (JSON-RPC request IDs). Do not generate or shuttle `prompt_id` through tool args. Keep CLI-local correlation internal to the CLI adapter only, without surfacing as a tool parameter.
+		4) Legacy input_text fallback: remove `prompt_id` usage from fallback `ContentItem` metadata. Fallbacks should return guidance as plain `text` with `IsError=true` (already standardised) rather than `input_text` with metadata.
+		5) Tests: remove `TestGeneratePromptID` and update any tests and mocks that asserted presence of `prompt_id` in metadata. Add/keep tests for elicitation round-trips and non-elicitation fallbacks without `prompt_id`.
+		6) Comments/Docs: scrub `prompt_id` mentions from code comments and docs; update `docs/11.1-auth-mcp-cli.md` tool input shape to exclude `prompt_id` and describe standard elicitation instead.
+
+- Rust prompt_id removal (CLI and internals)
+	- Remove `prompt_id` from Rust entirely, not just from schemas. We won’t expose or maintain it even for CLI; the CLI will coordinate multi-step input via internal state only.
+	- Where it exists now (examples, not exhaustive):
+		- `rust-server/src/cli.rs`: `LoginCommand` includes `prompt_id: Option<String>`.
+		- `rust-server/src/main.rs`: sets `command.prompt_id = Some(elicitation.prompt_id.clone());` in the CLI loop.
+		- `rust-server/src/auth/login_flow.rs`: `LoginElicitation { prompt_id, ... }`, generator `new_prompt_id()`, and uses of `prompt_id` across handle/password steps; test `prompt_ids_are_non_empty`.
+		- `rust-server/src/tools/login.rs`: legacy metadata injection with `"prompt_id"` in fallback/input shaping.
+		- Tests/docs: `src/tests_mcp_adjustments.rs` mentions schema exclusion; any doc that refers to prompt_id as part of CLI flow.
+	- Conceptual patch steps (plain text, no code):
+		1) CLI structs: remove `prompt_id` from `LoginCommand` and any related serde/schemars attributes.
+		2) CLI flow: delete assignments to `command.prompt_id` and adapt the loop to track which field is being requested without an ID (the CLI can be strictly sequential; only one outstanding prompt exists at a time).
+		3) Auth flow: drop `prompt_id` from `LoginElicitation`; remove `new_prompt_id()`; have elicitation messages carry only `field` and `message`. If any call sites relied on matching IDs, replace with synchronous handling.
+		4) Tool fallback: remove any `"prompt_id"` metadata from legacy fallbacks. Prefer plain `text` with `isError=true` guidance.
+		5) Tests: remove tests that generate or assert prompt IDs; update schema tests (they should continue to assert absence). Add a small CLI-mode test covering a two-step flow without IDs.
+		6) Docs: update Rust auth/CLI docs to remove prompt_id and document that both MCP and CLI rely on standard elicitation and sequential state, not an external token.
+
+- Salt the earth (guardrails to prevent reintroduction)
+	- Add unit tests in both Go and Rust that fetch `tools/list` and assert the emitted JSON does NOT contain the substring `"prompt_id"` anywhere.
+	- Add a test helper that runs a typical login flow (elicitation supported and unsupported) and asserts no `prompt_id` appears in any `ToolResult` content/metadata.
+	- Optional CI check: a lightweight grep in CI that fails if `prompt_id` appears in source under `go-server/` or `rust-server/` except in changelog or migration docs.
+	- Contributor note: add a short section to CONTRIBUTING or relevant READMEs stating prompt_id is removed by design; use standard MCP elicitation or internal, non-schema correlation if needed.
+
+- Compatibility shim (short-lived)
+	- If external clients still call `accounts`, register an alias tool that forwards to the corresponding `login` subcommands. Clearly mark as deprecated and include a removal date.
+
+- Test hardening (elicitation + output order)
+	- Rust: keep the current test-hook approach for elicitation, but consider introducing a thin trait/adapter around the RPC sender to enable an end-to-end roundtrip test (optional).
+	- Go: add a test that simulates a transport error during elicitation and verifies the fallback guidance with `IsError=true` for both handle and password cases.
+	- Both: add a small assertion in search tests to lock in the ordering of the per-post "Created" line and the final "Results" footer to prevent regressions.
+
+- CLI vs MCP notes (Rust)
+	- Ensure `prompt_id` stays CLI-only and remains excluded from MCP schemas. Add a brief note in the Rust auth README describing the distinction and the current elicitation flow for MCP clients.
+
+
 ## Progress Log
 
 2025-10-29

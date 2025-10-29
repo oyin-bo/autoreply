@@ -43,7 +43,6 @@ type ContentItem struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 	// Metadata holds optional, tool-specific JSON metadata for the content item
-	// (for example: { "prompt_id": "...", "field": "password", "message": "..." }).
 	// This field is optional and preserved as raw JSON so MCP clients can parse it as needed.
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 }

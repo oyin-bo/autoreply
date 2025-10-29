@@ -4,13 +4,11 @@ use crate::auth::{
 };
 use crate::cli::{LoginCommand, LoginSubcommands};
 use crate::error::AppError;
-use rand::{distributions::Alphanumeric, Rng};
 use tokio::time::Duration;
 use tracing::{info, warn};
 
 /// Result returned when additional user input is required (MCP elicitation)
 pub struct LoginElicitation {
-    pub prompt_id: String,
     pub field: String,
     pub message: String,
 }
@@ -81,7 +79,6 @@ impl LoginManager {
             mut handle,
             password,
             service,
-            prompt_id,
             ..
         } = request.payload.clone();
 
@@ -93,7 +90,6 @@ impl LoginManager {
                 return Ok(LoginOutcome {
                     message: "Handle is required".to_string(),
                     elicitation: Some(LoginElicitation {
-                        prompt_id: prompt_id.unwrap_or_else(new_prompt_id),
                         field: "handle".to_string(),
                         message: "Enter Bluesky handle (e.g., alice.bsky.social)".to_string(),
                     }),
@@ -111,7 +107,6 @@ impl LoginManager {
                     return Ok(LoginOutcome {
                         message: "Password required".to_string(),
                         elicitation: Some(LoginElicitation {
-                            prompt_id: prompt_id.unwrap_or_else(new_prompt_id),
                             field: "password".to_string(),
                             message: format!("App password for @{}", handle),
                         }),
@@ -153,7 +148,6 @@ IMPORTANT Security Warning:
                     Ok(LoginOutcome {
                         message: format!("OAuth authentication failed: {}", oauth_error.message()),
                         elicitation: Some(LoginElicitation {
-                            prompt_id: prompt_id.unwrap_or_else(new_prompt_id),
                             field: "password".to_string(),
                             message: format!("OAuth failed. Enter app password for @{}", handle),
                         }),
@@ -314,13 +308,7 @@ fn normalize_handle(handle: &mut Option<String>) {
     }
 }
 
-fn new_prompt_id() -> String {
-    rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(16)
-        .map(char::from)
-        .collect()
-}
+// prompt_id removed: CLI and MCP flows coordinate via sequential state and JSON-RPC request IDs
 
 #[cfg(test)]
 mod tests {
@@ -338,9 +326,9 @@ mod tests {
     }
 
     #[test]
-    fn prompt_ids_are_non_empty() {
-        let id = new_prompt_id();
-        assert_eq!(id.len(), 16);
+    fn prompt_ids_removed_placeholder() {
+        // placeholder test to keep module structure stable; prompt_id generator removed
+        assert!(true);
     }
 
     #[test]

@@ -80,12 +80,6 @@ pub struct LoginCommand {
     /// Service URL (defaults to <https://bsky.social>)
     #[arg(short = 's', long, global = true)]
     pub service: Option<String>,
-
-    /// Opaque prompt identifier used by MCP login elicitation
-    #[arg(skip = Option::<String>::None)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(skip)]
-    pub prompt_id: Option<String>,
 }
 
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, JsonSchema)]

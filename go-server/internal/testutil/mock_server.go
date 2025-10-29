@@ -153,10 +153,7 @@ func AssertElicitationMetadata(t interface{ Fatalf(string, ...interface{}) }, me
 	if field.(string) != expectedField {
 		t.Fatalf("Expected field '%s', got '%s'", expectedField, field)
 	}
-
-	if _, ok := meta["prompt_id"]; !ok {
-		t.Fatalf("Metadata missing 'prompt_id' property")
-	}
+	// Note: prompt_id is no longer used.
 }
 
 // contains is a simple substring checker
