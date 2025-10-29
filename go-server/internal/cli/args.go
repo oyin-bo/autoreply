@@ -21,3 +21,17 @@ type LoginArgs struct {
 	Port     int    `json:"port,omitempty" jsonschema:"description=Local callback server port for OAuth (default: 8080)" long:"port"`
 	Service  string `json:"service,omitempty" jsonschema:"description=Service URL (defaults to https://bsky.social)" short:"s" long:"service"`
 }
+
+// FeedArgs defines arguments for the feed tool
+type FeedArgs struct {
+	Feed   string `json:"feed,omitempty" jsonschema:"description=Feed URI or name (optional - defaults to What is Hot)" short:"f" long:"feed"`
+	Login  string `json:"login,omitempty" jsonschema:"description=BlueSky handle for authenticated feed (optional - use 'anonymous' for incognito)" short:"u" long:"login"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"description=Cursor for pagination (optional)" short:"c" long:"cursor"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"description=Limit number of posts (default 20 max 100)" short:"l" long:"limit"`
+}
+
+// ThreadArgs defines arguments for the thread tool
+type ThreadArgs struct {
+	PostURI string `json:"postURI" jsonschema:"required,description=BlueSky URL or at:// URI of the post" short:"p" long:"post"`
+	Login   string `json:"login,omitempty" jsonschema:"description=BlueSky handle for authenticated fetch (optional - use 'anonymous' for incognito)" short:"u" long:"login"`
+}
