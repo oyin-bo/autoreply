@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Feed Tool**: New `feed` tool for fetching BlueSky feeds.
+  - Supports default "What's Hot" feed and custom feed URIs.
+  - Pagination support with cursor parameter.
+  - Limit parameter (default 20, max 100 posts per request).
+  - Returns formatted markdown with post content, author info, and engagement stats.
+- **Thread Tool**: New `thread` tool for fetching complete conversation threads.
+  - Takes post URI (at:// format) as input.
+  - Recursively fetches all replies and nested conversations.
+  - Returns formatted markdown with indented reply structure.
+  - Handles blocked and not-found posts gracefully.
+
 ## [0.3.2] - 2025-10-05
 
 ### Added
