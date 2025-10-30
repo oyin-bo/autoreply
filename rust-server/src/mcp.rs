@@ -442,6 +442,8 @@ async fn handle_tool_call(request: McpRequest, context: &ServerContext) -> McpRe
         "profile" => crate::tools::profile::handle_profile(request.id, args.arguments).await,
         "search" => crate::tools::search::handle_search(request.id, args.arguments).await,
         "login" => crate::tools::login::handle_login(request.id, args.arguments, context).await,
+        "feed" => crate::tools::feed::handle_feed(request.id, args.arguments).await,
+        "thread" => crate::tools::thread::handle_thread(request.id, args.arguments).await,
         _ => McpResponse::error(
             request.id,
             "tool_not_found",
@@ -491,12 +493,16 @@ async fn handle_initialize(request: McpRequest, context: &mut ServerContext) -> 
 /// Build the tools array returned from tools/list and initialize
 pub(crate) fn build_tools_array() -> serde_json::Value {
     use crate::cli::{LoginCommand, ProfileArgs, SearchArgs};
+    use crate::tools::feed::FeedArgs;
+    use crate::tools::thread::ThreadArgs;
     use schemars::schema_for;
 
     // Generate JSON schemas from the CLI argument structs
     let profile_schema = schema_for!(ProfileArgs);
     let search_schema = schema_for!(SearchArgs);
     let login_schema = schema_for!(LoginCommand);
+    let feed_schema = schema_for!(FeedArgs);
+    let thread_schema = schema_for!(ThreadArgs);
 
     serde_json::json!([
         {
@@ -513,6 +519,16 @@ pub(crate) fn build_tools_array() -> serde_json::Value {
             "name": "login",
             "description": "Authenticate accounts and manage stored credentials (subcommands: list, default, delete)",
             "inputSchema": login_schema
+        },
+        {
+            "name": "feed",
+            "description": "Get the latest feed from BlueSky. Returns a list of posts from a feed. If you want to see the latest posts from a specific feed, provide the feed URI or name. These feeds are paginated.",
+            "inputSchema": feed_schema
+        },
+        {
+            "name": "thread",
+            "description": "Fetch a thread by post URI. Returns all the replies and replies to replies, the whole thread.",
+            "inputSchema": thread_schema
         }
     ])
 }
@@ -578,6 +594,8 @@ mod tests {
             .collect();
         assert!(names.contains(&"profile".to_string()));
         assert!(names.contains(&"search".to_string()));
+        assert!(names.contains(&"feed".to_string()));
+        assert!(names.contains(&"thread".to_string()));
     }
 
     #[tokio::test]
