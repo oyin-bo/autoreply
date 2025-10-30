@@ -32,7 +32,7 @@
 
 | Metric | PR #23 | PR #24 | Advantage |
 |--------|---------|---------|-----------|
-| **Test Cases** | 42 | 16 | PR #23 (+162%) |
+| **Test Cases** | 42 | 16 | PR #23 (2.6x more) |
 | **Lines of Code** | 1,405 | 1,224 | PR #24 (smaller) |
 | **API Client Size** | 165 lines | 302 lines | PR #23 (more focused) |
 | **Helper Functions** | 4 | 0 | PR #23 |
@@ -162,10 +162,10 @@ PR #24 Architecture:
 │           │  + GetThread() │                │
 │           └────────┬───────┘                │
 │                    │                         │
-│         ┌──────────┴──────────┬─────────┐   │
-│         ▼                     ▼         ▼   │
-│  ┌─────────────┐  ┌──────────────┐ ┌──────┐│
-│  │ HTTP Client │  │  CredStore   │ │ Session│ ← Unused!
+│         ┌──────────┴──────────┬──────────┐  │
+│         ▼                     ▼          ▼  │
+│  ┌─────────────┐  ┌──────────────┐ ┌───────┐
+│  │ HTTP Client │  │  CredStore   │ │Session│ ← Unused!
 │  └─────────────┘  └──────────────┘ └──────┘│
 └──────────────────────────────────────────────┘
 ```
@@ -228,17 +228,31 @@ if v, ok := args["limit"]; ok {
 }
 ```
 
-### Error Handling
+### Input Validation
 
-**PR #23** (With context):
+**PR #23** (Comprehensive):
 ```go
-return nil, errors.Wrap(err, errors.InternalError, "Failed to fetch feed")
+// Validates and normalizes login
+if login != "" && login != "anonymous" {
+    _, err := t.credStore.Load(login)
+    if err != nil {
+        defaultHandle, defErr := t.credStore.GetDefault()
+        if defErr == nil && defaultHandle != "" {
+            login = defaultHandle
+        } else {
+            login = "anonymous" // Graceful fallback
+        }
+    }
+}
 ```
 
-**PR #24** (Plain):
+**PR #24** (Basic):
 ```go
-return nil, errors.Wrap(err, errors.InternalError, "Failed to fetch feed")
-// Actually uses same pattern - both are equivalent here
+// Similar fallback logic but less validation
+if login != "" {
+    creds, err := c.GetCredentials(handle)
+    // Falls back in GetCredentials method
+}
 ```
 
 ---
