@@ -174,12 +174,15 @@ Notes:
 
 **Get feed:**
 ```json
-{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "feed", "arguments": {"feed": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot", "limit": 20}}}
+{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "feed", "arguments": {"limit": 20}}}
 ```
+*Note: Omit the `feed` argument to use the default "What's Hot" feed, or provide a feed URI like `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot`*
 
 **Get thread:**
 ```json
-{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "thread", "arguments": {"postURI": "at://did:plc:example/app.bsky.feed.post/123"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "thread", "arguments": {"postURI": "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3l47qoztfqi2w"}}}
+```
+*Note: The `postURI` should be in `at://` format, e.g., `at://{did}/app.bsky.feed.post/{postId}`*
 ```
 
 **Login / manage credentials:**
