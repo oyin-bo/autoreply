@@ -494,9 +494,7 @@ async fn handle_initialize(request: McpRequest, context: &mut ServerContext) -> 
 
 /// Build the tools array returned from tools/list and initialize
 pub(crate) fn build_tools_array() -> serde_json::Value {
-    use crate::cli::{LoginCommand, PostArgs, ProfileArgs, ReactArgs, SearchArgs};
-    use crate::tools::feed::FeedArgs;
-    use crate::tools::thread::ThreadArgs;
+    use crate::cli::{FeedArgs, LoginCommand, PostArgs, ProfileArgs, ReactArgs, SearchArgs, ThreadArgs};
     use schemars::schema_for;
 
     // Generate JSON schemas from the CLI argument structs

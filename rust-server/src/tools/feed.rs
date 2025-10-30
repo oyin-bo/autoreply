@@ -2,40 +2,16 @@
 //!
 //! Implements the `feed` MCP tool for fetching BlueSky feeds
 
+use crate::cli::FeedArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{debug, info};
-
-/// Feed tool arguments
-#[derive(JsonSchema, Deserialize, Serialize, Clone, Debug)]
-pub struct FeedArgs {
-    /// Optional feed URI or name to search for
-    #[schemars(description = "Optional feed URI or name. If unspecified, returns the default popular feed")]
-    pub feed: Option<String>,
-
-    /// Optional BlueSky handle for authenticated feed
-    #[schemars(description = "Optional BlueSky handle for authenticated access")]
-    pub login: Option<String>,
-
-    /// Optional password for authentication
-    #[schemars(description = "Optional BlueSky password")]
-    pub password: Option<String>,
-
-    /// Cursor for pagination
-    #[schemars(description = "Optional cursor for pagination")]
-    pub cursor: Option<String>,
-
-    /// Limit the number of posts returned (default 20, max 100)
-    #[schemars(description = "Limit the number of posts (default 20, max 100)")]
-    pub limit: Option<usize>,
-}
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 struct PostAuthor {

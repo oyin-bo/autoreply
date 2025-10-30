@@ -1,6 +1,13 @@
-/.DS_Store
+.DS_Store
+Thumbs.db
+
 /node_modules
 /.bluesky_creds.json
 /.storage
 /go-server/autoreply-debug
 /go-server/autoreply-release
+
+/rust-server/Cargo.lock
+/target/
+/rust-server/target/
+

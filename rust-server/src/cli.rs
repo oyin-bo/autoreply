@@ -32,6 +32,14 @@ pub enum Commands {
     Search(SearchArgs),
     /// Manage authentication and accounts
     Login(LoginCommand),
+    /// Get the latest feed from BlueSky
+    Feed(FeedArgs),
+    /// Fetch a thread by post URI
+    Thread(ThreadArgs),
+    /// Create a new post or reply on BlueSky
+    Post(PostArgs),
+    /// Perform batch reactions on posts (like, unlike, repost, delete)
+    React(ReactArgs),
 }
 
 /// Profile tool arguments
@@ -81,6 +89,55 @@ pub struct PostArgs {
     #[schemars(description = "Optional at:// URI or https://bsky.app/... URL to reply to")]
     #[serde(rename = "replyTo")]
     pub reply_to: Option<String>,
+}
+
+/// Feed tool arguments
+#[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+pub struct FeedArgs {
+    /// Optional feed URI or name to search for
+    #[arg(short = 'f', long)]
+    #[schemars(description = "Optional feed URI or name. If unspecified, returns the default popular feed")]
+    pub feed: Option<String>,
+
+    /// Optional BlueSky handle for authenticated feed
+    #[arg(short = 'u', long)]
+    #[schemars(description = "Optional BlueSky handle for authenticated access")]
+    pub login: Option<String>,
+
+    /// Optional password for authentication
+    #[arg(short = 'p', long)]
+    #[schemars(description = "Optional BlueSky password")]
+    pub password: Option<String>,
+
+    /// Cursor for pagination
+    #[arg(short = 'c', long)]
+    #[schemars(description = "Optional cursor for pagination")]
+    pub cursor: Option<String>,
+
+    /// Limit the number of posts returned (default 20, max 100)
+    #[arg(short = 'l', long)]
+    #[schemars(description = "Limit the number of posts (default 20, max 100)")]
+    pub limit: Option<usize>,
+}
+
+/// Thread tool arguments
+#[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+pub struct ThreadArgs {
+    /// The BlueSky URL or at:// URI of the post
+    #[arg(short = 'p', long)]
+    #[schemars(description = "The BlueSky URL or at:// URI of the post to fetch the thread for")]
+    #[serde(rename = "postURI")]
+    pub post_uri: String,
+
+    /// Optional BlueSky handle for authenticated access
+    #[arg(short = 'u', long)]
+    #[schemars(description = "Optional BlueSky handle for authenticated access")]
+    pub login: Option<String>,
+
+    /// Optional password for authentication
+    #[arg(short = 'w', long)]
+    #[schemars(description = "Optional BlueSky password")]
+    pub password: Option<String>,
 }
 
 /// React tool arguments
@@ -202,5 +259,28 @@ mod tests {
         assert_eq!(args.react_as, "bob.bsky.social");
         assert_eq!(args.like.len(), 1);
         assert_eq!(args.unlike.len(), 0);
+    }
+
+    #[test]
+    fn test_feed_args() {
+        let args = FeedArgs {
+            feed: Some("at://did:plc:xyz/app.bsky.feed.generator/hot".to_string()),
+            login: Some("alice.bsky.social".to_string()),
+            password: None,
+            cursor: None,
+            limit: Some(50),
+        };
+        assert_eq!(args.feed, Some("at://did:plc:xyz/app.bsky.feed.generator/hot".to_string()));
+        assert_eq!(args.limit, Some(50));
+    }
+
+    #[test]
+    fn test_thread_args() {
+        let args = ThreadArgs {
+            post_uri: "at://did:plc:abc/app.bsky.feed.post/123".to_string(),
+            login: None,
+            password: None,
+        };
+        assert_eq!(args.post_uri, "at://did:plc:abc/app.bsky.feed.post/123");
     }
 }

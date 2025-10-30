@@ -2,33 +2,16 @@
 //!
 //! Implements the `thread` MCP tool for fetching BlueSky threads
 
+use crate::cli::ThreadArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{debug, info};
-
-/// Thread tool arguments
-#[derive(JsonSchema, Deserialize, Serialize, Clone, Debug)]
-pub struct ThreadArgs {
-    /// The BlueSky URL or at:// URI of the post
-    #[schemars(description = "The BlueSky URL or at:// URI of the post to fetch the thread for")]
-    #[serde(rename = "postURI")]
-    pub post_uri: String,
-
-    /// Optional BlueSky handle for authenticated access
-    #[schemars(description = "Optional BlueSky handle for authenticated access")]
-    pub login: Option<String>,
-
-    /// Optional password for authentication
-    #[schemars(description = "Optional BlueSky password")]
-    pub password: Option<String>,
-}
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 struct PostAuthor {
