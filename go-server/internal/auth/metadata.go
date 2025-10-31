@@ -187,3 +187,10 @@ func DiscoverServerMetadataFromHandle(ctx context.Context, handle string) (*Auth
 	metadata, _, err := discovery.DiscoverFromHandle(ctx, handle)
 	return metadata, err
 }
+
+// DiscoverServerMetadataFromIssuer is a convenience function for discovering server metadata from an issuer (entryway)
+// Use this when you want to connect to a known entryway like https://bsky.social without a specific handle
+func DiscoverServerMetadataFromIssuer(ctx context.Context, issuer string) (*AuthorizationServerMetadata, error) {
+	discovery := NewMetadataDiscovery()
+	return discovery.fetchAuthorizationServerMetadata(ctx, issuer)
+}

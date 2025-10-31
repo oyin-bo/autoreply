@@ -136,7 +136,8 @@ impl Default for AtProtoOAuthConfig {
             // The redirect_uri will use 127.0.0.1 per RFC 8252 (set dynamically)
             client_id: "http://localhost".to_string(),
             redirect_uri: "http://127.0.0.1/callback".to_string(),
-            scope: "atproto transition:generic".to_string(),
+            // Use standard atproto scope for localhost development
+            scope: "atproto".to_string(),
         }
     }
 }
@@ -213,12 +214,8 @@ impl AtProtoOAuthManager {
     /// Update redirect URI and scopes (used when callback server port is determined dynamically)
     /// For localhost development clients, scopes must be passed as query parameters
     pub fn set_redirect_uri(&mut self, redirect_uri: String) {
-        // For localhost development, we need to add scopes and redirect_uri as query params
-        self.config.client_id = format!(
-            "http://localhost?redirect_uri={}&scope={}",
-            urlencoding::encode(&redirect_uri),
-            urlencoding::encode(&self.config.scope)
-        );
+        // Simply set the redirect_uri - client_id remains "http://localhost"
+        // The redirect_uri and scope are sent separately in the PAR request
         self.config.redirect_uri = redirect_uri;
     }
 
@@ -427,7 +424,7 @@ impl AtProtoOAuthManager {
     }
 
     /// Generate PKCE code verifier and challenge (S256 method)
-    fn generate_pkce() -> (String, String) {
+    pub(crate) fn generate_pkce() -> (String, String) {
         use base64::Engine;
         use rand::Rng;
         use sha2::{Digest, Sha256};
@@ -448,7 +445,7 @@ impl AtProtoOAuthManager {
     }
 
     /// Generate random state for CSRF protection
-    fn generate_state() -> String {
+    pub(crate) fn generate_state() -> String {
         use base64::Engine;
         use rand::Rng;
         let random_bytes: Vec<u8> = (0..16).map(|_| rand::thread_rng().gen()).collect();
@@ -458,53 +455,101 @@ impl AtProtoOAuthManager {
     /// Start OAuth browser flow with proper identity resolution
     ///
     /// This implements the full atproto OAuth flow:
-    /// 1. Resolve handle → DID → PDS → Auth Server
-    /// 2. Submit PAR (Pushed Authorization Request)
+    /// 1. Resolve handle → DID → PDS → Auth Server (or use default service if handle is None)
+    /// 2. Submit PAR (Pushed Authorization Request) with optional login_hint
     /// 3. Get request_uri
     /// 4. Return authorization URL for browser
-    pub async fn start_browser_flow(&mut self, handle: &str) -> Result<BrowserFlowState, AppError> {
-        tracing::info!("Starting atproto OAuth flow for handle: {}", handle);
+    ///
+    /// # Arguments
+    /// * `handle` - Optional handle to log in as. If None, uses default bsky.social service
+    ///              and allows user to select any account during OAuth flow.
+    ///              If Some, resolves the handle's PDS and passes it as login_hint.
+    pub async fn start_browser_flow(
+        &mut self,
+        handle: Option<&str>,
+    ) -> Result<BrowserFlowState, AppError> {
+        let (did, pds_url) = match handle {
+            Some(h) => {
+                tracing::debug!("Starting atproto OAuth flow for handle: {}", h);
 
-        // Step 1: Resolve handle to DID
-        tracing::debug!("Resolving handle to DID...");
-        let did = self.resolve_handle_to_did(handle).await?;
-        tracing::info!("Resolved handle to DID: {}", did);
+                // Step 1: Resolve handle to DID
+                tracing::debug!("Resolving handle to DID...");
+                let did = self.resolve_handle_to_did(h).await?;
+                tracing::debug!("Resolved handle to DID: {}", did);
 
-        // Step 2: Resolve DID to PDS
-        tracing::debug!("Resolving DID to PDS...");
-        let pds_url = self.resolve_did_to_pds(&did).await?;
-        tracing::info!("Resolved PDS: {}", pds_url);
+                // Step 2: Resolve DID to PDS
+                tracing::debug!("Resolving DID to PDS...");
+                let pds_url = self.resolve_did_to_pds(&did).await?;
+                tracing::debug!("Resolved PDS: {}", pds_url);
 
-        // Step 3: Discover authorization server
+                (did, pds_url)
+            }
+            None => {
+                tracing::debug!("Starting atproto OAuth flow with default service (account selection)");
+                // Use default BlueSky entryway - user will select account during OAuth
+                // Note: bsky.social is an entryway, not a PDS
+                tracing::debug!("Using default entryway for account selection");
+                
+                // Discover directly from entryway (skip PDS resolution)
+                let issuer = "https://bsky.social";
+                tracing::debug!("Discovering authorization server from entryway: {}", issuer);
+                let auth_metadata = self.discover_from_issuer(issuer).await?;
+                tracing::debug!("Authorization server: {}", auth_metadata.issuer);
+                
+                return self.complete_browser_flow(auth_metadata, handle, String::new()).await;
+            }
+        };
+
+        // Step 3: Discover authorization server from PDS
         tracing::debug!("Discovering authorization server...");
         let auth_metadata = self.discover_authorization_server(&pds_url).await?;
-        tracing::info!("Authorization server: {}", auth_metadata.issuer);
+        tracing::debug!("Authorization server: {}", auth_metadata.issuer);
+        
+        self.complete_browser_flow(auth_metadata, handle, did).await
+    }
+
+    /// Complete the browser flow after discovering authorization server
+    async fn complete_browser_flow(
+        &mut self,
+        auth_metadata: AuthServerMetadata,
+        handle: Option<&str>,
+        did: String,
+    ) -> Result<BrowserFlowState, AppError> {
+        let pds_url = String::new(); // Not needed for return value
 
         // Step 4: Generate PKCE and state
         let (code_verifier, code_challenge) = Self::generate_pkce();
         let state = Self::generate_state();
 
         // Step 5: Submit PAR (Pushed Authorization Request)
+        // Pass handle as login_hint if provided (enforces specific account)
+        // Omit login_hint if None (allows user to select any account)
         tracing::debug!("Submitting PAR...");
         let par_response = self
             .submit_par(
                 &auth_metadata.pushed_authorization_request_endpoint,
                 &code_challenge,
                 &state,
+                handle, // login_hint
             )
             .await?;
-        tracing::info!(
+        tracing::debug!(
             "PAR submitted successfully, request_uri valid for {} seconds",
             par_response.expires_in
         );
 
         // Step 6: Build authorization URL
+        tracing::debug!("Building auth URL with client_id: {}", self.config.client_id);
+        tracing::debug!("request_uri from PAR: {}", par_response.request_uri);
+        
         let auth_url = format!(
             "{}?client_id={}&request_uri={}",
             auth_metadata.authorization_endpoint,
             urlencoding::encode(&self.config.client_id),
             urlencoding::encode(&par_response.request_uri)
         );
+        
+        tracing::debug!("Final authorization URL: {}", auth_url);
 
         Ok(BrowserFlowState {
             auth_url,
@@ -516,22 +561,74 @@ impl AtProtoOAuthManager {
         })
     }
 
+    /// Discover authorization server directly from issuer (entryway)
+    /// Used when no handle is provided - connects to a known entryway like bsky.social
+    async fn discover_from_issuer(&self, issuer: &str) -> Result<AuthServerMetadata, AppError> {
+        let auth_metadata_url = format!(
+            "{}/.well-known/oauth-authorization-server",
+            issuer
+        );
+
+        let response = self
+            .client
+            .get(&auth_metadata_url)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::NetworkError(format!(
+                    "Failed to fetch authorization server metadata: {}",
+                    e
+                ))
+            })?;
+
+        if !response.status().is_success() {
+            return Err(AuthError::AuthenticationFailed(format!(
+                "Authorization server metadata fetch failed with status {}",
+                response.status()
+            ))
+            .into());
+        }
+
+        response.json().await.map_err(|e| {
+            AppError::ParseError(format!(
+                "Failed to parse authorization server metadata: {}",
+                e
+            ))
+        })
+    }
+
     /// Submit PAR (Pushed Authorization Request) with DPoP
+    ///
+    /// # Arguments
+    /// * `login_hint` - Optional handle to pre-select during OAuth authorization.
+    ///                  When provided, the OAuth server will pre-select this account.
+    ///                  When None, the user can freely select any account.
     async fn submit_par(
         &mut self,
         par_endpoint: &str,
         code_challenge: &str,
         state: &str,
+        login_hint: Option<&str>,
     ) -> Result<PARResponse, AppError> {
-        let params = [
+        // Build base parameters
+        let mut params = vec![
             ("response_type", "code"),
-            ("client_id", &self.config.client_id),
-            ("redirect_uri", &self.config.redirect_uri),
+            ("client_id", self.config.client_id.as_str()),
+            ("redirect_uri", self.config.redirect_uri.as_str()),
             ("code_challenge", code_challenge),
             ("code_challenge_method", "S256"),
             ("state", state),
-            ("scope", &self.config.scope),
+            ("scope", self.config.scope.as_str()),
         ];
+
+        // Add login_hint if provided (directs OAuth to specific account)
+        if let Some(hint) = login_hint {
+            params.push(("login_hint", hint));
+            tracing::debug!("Including login_hint in PAR: {}", hint);
+        } else {
+            tracing::debug!("No login_hint - user will select account during OAuth");
+        }
 
         // Create DPoP proof for PAR request
         let dpop_proof = self.dpop.create_proof("POST", par_endpoint)?;
@@ -705,22 +802,73 @@ impl AtProtoOAuthManager {
             .exchange_code(code, &state.code_verifier, &state.token_endpoint)
             .await?;
 
-        // Create session - note: handle extraction from DID needs proper implementation
-        // For now, using DID as handle which needs to be fixed
-        let handle = state
-            .did
-            .split(':')
-            .next_back()
-            .unwrap_or(&state.did)
+        // Get DID from token response (mandatory per AT Protocol OAuth spec)
+        let did = token_response
+            .sub
+            .as_ref()
+            .ok_or_else(|| AppError::Authentication("Token response missing 'sub' field (DID)".to_string()))?
+            .clone();
+
+        // If we started with a handle, verify the DID matches
+        if !state.did.is_empty() && state.did != did {
+            return Err(AppError::Authentication(format!(
+                "DID mismatch: expected {}, got {}",
+                state.did, did
+            )));
+        }
+
+        // Resolve DID document to get handle and PDS
+        let did_doc_url = if did.starts_with("did:plc:") {
+            format!("https://plc.directory/{}", did)
+        } else if did.starts_with("did:web:") {
+            let domain = did.strip_prefix("did:web:").unwrap();
+            format!("https://{}/.well-known/did.json", domain)
+        } else {
+            return Err(AppError::Authentication(format!("Unsupported DID method: {}", did)));
+        };
+
+        let did_doc: serde_json::Value = self
+            .client
+            .get(&did_doc_url)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| AppError::NetworkError(format!("DID resolution failed: {}", e)))?
+            .json()
+            .await
+            .map_err(|e| AppError::ParseError(format!("Failed to parse DID document: {}", e)))?;
+
+        // Extract handle from alsoKnownAs
+        let handle = did_doc
+            .get("alsoKnownAs")
+            .and_then(|aka| aka.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.strip_prefix("at://"))
+            .ok_or_else(|| AppError::Authentication("DID document missing handle".to_string()))?
+            .to_string();
+
+        // Extract PDS URL from service
+        let services = did_doc
+            .get("service")
+            .and_then(|s| s.as_array())
+            .ok_or_else(|| AppError::Authentication("DID document missing services".to_string()))?;
+
+        let pds_url = services
+            .iter()
+            .find(|s| s.get("id").and_then(|id| id.as_str()) == Some("#atproto_pds"))
+            .and_then(|s| s.get("serviceEndpoint"))
+            .and_then(|e| e.as_str())
+            .ok_or_else(|| AppError::Authentication("DID document missing PDS endpoint".to_string()))?
             .to_string();
 
         // Create session
         let session = Session {
             handle,
-            did: state.did.clone(),
+            did,
             access_jwt: token_response.access_token,
             refresh_jwt: token_response.refresh_token.unwrap_or_default(),
-            service: state.pds_url.clone(),
+            service: pds_url,
             expires_at: Some(
                 chrono::Utc::now() + chrono::Duration::seconds(token_response.expires_in as i64),
             ),

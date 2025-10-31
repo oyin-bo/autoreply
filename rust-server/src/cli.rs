@@ -180,7 +180,7 @@ pub struct LoginCommand {
     #[command(subcommand)]
     pub command: Option<LoginSubcommands>,
 
-    /// Handle (alice.bsky.social) - for add operation
+    /// Handle (alice.bsky.social) - optional for OAuth (allows account selection). Required for app password auth.
     #[arg(short = 'u', long, global = true)]
     pub handle: Option<String>,
 

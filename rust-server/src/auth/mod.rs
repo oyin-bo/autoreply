@@ -14,6 +14,9 @@ pub mod oauth_atproto;
 pub mod session;
 pub mod storage;
 
+#[cfg(test)]
+mod oauth_tests;
+
 pub use callback_server::{CallbackResult, CallbackServer};
 pub use credentials::Credentials;
 pub use login_flow::{LoginManager, LoginRequest};

@@ -519,7 +519,7 @@ pub(crate) fn build_tools_array() -> serde_json::Value {
         },
         {
             "name": "login",
-            "description": "Authenticate accounts and manage stored credentials (subcommands: list, default, delete)",
+            "description": "Authenticate accounts and manage stored credentials. Handle parameter is optional for OAuth (allows account selection in browser). Subcommands: list, default, delete",
             "inputSchema": login_schema
         },
         {

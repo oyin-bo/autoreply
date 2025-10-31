@@ -25,6 +25,9 @@ mod sentencepiece_stub;
 
 mod tools;
 
+#[cfg(test)]
+mod tests_mcp_adjustments;
+
 use anyhow::Result;
 use auth::{LoginManager, LoginRequest};
 use clap::Parser;

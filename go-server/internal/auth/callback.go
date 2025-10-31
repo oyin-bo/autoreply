@@ -50,7 +50,8 @@ func (s *CallbackServer) Start() error {
 	s.mu.Unlock()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", s.handleCallback)
+	// Handle OAuth callback at root path per AT Protocol localhost spec
+	mux.HandleFunc("/", s.handleCallback)
 	s.server.Handler = mux
 
 	// Create listener first to ensure port is bound

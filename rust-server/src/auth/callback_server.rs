@@ -58,9 +58,9 @@ impl CallbackServer {
         self.port
     }
 
-    /// Get the callback URL
+    /// Get the callback URL (for loopback OAuth - no path component)
     pub fn callback_url(&self) -> String {
-        format!("http://127.0.0.1:{}/callback", self.port)
+        format!("http://127.0.0.1:{}", self.port)
     }
 
     /// Start the server and wait for a callback
@@ -102,15 +102,15 @@ impl CallbackServer {
             Html(SUCCESS_PAGE)
         };
 
-        // Build the router
-        let app = Router::new().route("/callback", get(callback_handler));
+        // Build the router - handle OAuth callback at root path per loopback spec
+        let app = Router::new().route("/", get(callback_handler));
 
         // Start the server
         let listener = tokio::net::TcpListener::bind(self.addr)
             .await
             .map_err(|e| format!("Failed to bind callback server: {}", e))?;
 
-        tracing::info!("OAuth callback server listening on {}", self.addr);
+        tracing::debug!("OAuth callback server listening on {}", self.addr);
 
         // Spawn the server in a separate task
         let server_handle = tokio::spawn(async move {
@@ -129,8 +129,13 @@ impl CallbackServer {
             }
         };
 
-        // Shutdown the server
+        // Shutdown the server gracefully
         server_handle.abort();
+        // Wait a bit for the server to actually shut down
+        let _ = tokio::time::timeout(
+            tokio::time::Duration::from_secs(2),
+            server_handle
+        ).await;
 
         result
     }

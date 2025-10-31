@@ -4,9 +4,9 @@ package tools
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/auth"
 	"github.com/oyin-bo/autoreply/go-server/internal/mcp"
@@ -53,7 +53,7 @@ func (t *LoginTool) InputSchema() mcp.InputSchema {
 			},
 			"handle": {
 				Type:        "string",
-				Description: "Bluesky handle (e.g., alice.bsky.social) - required for login, default, and optional for delete",
+				Description: "Bluesky handle (e.g., alice.bsky.social) - optional for OAuth (allows account selection in browser). Required for app password authentication and 'default' subcommand.",
 			},
 			"password": {
 				Type:        "string",
@@ -333,39 +333,14 @@ Alternatively, cancel and use OAuth authentication instead.`, handle)
 		return t.loginWithPassword(ctx, handle, password)
 	}
 
-	// If handle is missing
-	if !hasHandle || handle == "" {
-		if server.SupportsElicitation() {
-			schema := map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"handle": map[string]interface{}{
-						"type":        "string",
-						"description": "Your BlueSky handle (e.g., user.bsky.social)",
-					},
-				},
-				"required": []string{"handle"},
-			}
-			resp, err := server.RequestElicitation(ctx, "Please provide your BlueSky handle", schema)
-			if err != nil {
-				return createElicitationUnavailableError(server, "handle"), nil
-			}
-			if resp.Action != "accept" {
-				return &mcp.ToolResult{
-					Content: []mcp.ContentItem{{Type: "text", Text: "Login cancelled"}},
-				}, nil
-			}
-			if h, ok := resp.Content["handle"].(string); ok {
-				handle = h
-				hasHandle = true
-			}
-		} else {
-			// No elicitation support (or CLI mode): return guidance with isError
-			return createElicitationUnavailableError(server, "handle"), nil
-		}
-	}
+	// OAuth mode - handle is optional
+	// If handle is empty, we'll use default service and allow account selection
+	// If handle is provided, we'll discover its PDS and pass it as login_hint
 
-	// Otherwise, try OAuth first
+	// OAuth works in CLI mode even without handle - browser will open for account selection
+	// No need to check for elicitation support here
+
+	// Try OAuth (handle can be empty for account selection in browser)
 	port := 8080
 	if portVal, ok := args["port"]; ok {
 		if portFloat, ok := portVal.(float64); ok {
@@ -373,7 +348,7 @@ Alternatively, cancel and use OAuth authentication instead.`, handle)
 		}
 	}
 
-	// Attempt OAuth login
+	// Attempt OAuth login (handle can be empty for account selection)
 	result, err := t.loginWithOAuth(ctx, handle, port)
 	if err != nil {
 		// OAuth failed - provide helpful error message
@@ -400,7 +375,10 @@ func createElicitationUnavailableError(server *mcp.Server, field string) *mcp.To
 
 To complete login, please:
 
-1. **Use OAuth (recommended):** Call login with your handle:
+1. **Use OAuth (recommended):** Call login without handle to select account in browser:
+   {}
+   
+   Or with a specific handle:
    {"handle": "your.handle.bsky.social"}
 
 2. **Or provide credentials up-front:** Call login with both handle and password:
@@ -490,25 +468,44 @@ func (t *LoginTool) loginWithPassword(ctx context.Context, handle, password stri
 }
 
 // loginWithOAuth performs OAuth authentication
+// handle can be empty - if empty, uses default bsky.social service and allows account selection
 func (t *LoginTool) loginWithOAuth(ctx context.Context, handle string, port int) (*mcp.ToolResult, error) {
 	// Setup redirect URI based on port
-	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
+	// Per AT Protocol OAuth spec for localhost development:
+	// - redirect_uri is "http://127.0.0.1:PORT" (root path only, port varies)
+	redirectURI := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	// Discover server metadata from handle
-	metadata, err := auth.DiscoverServerMetadataFromHandle(ctx, handle)
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover OAuth server for %s: %w", handle, err)
+	var metadata *auth.AuthorizationServerMetadata
+	var err error
+
+	// Discover server metadata
+	if handle == "" {
+		// No handle provided - use default bsky.social entryway
+		// Note: bsky.social is an entryway, not a PDS, so we discover directly from the issuer
+		// This allows user to select any account during OAuth
+		metadata, err = auth.DiscoverServerMetadataFromIssuer(ctx, "https://bsky.social")
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover OAuth server for default entryway: %w", err)
+		}
+	} else {
+		// Handle provided - discover from handle and use it as login_hint
+		metadata, err = auth.DiscoverServerMetadataFromHandle(ctx, handle)
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover OAuth server for %s: %w", handle, err)
+		}
 	}
 
 	// Setup OAuth config with localhost development client
-	// Per AT Protocol OAuth spec, use http://localhost with redirect_uri in query param
-	clientID := fmt.Sprintf("http://localhost?redirect_uri=%s&scope=atproto%%20transition:generic",
-		url.QueryEscape(redirectURI))
+	// Per AT Protocol OAuth spec for localhost development:
+	// - client_id is just "http://localhost" (no query params, no port)
+	// - redirect_uri is "http://127.0.0.1:PORT" (root path only, port varies)
+	// - scope for localhost is just "atproto" (transition scopes not allowed)
+	redirectURI = fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	config := &auth.OAuthConfig{
-		ClientID:       clientID,
+		ClientID:       "http://localhost",
 		RedirectURI:    redirectURI,
-		Scope:          "atproto transition:generic",
+		Scope:          "atproto",
 		ServerMetadata: metadata,
 	}
 
@@ -532,7 +529,11 @@ func (t *LoginTool) loginWithOAuth(ctx context.Context, handle string, port int)
 	if err := callbackServer.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start callback server: %w", err)
 	}
-	defer callbackServer.Stop(ctx)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		callbackServer.Stop(shutdownCtx)
+	}()
 
 	message := fmt.Sprintf(`
 # OAuth Login Initiated

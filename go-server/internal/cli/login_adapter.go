@@ -75,12 +75,13 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 	passwordFlagProvided := loginArgs.Password != "" || isPasswordFlagInArgs()
 
 	// Check if we're in an interactive terminal
-	// Only prompt if handle is not provided
-	needsPrompt := handle == ""
+	// For OAuth, handle is optional - user can select account in browser
+	// Only prompt for handle if password mode is being used
+	needsPromptForHandle := handle == "" && passwordFlagProvided
 
-	if needsPrompt {
-		// Prompt for handle if not provided
-		fmt.Fprintln(os.Stderr, "Bluesky Login")
+	if needsPromptForHandle {
+		// Prompt for handle if not provided and using password mode
+		fmt.Fprintln(os.Stderr, "Bluesky Login (App Password Mode)")
 		fmt.Fprintln(os.Stderr, "")
 
 		promptedHandle, err := PromptForInput("Handle: ")
@@ -88,12 +89,12 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 			return "", fmt.Errorf("failed to read handle: %w", err)
 		}
 		if promptedHandle == "" {
-			return "", fmt.Errorf("handle cannot be empty")
+			return "", fmt.Errorf("handle is required for app password authentication")
 		}
 		handle = promptedHandle
 
 		// If password flag was provided but empty, prompt for it now
-		if passwordFlagProvided && password == "" {
+		if password == "" {
 			fmt.Fprintln(os.Stderr, "")
 			promptedPassword, err := PromptForPassword("App Password: ")
 			if err != nil {
@@ -104,14 +105,23 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 			}
 			password = promptedPassword
 		}
-	} else {
-		// Validate provided handle
-		if handle == "" {
-			return "", fmt.Errorf("handle cannot be empty")
+	} else if passwordFlagProvided && password == "" {
+		// Password mode but no handle prompt needed - still need to prompt for password
+		fmt.Fprintln(os.Stderr, "")
+		promptedPassword, err := PromptForPassword("App Password: ")
+		if err != nil {
+			return "", fmt.Errorf("failed to read password: %w", err)
 		}
+		if promptedPassword == "" {
+			return "", fmt.Errorf("password cannot be empty")
+		}
+		password = promptedPassword
 	}
 
-	argsMap["handle"] = handle
+	// Add handle to args if provided (can be empty for OAuth account selection)
+	if handle != "" {
+		argsMap["handle"] = handle
+	}
 	argsMap["port"] = float64(port)
 
 	// Add service if provided
@@ -137,10 +147,30 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 	// Tool no longer emits input_text prompts; all prompting done above.
 
 	// If OAuth failed and we're in interactive mode, offer to try app password
-	if result.IsError && !passwordFlagProvided && needsPrompt {
+	if result.IsError && !passwordFlagProvided {
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "OAuth authentication failed.")
+		// Print the actual error message from the tool
+		if len(result.Content) > 0 {
+			fmt.Fprintln(os.Stderr, result.Content[0].Text)
+		} else {
+			fmt.Fprintln(os.Stderr, "OAuth authentication failed.")
+		}
 		fmt.Fprintln(os.Stderr, "")
+
+		// If we don't have a handle yet, ask for one
+		if handle == "" {
+			promptedHandle, err := PromptForInput("Enter handle for app password authentication: ")
+			if err != nil {
+				return "", fmt.Errorf("failed to read handle: %w", err)
+			}
+			if promptedHandle == "" {
+				// User doesn't want to retry
+				return result.Content[0].Text, nil
+			}
+			handle = promptedHandle
+			argsMap["handle"] = handle
+		}
+
 		retry, err := PromptForInput("Try app password instead? [y/N]: ")
 		if err != nil {
 			return "", fmt.Errorf("failed to read choice: %w", err)

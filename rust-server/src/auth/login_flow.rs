@@ -5,7 +5,7 @@ use crate::auth::{
 use crate::cli::{LoginCommand, LoginSubcommands};
 use crate::error::AppError;
 use tokio::time::Duration;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 /// Result returned when additional user input is required (MCP elicitation)
 pub struct LoginElicitation {
@@ -84,23 +84,26 @@ impl LoginManager {
 
         normalize_handle(&mut handle);
 
-        let handle = match handle {
-            Some(h) if !h.trim().is_empty() => h,
-            _ if request.interactive => {
-                return Ok(LoginOutcome {
-                    message: "Handle is required".to_string(),
-                    elicitation: Some(LoginElicitation {
-                        field: "handle".to_string(),
-                        message: "Enter Bluesky handle (e.g., alice.bsky.social)".to_string(),
-                    }),
-                });
-            }
-            _ => return Err(AppError::InvalidInput("Handle is required".to_string())),
-        };
-
+        // Handle can be None for OAuth - allows user to select account during OAuth flow
+        // If using app password, handle is required
         let explicitly_app_password = password.is_some();
 
         if explicitly_app_password {
+            // App password mode - handle is required
+            let handle_str = match handle {
+                Some(h) if !h.trim().is_empty() => h,
+                _ if request.interactive => {
+                    return Ok(LoginOutcome {
+                        message: "Handle is required for app password authentication".to_string(),
+                        elicitation: Some(LoginElicitation {
+                            field: "handle".to_string(),
+                            message: "Enter Bluesky handle (e.g., alice.bsky.social)".to_string(),
+                        }),
+                    });
+                }
+                _ => return Err(AppError::InvalidInput("Handle is required for app password authentication".to_string())),
+            };
+
             let pwd = password.unwrap_or_default();
             if pwd.is_empty() {
                 if request.interactive {
@@ -108,7 +111,7 @@ impl LoginManager {
                         message: "Password required".to_string(),
                         elicitation: Some(LoginElicitation {
                             field: "password".to_string(),
-                            message: format!("App password for @{}", handle),
+                            message: format!("App password for @{}", handle_str),
                         }),
                     });
                 }
@@ -124,9 +127,9 @@ IMPORTANT Security Warning:
 - OAuth is the most secure option and is strongly preferred"#.to_string()));
             }
 
-            let credentials = build_credentials(&handle, &pwd, service.as_deref());
+            let credentials = build_credentials(&handle_str, &pwd, service.as_deref());
             let message = self
-                .authenticate_with_app_password(&handle, credentials)
+                .authenticate_with_app_password(&handle_str, credentials)
                 .await?;
             return Ok(LoginOutcome {
                 message,
@@ -134,8 +137,11 @@ IMPORTANT Security Warning:
             });
         }
 
+        // OAuth mode - handle is optional
+        // If handle is provided, it will be used for PDS discovery and passed as login_hint
+        // If handle is None, we use default bsky.social and allow account selection
         match self
-            .authenticate_with_oauth(&handle, service.as_deref())
+            .authenticate_with_oauth(handle.as_deref(), service.as_deref())
             .await
         {
             Ok(response) => Ok(LoginOutcome {
@@ -145,11 +151,13 @@ IMPORTANT Security Warning:
             Err(oauth_error) => {
                 warn!("OAuth authentication failed: {}", oauth_error.message());
                 if request.interactive {
+                    // For password fallback, we need a handle
+                    let handle_for_password = handle.as_deref().unwrap_or("your account");
                     Ok(LoginOutcome {
                         message: format!("OAuth authentication failed: {}", oauth_error.message()),
                         elicitation: Some(LoginElicitation {
                             field: "password".to_string(),
-                            message: format!("OAuth failed. Enter app password for @{}", handle),
+                            message: format!("OAuth failed. Enter app password for @{}", handle_for_password),
                         }),
                     })
                 } else {
@@ -161,12 +169,16 @@ IMPORTANT Security Warning:
 
     async fn authenticate_with_oauth(
         &self,
-        handle: &str,
+        handle: Option<&str>,
         service: Option<&str>,
     ) -> Result<String, AppError> {
         use crate::error::AppError as Err;
 
-        info!("Starting OAuth login flow for @{}", handle);
+        if let Some(h) = handle {
+            debug!("Starting OAuth login flow for @{}", h);
+        } else {
+            debug!("Starting OAuth login flow with account selection");
+        }
 
         let callback_server = CallbackServer::new()
             .map_err(|e| Err::ConfigError(format!("Failed to start callback server: {}", e)))?;
@@ -176,14 +188,14 @@ IMPORTANT Security Warning:
 
         let flow_state = oauth_manager.start_browser_flow(handle).await?;
 
-        info!(
+        debug!(
             "OAuth callback server started on {}",
             callback_server.callback_url()
         );
-        info!("Authorization URL: {}", flow_state.auth_url);
+        debug!("Authorization URL: {}", flow_state.auth_url);
 
         if webbrowser::open(&flow_state.auth_url).is_ok() {
-            info!("Browser opened for authorization");
+            debug!("Browser opened for authorization");
         } else {
             eprintln!(
                 "Please visit this URL in your browser: {}",
@@ -202,14 +214,15 @@ IMPORTANT Security Warning:
                     return Err(Err::Authentication("State parameter mismatch".to_string()));
                 }
 
-                info!("OAuth authorization successful, exchanging code for tokens");
+                debug!("OAuth authorization successful, exchanging code for tokens");
                 let mut session = oauth_manager.complete_flow(&code, &flow_state).await?;
                 if let Some(service_url) = service {
                     session.service = service_url.to_string();
                 }
 
+                // Store credentials using the handle from the session (obtained after OAuth)
                 self.storage.store_credentials_with_fallback(
-                    handle,
+                    &session.handle,
                     Credentials::with_service(&session.did, &session.refresh_jwt, &session.service),
                 )?;
                 session
@@ -223,9 +236,9 @@ IMPORTANT Security Warning:
             }
         };
 
-        self.storage.store_session(handle, session.clone())?;
+        self.storage.store_session(&session.handle, session.clone())?;
 
-        ensure_default(&self.storage, handle)?;
+        ensure_default(&self.storage, &session.handle)?;
 
         Ok(format!(
             "✓ Successfully authenticated as @{}\n  DID: {}\n  Method: OAuth (browser)\n  Storage: {}",
@@ -243,7 +256,7 @@ IMPORTANT Security Warning:
         handle: &str,
         credentials: Credentials,
     ) -> Result<String, AppError> {
-        info!("Authenticating with app password for @{}", handle);
+        debug!("Authenticating with app password for @{}", handle);
         let manager = SessionManager::new()?;
         let session = manager.login(&credentials).await?;
 
