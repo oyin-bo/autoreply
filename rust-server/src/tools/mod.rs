@@ -7,3 +7,4 @@ pub mod profile;
 pub mod react;
 pub mod search;
 pub mod thread;
+pub mod util;

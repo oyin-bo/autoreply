@@ -6,6 +6,7 @@ use crate::cli::ThreadArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
+use crate::tools::util::at_uri_to_bsky_url;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -201,27 +202,6 @@ fn format_thread_post(post: &ThreadPost, markdown: &mut String, post_num: usize)
     }
 
     markdown.push_str("---\n\n");
-}
-
-/// Convert AT URI to BlueSky web URL
-/// at://did:plc:abc/app.bsky.feed.post/xyz -> https://bsky.app/profile/handle/post/xyz
-fn at_uri_to_bsky_url(at_uri: &str, handle: &str) -> String {
-    // Parse AT URI: at://{did}/{collection}/{rkey}
-    if !at_uri.starts_with("at://") {
-        return at_uri.to_string();
-    }
-
-    let parts: Vec<&str> = at_uri.trim_start_matches("at://").split('/').collect();
-    if parts.len() < 3 {
-        return at_uri.to_string();
-    }
-
-    // parts[0] = DID
-    // parts[1] = collection (e.g., app.bsky.feed.post)
-    // parts[2] = rkey
-    let rkey = parts[2];
-
-    format!("https://bsky.app/profile/{}/post/{}", handle, rkey)
 }
 
 /// Parse a post URI from either a BlueSky URL or an at:// URI
