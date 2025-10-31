@@ -49,7 +49,7 @@ This is a sample post about BlueSky!
 ```markdown
 # BlueSky Feed
 
-Found 1 posts.
+Found 1 post.
 
 ## Post 1
 
