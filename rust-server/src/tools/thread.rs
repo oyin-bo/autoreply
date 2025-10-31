@@ -161,14 +161,11 @@ fn flatten_thread(node: &ThreadNode) -> Vec<&ThreadPost> {
 
 /// Recursively flatten thread nodes into a list
 fn flatten_thread_recursive<'a>(node: &'a ThreadNode, posts: &mut Vec<&'a ThreadPost>) {
-    match node {
-        ThreadNode::ThreadViewPost { post, replies } => {
-            posts.push(post);
-            for reply in replies {
-                flatten_thread_recursive(reply, posts);
-            }
+    if let ThreadNode::ThreadViewPost { post, replies } = node {
+        posts.push(post);
+        for reply in replies {
+            flatten_thread_recursive(reply, posts);
         }
-        _ => {}
     }
 }
 
