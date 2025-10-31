@@ -132,13 +132,15 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
     for (i, feed_post) in feed_response.feed.iter().enumerate() {
         let post = &feed_post.post;
         markdown.push_str(&format!("## Post {}\n", i + 1));
-        markdown.push_str(&format!("**Author:** @{}", post.author.handle));
-        if let Some(display_name) = &post.author.display_name {
-            markdown.push_str(&format!(" ({})", display_name));
-        }
-        markdown.push_str("\n");
-        markdown.push_str(&format!("**URI:** {}\n", post.uri));
-        markdown.push_str(&format!("**Indexed:** {}\n\n", post.indexed_at));
+        
+        // Extract rkey from URI (at://did/app.bsky.feed.post/rkey)
+        let rkey = post.uri.split('/').next_back().unwrap_or("");
+        let post_url = format!(
+            "https://bsky.app/profile/{}/post/{}",
+            post.author.handle, rkey
+        );
+        markdown.push_str(&format!("**Link:** {}\n", post_url));
+        markdown.push_str(&format!("**Created:** {}\n\n", post.record.created_at));
         markdown.push_str(&format!("{}\n\n", post.record.text));
         
         // Add engagement stats if available

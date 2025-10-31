@@ -153,22 +153,23 @@ fn format_thread_recursive(node: &ThreadNode, markdown: &mut String, depth: usiz
             // Indent based on depth
             let indent = "  ".repeat(depth);
             
-            markdown.push_str(&format!("{}## Post by @{}", indent, post.author.handle));
-            if let Some(display_name) = &post.author.display_name {
-                markdown.push_str(&format!(" ({})", display_name));
-            }
-            markdown.push_str("\n");
-            markdown.push_str(&format!("{}**URI:** {}\n", indent, post.uri));
-            if let Some(indexed_at) = &post.indexed_at {
-                markdown.push_str(&format!("{}**Indexed:** {}\n", indent, indexed_at));
-            }
-            markdown.push_str("\n");
+            markdown.push_str(&format!("{}## Post {}\n", indent, 
+                if depth == 0 { "1" } else { "" }));
+            
+            // Extract rkey from URI (at://did/app.bsky.feed.post/rkey)
+            let rkey = post.uri.split('/').next_back().unwrap_or("");
+            let post_url = format!(
+                "https://bsky.app/profile/{}/post/{}",
+                post.author.handle, rkey
+            );
+            markdown.push_str(&format!("{}**Link:** {}\n", indent, post_url));
+            markdown.push_str(&format!("{}**Created:** {}\n\n", indent, post.record.created_at));
             
             // Format post text with proper indentation
             for line in post.record.text.lines() {
                 markdown.push_str(&format!("{}{}\n", indent, line));
             }
-            markdown.push_str("\n");
+            markdown.push('\n');
             
             // Add engagement stats if available
             let stats: Vec<String> = vec![
@@ -184,7 +185,7 @@ fn format_thread_recursive(node: &ThreadNode, markdown: &mut String, depth: usiz
             if !stats.is_empty() {
                 markdown.push_str(&format!("{}*{}*\n", indent, stats.join(", ")));
             }
-            markdown.push_str("\n");
+            markdown.push('\n');
 
             // Process replies recursively
             if !replies.is_empty() {
