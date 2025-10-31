@@ -176,7 +176,7 @@ func (t *FeedTool) formatFeedMarkdown(feedData map[string]interface{}) string {
 			continue
 		}
 
-		sb.WriteString(fmt.Sprintf("## Post %d\n\n", i+1))
+		sb.WriteString(fmt.Sprintf("## Post %d\n", i+1))
 
 		// Author information
 		if author, ok := post["author"].(map[string]interface{}); ok {
@@ -187,24 +187,26 @@ func (t *FeedTool) formatFeedMarkdown(feedData map[string]interface{}) string {
 			if displayName != "" {
 				sb.WriteString(fmt.Sprintf(" (%s)", displayName))
 			}
-			sb.WriteString("\n\n")
+			sb.WriteString("\n")
 		}
 
 		// Post URI (link to post)
 		if uri, ok := post["uri"].(string); ok {
 			webURL := t.atURIToBskyURL(uri)
-			sb.WriteString(fmt.Sprintf("**Link:** %s\n\n", webURL))
+			sb.WriteString(fmt.Sprintf("**Link:** %s\n", webURL))
 		}
 
 		// Post content
 		if record, ok := post["record"].(map[string]interface{}); ok {
-			if text, ok := record["text"].(string); ok && text != "" {
-				sb.WriteString(fmt.Sprintf("%s\n\n", text))
-			}
-
 			// Created at
 			if createdAt, ok := record["createdAt"].(string); ok {
-				sb.WriteString(fmt.Sprintf("**Created:** %s\n\n", createdAt))
+				sb.WriteString(fmt.Sprintf("**Created:** %s\n", createdAt))
+			}
+
+			sb.WriteString("\n")
+
+			if text, ok := record["text"].(string); ok && text != "" {
+				sb.WriteString(fmt.Sprintf("%s\n\n", text))
 			}
 		}
 
