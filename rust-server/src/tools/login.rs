@@ -107,15 +107,21 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
                 }
             }
         }
-    } else if needs_handle || needs_password {
-        // Client doesn't support elicitation - return error with guidance
-        let field = if needs_handle { "handle" } else { "password" };
-        return Ok(create_elicitation_unavailable_error(context, field));
+    } else {
+        // Client doesn't support elicitation.
+        // Behavior for MCP-only clients (no interactive prompts):
+        // - If password is provided (app password mode), require handle; otherwise, return guidance
+        // - If password is NOT provided, proceed with OAuth even if handle is missing
+        if command.password.is_some() && command.handle.is_none() {
+            return Ok(create_elicitation_unavailable_error(context, "handle"));
+        }
+        // Otherwise fall through to LoginManager which will attempt OAuth non-interactively
     }
 
     let request = LoginRequest {
         payload: command,
-        interactive: true,
+        // Disable interactive prompts when client does not support elicitation
+        interactive: context.supports_elicitation(),
     };
 
     let outcome = manager.execute(request).await?;
