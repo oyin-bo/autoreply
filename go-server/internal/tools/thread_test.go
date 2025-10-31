@@ -176,24 +176,21 @@ func TestThreadToolFormatting(t *testing.T) {
 
 	markdown := tool.formatThreadMarkdown(threadData)
 
-	// Verify markdown contains expected elements
+	// Verify markdown contains expected elements matching search formatting
 	if !strings.Contains(markdown, "BlueSky Thread") {
 		t.Error("Expected markdown to contain 'BlueSky Thread' header")
-	}
-	if !strings.Contains(markdown, "@test.bsky.social") {
-		t.Error("Expected markdown to contain main post author handle")
 	}
 	if !strings.Contains(markdown, "This is the main post") {
 		t.Error("Expected markdown to contain main post text")
 	}
-	if !strings.Contains(markdown, "@reply.bsky.social") {
-		t.Error("Expected markdown to contain reply author handle")
-	}
 	if !strings.Contains(markdown, "This is a reply") {
 		t.Error("Expected markdown to contain reply text")
 	}
-	if !strings.Contains(markdown, "10 likes") {
-		t.Error("Expected markdown to contain like count")
+	if !strings.Contains(markdown, "**Link:**") {
+		t.Error("Expected markdown to contain Link field")
+	}
+	if !strings.Contains(markdown, "**Created:**") {
+		t.Error("Expected markdown to contain Created field")
 	}
 }
 
