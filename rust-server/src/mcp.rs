@@ -389,13 +389,28 @@ pub async fn handle_stdio() -> Result<()> {
         }
 
         // Otherwise parse as request from client
-        let response = match parse_request(&line) {
-            Ok(request) => handle_request(request, &mut context).await,
+        let parsed = match parse_request(&line) {
+            Ok(request) => request,
             Err(e) => {
                 error!("Failed to parse request: {}", e);
-                McpResponse::error(None, "parse_error", &format!("Invalid JSON: {}", e))
+                let response = McpResponse::error(None, "parse_error", &format!("Invalid JSON: {}", e));
+                let response_json = serialize_response(&response)?;
+                debug!("Sending response: {}", response_json);
+                let mut stdout = rpc_sender.stdout.lock().await;
+                stdout.write_all(response_json.as_bytes()).await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
+                continue;
             }
         };
+
+        // Do not respond to JSON-RPC notifications (no id)
+        if parsed.id.is_none() {
+            // Known notification: "notifications/initialized"; silently ignore per spec
+            continue;
+        }
+
+        let response = handle_request(parsed, &mut context).await;
 
         let response_json = serialize_response(&response)?;
         debug!("Sending response: {}", response_json);
@@ -480,6 +495,7 @@ async fn handle_initialize(request: McpRequest, context: &mut ServerContext) -> 
 
     let tools = build_tools_array();
     let result = serde_json::json!({
+        "protocolVersion": "2024-11-05",
         "serverInfo": {
             "name": "autoreply",
             "version": env!("CARGO_PKG_VERSION"),
@@ -562,6 +578,12 @@ mod tests {
         let resp = handle_request(req, &mut context).await;
         assert!(resp.error.is_none());
         let result = resp.result.expect("result present");
+        assert_eq!(
+            result
+                .get("protocolVersion")
+                .and_then(|v| v.as_str()),
+            Some("2024-11-05")
+        );
         assert_eq!(
             result
                 .get("serverInfo")

@@ -56,20 +56,24 @@ func (t *ReactTool) InputSchema() mcp.InputSchema {
 				Description: "Handle or DID to react as (uses default account if not specified)",
 			},
 			"like": {
-				Type:        "string",
-				Description: "Post URIs/URLs to like (comma or newline separated)",
+				Type:        "array",
+				Description: "Array of post URIs/URLs to like",
+				Items:       &mcp.PropertySchema{Type: "string"},
 			},
 			"unlike": {
-				Type:        "string",
-				Description: "Post URIs/URLs to unlike (remove like) (comma or newline separated)",
+				Type:        "array",
+				Description: "Array of post URIs/URLs to unlike (remove like)",
+				Items:       &mcp.PropertySchema{Type: "string"},
 			},
 			"repost": {
-				Type:        "string",
-				Description: "Post URIs/URLs to repost (comma or newline separated)",
+				Type:        "array",
+				Description: "Array of post URIs/URLs to repost",
+				Items:       &mcp.PropertySchema{Type: "string"},
 			},
 			"delete": {
-				Type:        "string",
-				Description: "Post URIs/URLs to delete (must be your own posts) (comma or newline separated)",
+				Type:        "array",
+				Description: "Array of post URIs/URLs to delete (must be your own posts)",
+				Items:       &mcp.PropertySchema{Type: "string"},
 			},
 		},
 	}
@@ -98,54 +102,70 @@ func (t *ReactTool) Call(ctx context.Context, args map[string]interface{}, _ *mc
 	}
 
 	// Process like operations
-	for _, uri := range parseURIList(args["like"]) {
-		if err := t.likePost(ctx, creds, uri); err != nil {
-			results.Failures = append(results.Failures, OperationFailure{
-				Operation: "like",
-				URI:       uri,
-				Error:     err.Error(),
-			})
-		} else {
-			results.Successes = append(results.Successes, fmt.Sprintf("Liked: %s", uri))
+	if likeArr, ok := args["like"].([]interface{}); ok {
+		for _, uriRaw := range likeArr {
+			if uri, ok := uriRaw.(string); ok {
+				if err := t.likePost(ctx, creds, uri); err != nil {
+					results.Failures = append(results.Failures, OperationFailure{
+						Operation: "like",
+						URI:       uri,
+						Error:     err.Error(),
+					})
+				} else {
+					results.Successes = append(results.Successes, fmt.Sprintf("Liked: %s", uri))
+				}
+			}
 		}
 	}
 
 	// Process unlike operations
-	for _, uri := range parseURIList(args["unlike"]) {
-		if err := t.unlikePost(ctx, creds, uri); err != nil {
-			results.Failures = append(results.Failures, OperationFailure{
-				Operation: "unlike",
-				URI:       uri,
-				Error:     err.Error(),
-			})
-		} else {
-			results.Successes = append(results.Successes, fmt.Sprintf("Unliked: %s", uri))
+	if unlikeArr, ok := args["unlike"].([]interface{}); ok {
+		for _, uriRaw := range unlikeArr {
+			if uri, ok := uriRaw.(string); ok {
+				if err := t.unlikePost(ctx, creds, uri); err != nil {
+					results.Failures = append(results.Failures, OperationFailure{
+						Operation: "unlike",
+						URI:       uri,
+						Error:     err.Error(),
+					})
+				} else {
+					results.Successes = append(results.Successes, fmt.Sprintf("Unliked: %s", uri))
+				}
+			}
 		}
 	}
 
 	// Process repost operations
-	for _, uri := range parseURIList(args["repost"]) {
-		if err := t.repostPost(ctx, creds, uri); err != nil {
-			results.Failures = append(results.Failures, OperationFailure{
-				Operation: "repost",
-				URI:       uri,
-				Error:     err.Error(),
-			})
-		} else {
-			results.Successes = append(results.Successes, fmt.Sprintf("Reposted: %s", uri))
+	if repostArr, ok := args["repost"].([]interface{}); ok {
+		for _, uriRaw := range repostArr {
+			if uri, ok := uriRaw.(string); ok {
+				if err := t.repostPost(ctx, creds, uri); err != nil {
+					results.Failures = append(results.Failures, OperationFailure{
+						Operation: "repost",
+						URI:       uri,
+						Error:     err.Error(),
+					})
+				} else {
+					results.Successes = append(results.Successes, fmt.Sprintf("Reposted: %s", uri))
+				}
+			}
 		}
 	}
 
 	// Process delete operations
-	for _, uri := range parseURIList(args["delete"]) {
-		if err := t.deletePost(ctx, creds, uri); err != nil {
-			results.Failures = append(results.Failures, OperationFailure{
-				Operation: "delete",
-				URI:       uri,
-				Error:     err.Error(),
-			})
-		} else {
-			results.Successes = append(results.Successes, fmt.Sprintf("Deleted: %s", uri))
+	if deleteArr, ok := args["delete"].([]interface{}); ok {
+		for _, uriRaw := range deleteArr {
+			if uri, ok := uriRaw.(string); ok {
+				if err := t.deletePost(ctx, creds, uri); err != nil {
+					results.Failures = append(results.Failures, OperationFailure{
+						Operation: "delete",
+						URI:       uri,
+						Error:     err.Error(),
+					})
+				} else {
+					results.Successes = append(results.Successes, fmt.Sprintf("Deleted: %s", uri))
+				}
+			}
 		}
 	}
 
@@ -489,50 +509,4 @@ func (t *ReactTool) formatResults(results *OperationResults) string {
 		len(results.Successes), len(results.Failures), total))
 
 	return sb.String()
-}
-
-// parseURIList normalizes a tool argument into a list of post URIs.
-// It accepts either:
-// - string: comma/newline/semicolon-separated values
-// - []interface{} or []string: list of strings
-func parseURIList(v interface{}) []string {
-	var out []string
-	if v == nil {
-		return out
-	}
-	switch vv := v.(type) {
-	case string:
-		// Split on comma, newline, or semicolon
-		parts := strings.FieldsFunc(vv, func(r rune) bool {
-			switch r {
-			case ',', '\n', ';':
-				return true
-			default:
-				return false
-			}
-		})
-		for _, p := range parts {
-			s := strings.TrimSpace(p)
-			if s != "" {
-				out = append(out, s)
-			}
-		}
-	case []interface{}:
-		for _, item := range vv {
-			if s, ok := item.(string); ok {
-				s = strings.TrimSpace(s)
-				if s != "" {
-					out = append(out, s)
-				}
-			}
-		}
-	case []string:
-		for _, s := range vv {
-			s2 := strings.TrimSpace(s)
-			if s2 != "" {
-				out = append(out, s2)
-			}
-		}
-	}
-	return out
 }

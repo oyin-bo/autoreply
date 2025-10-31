@@ -197,6 +197,13 @@ func (s *Server) ServeStdio(ctx context.Context) error {
 			continue
 		}
 
+		// Per JSON-RPC spec, notifications (no id) must not receive a response
+		if request.ID == nil {
+			// Silently ignore known notifications; no response should be sent
+			// e.g., "notifications/initialized"
+			continue
+		}
+
 		response := s.handleRequest(ctx, &request)
 
 		s.encoderMu.Lock()
@@ -243,6 +250,7 @@ func (s *Server) handleRequest(ctx context.Context, req *JSONRPCRequest) *JSONRP
 
 		tools := s.listTools()
 		response.Result = &InitializeResult{
+			ProtocolVersion: "2024-11-05",
 			ServerInfo: ServerInfo{
 				Name:    "autoreply",
 				Version: "0.1.0",

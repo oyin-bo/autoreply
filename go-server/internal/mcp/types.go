@@ -70,6 +70,8 @@ type InputSchema struct {
 type PropertySchema struct {
 	Type        string `json:"type"`
 	Description string `json:"description,omitempty"`
+	// Items describes the element type when Type is "array"; omitted otherwise
+	Items *PropertySchema `json:"items,omitempty"`
 }
 
 // InitializeParams represents params accepted by the initialize method
@@ -108,6 +110,9 @@ type ElicitationResponse struct {
 
 // InitializeResult is returned from initialize
 type InitializeResult struct {
+	// ProtocolVersion indicates the server's MCP protocol version.
+	// Standard MCP protocol version is "2024-11-05".
+	ProtocolVersion string `json:"protocolVersion"`
 	ServerInfo   ServerInfo   `json:"serverInfo"`
 	Capabilities Capabilities `json:"capabilities"`
 	Tools        []ToolInfo   `json:"tools,omitempty"`

@@ -11,3 +11,5 @@ Thumbs.db
 /target/
 /rust-server/target/
 
+/.gemini
+.gemini

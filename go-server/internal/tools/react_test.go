@@ -46,37 +46,49 @@ func TestReactToolBasics(t *testing.T) {
 			t.Error("Schema missing 'reactAs' property")
 		}
 
-		// Check for like parameter (string list, optional)
+		// Check for like parameter (array, optional)
 		if likeProp, ok := schema.Properties["like"]; ok {
-			if likeProp.Type != "string" {
-				t.Errorf("Like property should be string, got %s", likeProp.Type)
+			if likeProp.Type != "array" {
+				t.Errorf("Like property should be array, got %s", likeProp.Type)
+			}
+			if likeProp.Items == nil || likeProp.Items.Type != "string" {
+				t.Errorf("Like property should specify items of type string")
 			}
 		} else {
 			t.Error("Schema missing 'like' property")
 		}
 
-		// Check for unlike parameter (string list, optional)
+		// Check for unlike parameter (array, optional)
 		if unlikeProp, ok := schema.Properties["unlike"]; ok {
-			if unlikeProp.Type != "string" {
-				t.Errorf("Unlike property should be string, got %s", unlikeProp.Type)
+			if unlikeProp.Type != "array" {
+				t.Errorf("Unlike property should be array, got %s", unlikeProp.Type)
+			}
+			if unlikeProp.Items == nil || unlikeProp.Items.Type != "string" {
+				t.Errorf("Unlike property should specify items of type string")
 			}
 		} else {
 			t.Error("Schema missing 'unlike' property")
 		}
 
-		// Check for repost parameter (string list, optional)
+		// Check for repost parameter (array, optional)
 		if repostProp, ok := schema.Properties["repost"]; ok {
-			if repostProp.Type != "string" {
-				t.Errorf("Repost property should be string, got %s", repostProp.Type)
+			if repostProp.Type != "array" {
+				t.Errorf("Repost property should be array, got %s", repostProp.Type)
+			}
+			if repostProp.Items == nil || repostProp.Items.Type != "string" {
+				t.Errorf("Repost property should specify items of type string")
 			}
 		} else {
 			t.Error("Schema missing 'repost' property")
 		}
 
-		// Check for delete parameter (string list, optional)
+		// Check for delete parameter (array, optional)
 		if deleteProp, ok := schema.Properties["delete"]; ok {
-			if deleteProp.Type != "string" {
-				t.Errorf("Delete property should be string, got %s", deleteProp.Type)
+			if deleteProp.Type != "array" {
+				t.Errorf("Delete property should be array, got %s", deleteProp.Type)
+			}
+			if deleteProp.Items == nil || deleteProp.Items.Type != "string" {
+				t.Errorf("Delete property should specify items of type string")
 			}
 		} else {
 			t.Error("Schema missing 'delete' property")
