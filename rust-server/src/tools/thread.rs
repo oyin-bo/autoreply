@@ -153,8 +153,13 @@ fn format_thread_recursive(node: &ThreadNode, markdown: &mut String, depth: usiz
             // Indent based on depth
             let indent = "  ".repeat(depth);
             
-            markdown.push_str(&format!("{}## Post {}\n", indent, 
-                if depth == 0 { "1" } else { "" }));
+            // For root post, use "Post 1"; for replies, just "Post"
+            let post_header = if depth == 0 {
+                format!("{}## Post 1\n", indent)
+            } else {
+                format!("{}## Post\n", indent)
+            };
+            markdown.push_str(&post_header);
             
             // Extract rkey from URI (at://did/app.bsky.feed.post/rkey)
             let rkey = post.uri.split('/').next_back().unwrap_or("");
