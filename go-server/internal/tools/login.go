@@ -4,7 +4,7 @@ package tools
 import (
 	"context"
 	"fmt"
-	"os"
+	"log"
 	"strings"
 	"time"
 
@@ -478,9 +478,17 @@ func (t *LoginTool) loginWithOAuth(ctx context.Context, handle string, port int)
 	var metadata *auth.AuthorizationServerMetadata
 	var err error
 
+	// Validate handle format: must contain a dot (e.g., "user.bsky.social")
+	// If handle is provided but invalid, treat it like empty and use default OAuth
+	validHandle := handle
+	if handle != "" && !strings.Contains(handle, ".") {
+		log.Printf("Handle '%s' is invalid (no domain), using default OAuth flow with account selection", handle)
+		validHandle = ""
+	}
+
 	// Discover server metadata
-	if handle == "" {
-		// No handle provided - use default bsky.social entryway
+	if validHandle == "" {
+		// No handle provided (or invalid) - use default bsky.social entryway
 		// Note: bsky.social is an entryway, not a PDS, so we discover directly from the issuer
 		// This allows user to select any account during OAuth
 		metadata, err = auth.DiscoverServerMetadataFromIssuer(ctx, "https://bsky.social")
@@ -489,9 +497,9 @@ func (t *LoginTool) loginWithOAuth(ctx context.Context, handle string, port int)
 		}
 	} else {
 		// Handle provided - discover from handle and use it as login_hint
-		metadata, err = auth.DiscoverServerMetadataFromHandle(ctx, handle)
+		metadata, err = auth.DiscoverServerMetadataFromHandle(ctx, validHandle)
 		if err != nil {
-			return nil, fmt.Errorf("failed to discover OAuth server for %s: %w", handle, err)
+			return nil, fmt.Errorf("failed to discover OAuth server for %s: %w", validHandle, err)
 		}
 	}
 
@@ -529,76 +537,79 @@ func (t *LoginTool) loginWithOAuth(ctx context.Context, handle string, port int)
 	if err := callbackServer.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start callback server: %w", err)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+
+	// Launch background goroutine to wait for callback and finish the flow
+	go func() {
+		// Use a new background context for the long-running task
+		bgCtx := context.Background()
+
+		// Wait for callback with timeout
+		timeoutCtx, cancel := context.WithTimeout(bgCtx, 5*time.Minute)
 		defer cancel()
+
+		callbackResult, err := callbackServer.WaitForCallback(timeoutCtx)
+		if err != nil {
+			log.Printf("OAuth background error: failed to wait for callback: %v", err)
+			shutdownCtx, shutdownCancel := context.WithTimeout(bgCtx, 2*time.Second)
+			defer shutdownCancel()
+			callbackServer.Stop(shutdownCtx)
+			return
+		}
+
+		// Shutdown the callback server
+		shutdownCtx, shutdownCancel := context.WithTimeout(bgCtx, 2*time.Second)
+		defer shutdownCancel()
 		callbackServer.Stop(shutdownCtx)
+
+		if callbackResult.Error != "" {
+			log.Printf("OAuth background error: authorization failed: %s", callbackResult.Error)
+			return
+		}
+
+		// Exchange code for tokens
+		creds, err := flow.ExchangeCode(bgCtx, callbackResult.Code, callbackResult.State)
+		if err != nil {
+			log.Printf("OAuth background error: token exchange failed: %v", err)
+			return
+		}
+
+		// Resolve DID to handle
+		identity, err := auth.ResolveDID(bgCtx, creds.DID)
+		if err != nil {
+			// Store with DID only
+			creds.Handle = creds.DID
+		} else {
+			creds.Handle = auth.ExtractHandleFromDID(identity)
+			if creds.Handle == "" {
+				creds.Handle = creds.DID
+			}
+		}
+
+		// Store credentials
+		if err := t.credStore.Save(creds); err != nil {
+			log.Printf("OAuth background error: failed to store credentials: %v", err)
+			return
+		}
+
+		// Set as default
+		if err := t.credStore.SetDefault(creds.Handle); err != nil {
+			log.Printf("OAuth background warning: failed to set default handle: %v", err)
+		}
+
+		log.Printf("OAuth background success: authenticated as @%s", creds.Handle)
 	}()
 
-	message := fmt.Sprintf(`
-# OAuth Login Initiated
-
-1. Open this URL in your browser:
-   %s
-
-2. Authorize the application in your browser
-
-3. Waiting for authorization callback on http://127.0.0.1:%d/callback
-
-The server will automatically receive the authorization code and complete the login.
-`, authURL, port)
-
-	// Print to stderr for CLI users
-	fmt.Fprint(os.Stderr, message)
-
-	// Wait for callback result
-	callbackResult, err := callbackServer.WaitForCallback(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("authorization failed: %w", err)
-	}
-
-	if callbackResult.Error != "" {
-		return nil, fmt.Errorf("authorization failed: %s", callbackResult.Error)
-	}
-
-	// Exchange code for tokens
-	creds, err := flow.ExchangeCode(ctx, callbackResult.Code, callbackResult.State)
-	if err != nil {
-		return nil, fmt.Errorf("token exchange failed: %w", err)
-	}
-
-	// Resolve DID to handle
-	identity, err := auth.ResolveDID(ctx, creds.DID)
-	if err != nil {
-		// Store with DID only
-		creds.Handle = creds.DID
-	} else {
-		creds.Handle = auth.ExtractHandleFromDID(identity)
-		if creds.Handle == "" {
-			creds.Handle = creds.DID
-		}
-	}
-
-	// Store credentials
-	if err := t.credStore.Save(creds); err != nil {
-		return nil, fmt.Errorf("failed to store credentials: %w", err)
-	}
-
-	// Set as default
-	if err := t.credStore.SetDefault(creds.Handle); err != nil {
-		fmt.Printf("Warning: Failed to set default handle: %v\n", err)
-	}
+	// Immediately return the markdown message with the authorization URL
+	message := fmt.Sprintf(
+		"# OAuth Login Initiated\n\n1. Open this URL in your browser:\n   %s\n\n2. Authorize the application.\n\nWaiting for authorization on port %d...",
+		authURL, port,
+	)
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{
 			{
 				Type: "text",
-				Text: fmt.Sprintf("# Login Successful (OAuth 2.0)\n\n"+
-					"Successfully authenticated as **@%s**\n\n"+
-					"**DID:** `%s`\n\n"+
-					"Access token expires at: %s\n\n"+
-					"Credentials stored securely.",
-					creds.Handle, creds.DID, creds.ExpiresAt.Format("2006-01-02 15:04:05")),
+				Text: message,
 			},
 		},
 	}, nil

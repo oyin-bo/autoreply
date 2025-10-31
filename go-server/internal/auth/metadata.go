@@ -95,13 +95,13 @@ func (d *MetadataDiscovery) DiscoverFromHandle(ctx context.Context, handle strin
 	// Resolve handle to DID
 	did, err := ResolveHandle(ctx, handle)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to resolve handle: %w", err)
+		return nil, "", err // Don't wrap - preserve original error
 	}
 
 	// Resolve DID to get PDS endpoint
 	pdsURL, err := ResolvePDSFromDID(ctx, did)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to resolve PDS from DID: %w", err)
+		return nil, "", err // Don't wrap - preserve original error
 	}
 
 	// Discover OAuth metadata from PDS

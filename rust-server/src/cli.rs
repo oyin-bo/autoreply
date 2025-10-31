@@ -54,19 +54,19 @@ pub struct ProfileArgs {
 /// Search tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
 pub struct SearchArgs {
-    /// Handle or DID
-    #[arg(short = 'a', long)]
-    #[schemars(description = "Handle or DID")]
-    pub account: String,
+    /// Handle or DID to search from
+    #[arg(short = 'f', long)]
+    #[schemars(description = "Handle or DID for account whose posts you want to search")]
+    pub from: String,
 
     /// Search terms (case-insensitive)
     #[arg(short = 'q', long)]
     #[schemars(description = "Search terms (case-insensitive)")]
     pub query: String,
 
-    /// Maximum number of results (default 50, max 200)
+    /// Maximum number of results (default 50)
     #[arg(short = 'l', long)]
-    #[schemars(description = "Maximum number of results (default 50, max 200)")]
+    #[schemars(description = "Maximum number of results (default 50)")]
     pub limit: Option<usize>,
 }
 
@@ -114,9 +114,9 @@ pub struct FeedArgs {
     #[schemars(description = "Optional cursor for pagination")]
     pub cursor: Option<String>,
 
-    /// Limit the number of posts returned (default 20, max 100)
+    /// Limit the number of posts returned (default 20)
     #[arg(short = 'l', long)]
-    #[schemars(description = "Limit the number of posts (default 20, max 100)")]
+    #[schemars(description = "Limit the number of posts (default 20)")]
     pub limit: Option<usize>,
 }
 
@@ -226,11 +226,11 @@ mod tests {
     #[test]
     fn test_search_args() {
         let args = SearchArgs {
-            account: "bob.bsky.social".to_string(),
+            from: "bob.bsky.social".to_string(),
             query: "rust programming".to_string(),
             limit: Some(10),
         };
-        assert_eq!(args.account, "bob.bsky.social");
+        assert_eq!(args.from, "bob.bsky.social");
         assert_eq!(args.query, "rust programming");
         assert_eq!(args.limit, Some(10));
     }

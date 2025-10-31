@@ -8,9 +8,9 @@ type ProfileArgs struct {
 
 // SearchArgs defines arguments for the search tool
 type SearchArgs struct {
-	Account string `json:"account" jsonschema:"required,description=Handle (alice.bsky.social) or DID (did:plc:...)" short:"a" long:"account"`
-	Query   string `json:"query" jsonschema:"required,description=Search terms (case-insensitive)" short:"q" long:"query"`
-	Limit   int    `json:"limit,omitempty" jsonschema:"description=Maximum number of results (default 50 max 200)" short:"l" long:"limit"`
+	From  string `json:"from" jsonschema:"required,description=Handle (alice.bsky.social) or DID (did:plc:...) to search posts from" short:"f" long:"from"`
+	Query string `json:"query" jsonschema:"required,description=Search terms (case-insensitive)" short:"q" long:"query"`
+	Limit int    `json:"limit,omitempty" jsonschema:"description=Maximum number of results (default 50)" short:"l" long:"limit"`
 }
 
 // LoginArgs defines arguments for the unified login tool with subcommands (matching Rust LoginCommand)
@@ -27,7 +27,7 @@ type FeedArgs struct {
 	Feed   string `json:"feed,omitempty" jsonschema:"description=Feed URI or name (optional - defaults to What is Hot)" short:"f" long:"feed"`
 	Login  string `json:"login,omitempty" jsonschema:"description=BlueSky handle for authenticated feed (optional - use 'anonymous' for incognito)" short:"u" long:"login"`
 	Cursor string `json:"cursor,omitempty" jsonschema:"description=Cursor for pagination (optional)" short:"c" long:"cursor"`
-	Limit  int    `json:"limit,omitempty" jsonschema:"description=Limit number of posts (default 20 max 100)" short:"l" long:"limit"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"description=Limit number of posts (default 20)" short:"l" long:"limit"`
 }
 
 // ThreadArgs defines arguments for the thread tool

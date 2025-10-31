@@ -468,7 +468,11 @@ impl AtProtoOAuthManager {
         &mut self,
         handle: Option<&str>,
     ) -> Result<BrowserFlowState, AppError> {
-        let (did, pds_url) = match handle {
+        // Validate handle format: must contain a dot (e.g., "user.bsky.social")
+        // If handle is provided but invalid, treat it like None and use default OAuth
+        let valid_handle = handle.filter(|h| h.contains('.'));
+        
+        let (did, pds_url) = match valid_handle {
             Some(h) => {
                 tracing::debug!("Starting atproto OAuth flow for handle: {}", h);
 
@@ -485,7 +489,11 @@ impl AtProtoOAuthManager {
                 (did, pds_url)
             }
             None => {
-                tracing::debug!("Starting atproto OAuth flow with default service (account selection)");
+                if let Some(invalid) = handle {
+                    tracing::debug!("Handle '{}' is invalid (no domain), using default OAuth flow with account selection", invalid);
+                } else {
+                    tracing::debug!("Starting atproto OAuth flow with default service (account selection)");
+                }
                 // Use default BlueSky entryway - user will select account during OAuth
                 // Note: bsky.social is an entryway, not a PDS
                 tracing::debug!("Using default entryway for account selection");

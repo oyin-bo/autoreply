@@ -252,7 +252,8 @@ pub struct McpResponse {
 /// MCP Error structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct McpError {
-    pub code: String,
+    // JSON-RPC uses numeric error codes; use i64 so clients expecting numbers validate correctly
+    pub code: i64,
     pub message: String,
 }
 
@@ -298,10 +299,27 @@ impl McpResponse {
             id,
             result: None,
             error: Some(McpError {
-                code: code.to_string(),
+                code: map_error_code(code),
                 message: message.to_string(),
             }),
         }
+    }
+}
+
+/// Map string error identifiers used internally to JSON-RPC numeric error codes.
+/// This keeps existing callsites using string codes unchanged while producing
+/// the numeric `error.code` that MCP clients expect.
+fn map_error_code(code: &str) -> i64 {
+    match code {
+        "parse_error" => -32700,
+        "invalid_request" => -32600,
+        "method_not_found" => -32601,
+        "invalid_params" => -32602,
+        "internal_error" => -32603,
+        // Application/tool-specific errors go in the server error range
+        "tool_not_found" => -32001,
+        "tool_error" => -32002,
+        _ => -32000,
     }
 }
 

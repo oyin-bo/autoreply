@@ -38,12 +38,12 @@ async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
 /// Execute search tool (shared implementation for MCP and CLI)
 pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppError> {
     // Validate parameters
-    validate_account(&search_args.account)?;
+    validate_account(&search_args.from)?;
     validate_query(&search_args.query)?;
 
     info!(
         "Search request for account: {}, query: '{}'",
-        search_args.account, search_args.query
+        search_args.from, search_args.query
     );
 
     // Normalize query as specified
@@ -56,21 +56,21 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
 
     // Resolve handle to DID
     let resolver = DidResolver::new();
-    let did = resolver.resolve_handle(&search_args.account).await?;
+    let did = resolver.resolve_handle(&search_args.from).await?;
 
     // Determine the handle for display
-    let display_handle = if search_args.account.starts_with("did:plc:") {
+    let display_handle = if search_args.from.starts_with("did:plc:") {
         // If input was a DID, we might not have the handle - use DID for now
-        search_args.account.clone()
+        search_args.from.clone()
     } else {
         search_args
-            .account
+            .from
             .strip_prefix('@')
-            .unwrap_or(&search_args.account)
+            .unwrap_or(&search_args.from)
             .to_string()
     };
 
-    debug!("Resolved {} to DID: {:?}", search_args.account, did);
+    debug!("Resolved {} to DID: {:?}", search_args.from, did);
 
     // Get posts using streaming iterator
     let provider = RepositoryProvider::new()?;
@@ -136,8 +136,8 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     // Sort by created_at descending (ISO8601 lexicographic)
     matching_posts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
-    // Apply limit (default 50, max 200)
-    let limit = search_args.limit.unwrap_or(50).clamp(1, 200);
+    // Apply limit (default 50, no maximum - will fetch as many as requested)
+    let limit = search_args.limit.unwrap_or(50);
     if matching_posts.len() > limit {
         matching_posts.truncate(limit);
     }
@@ -145,7 +145,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     if matching_posts.is_empty() {
         return Err(AppError::NotFound(format!(
             "No posts found matching query '{}' for account {}",
-            search_args.query, search_args.account
+            search_args.query, search_args.from
         )));
     }
 

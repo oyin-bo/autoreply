@@ -42,11 +42,18 @@ pub async fn execute_post(post_args: PostArgs) -> Result<ToolResult, AppError> {
 
     // Get credentials for the account
     let storage = CredentialStorage::new()?;
-    let credentials = storage.get_credentials(&post_args.post_as)?;
-
-    // Create session
-    let session_manager = SessionManager::new()?;
-    let session = session_manager.login(&credentials).await?;
+    
+    // Try to get stored session first (for OAuth accounts)
+    let session = if let Some(stored_session) = storage.get_session(&post_args.post_as)? {
+        debug!("Using stored session for {}", post_args.post_as);
+        stored_session
+    } else {
+        // Fallback to creating new session with credentials (for app password accounts)
+        debug!("No stored session, creating new session for {}", post_args.post_as);
+        let credentials = storage.get_credentials(&post_args.post_as)?;
+        let session_manager = SessionManager::new()?;
+        session_manager.login(&credentials).await?
+    };
 
     debug!("Authenticated as {} (DID: {})", session.handle, session.did);
 

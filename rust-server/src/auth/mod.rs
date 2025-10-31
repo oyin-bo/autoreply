@@ -32,7 +32,7 @@ pub const DEFAULT_SERVICE: &str = "https://bsky.social";
 /// Errors specific to authentication
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
-    #[error("Authentication failed: {0}")]
+    #[error("{0}")]
     AuthenticationFailed(String),
 
     #[error("No credentials found for account: {0}")]
