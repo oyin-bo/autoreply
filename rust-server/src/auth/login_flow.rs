@@ -4,6 +4,7 @@ use crate::auth::{
 };
 use crate::cli::{LoginCommand, LoginSubcommands};
 use crate::error::AppError;
+use std::sync::Arc;
 use tokio::time::Duration;
 use tracing::{debug, warn};
 
@@ -25,13 +26,13 @@ pub struct LoginOutcome {
     pub elicitation: Option<LoginElicitation>,
 }
 pub struct LoginManager {
-    storage: CredentialStorage,
+    storage: Arc<CredentialStorage>,
 }
 
 impl LoginManager {
     pub fn new() -> Result<Self, AppError> {
         Ok(Self {
-            storage: CredentialStorage::new()?,
+            storage: Arc::new(CredentialStorage::new()?),
         })
     }
 
@@ -194,60 +195,73 @@ IMPORTANT Security Warning:
         );
         debug!("Authorization URL: {}", flow_state.auth_url);
 
-        if webbrowser::open(&flow_state.auth_url).is_ok() {
-            debug!("Browser opened for authorization");
-        } else {
-            eprintln!(
-                "Please visit this URL in your browser: {}",
-                flow_state.auth_url
-            );
-        }
+        let auth_url = flow_state.auth_url.clone();
+        let port = callback_server.port();
 
-        let callback_result = callback_server
-            .wait_for_callback(Duration::from_secs(300))
-            .await
-            .map_err(|e| Err::Authentication(format!("OAuth callback failed: {}", e)))?;
+        // Spawn background task to handle the OAuth flow completion
+        let storage = self.storage.clone();
+        let service_owned = service.map(|s| s.to_string());
+        tokio::spawn(async move {
+            let callback_result = callback_server
+                .wait_for_callback(Duration::from_secs(300))
+                .await;
 
-        let session = match callback_result {
-            CallbackResult::Success { code, state } => {
-                if state != flow_state.state {
-                    return Err(Err::Authentication("State parameter mismatch".to_string()));
+            match callback_result {
+                Ok(CallbackResult::Success { code, state }) => {
+                    if state != flow_state.state {
+                        warn!("OAuth background task: State parameter mismatch");
+                        return;
+                    }
+
+                    debug!("OAuth authorization successful, exchanging code for tokens");
+                    match oauth_manager.complete_flow(&code, &flow_state).await {
+                        Ok(mut session) => {
+                            if let Some(service_url) = service_owned {
+                                session.service = service_url;
+                            }
+
+                            // Store credentials using the handle from the session (obtained after OAuth)
+                            if let Err(e) = storage.store_credentials_with_fallback(
+                                &session.handle,
+                                Credentials::with_service(&session.did, &session.refresh_jwt, &session.service),
+                            ) {
+                                warn!("OAuth background task: Failed to store credentials: {}", e.message());
+                                return;
+                            }
+
+                            if let Err(e) = storage.store_session(&session.handle, session.clone()) {
+                                warn!("OAuth background task: Failed to store session: {}", e.message());
+                                return;
+                            }
+
+                            if let Err(e) = ensure_default(&storage, &session.handle) {
+                                warn!("OAuth background task: Failed to set default: {}", e.message());
+                            }
+
+                            debug!("OAuth background task: Successfully authenticated as @{}", session.handle);
+                        }
+                        Err(e) => {
+                            warn!("OAuth background task: Failed to complete flow: {}", e.message());
+                        }
+                    }
                 }
-
-                debug!("OAuth authorization successful, exchanging code for tokens");
-                let mut session = oauth_manager.complete_flow(&code, &flow_state).await?;
-                if let Some(service_url) = service {
-                    session.service = service_url.to_string();
+                Ok(CallbackResult::Error { error, description }) => {
+                    warn!(
+                        "OAuth background task: Authorization failed: {} - {}",
+                        error,
+                        description.unwrap_or_else(|| "No description".to_string())
+                    );
                 }
-
-                // Store credentials using the handle from the session (obtained after OAuth)
-                self.storage.store_credentials_with_fallback(
-                    &session.handle,
-                    Credentials::with_service(&session.did, &session.refresh_jwt, &session.service),
-                )?;
-                session
+                Err(e) => {
+                    warn!("OAuth background task: Callback failed: {}", e);
+                }
             }
-            CallbackResult::Error { error, description } => {
-                return Err(Err::Authentication(format!(
-                    "OAuth authorization failed: {} - {}",
-                    error,
-                    description.unwrap_or_else(|| "No description".to_string())
-                )));
-            }
-        };
+        });
 
-        self.storage.store_session(&session.handle, session.clone())?;
-
-        ensure_default(&self.storage, &session.handle)?;
-
+        // Immediately return the markdown message with the authorization URL
         Ok(format!(
-            "✓ Successfully authenticated as @{}\n  DID: {}\n  Method: OAuth (browser)\n  Storage: {}",
-            session.handle,
-            session.did,
-            match self.storage.backend() {
-                StorageBackend::Keyring => "OS keyring",
-                StorageBackend::File => "file",
-            }
+            "# OAuth Login Initiated\n\n1. Open this URL in your browser:\n   {}\n\n2. Authorize the application.\n\nWaiting for authorization on port {}...",
+            auth_url, port
         ))
     }
 
