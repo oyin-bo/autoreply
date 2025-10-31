@@ -127,19 +127,24 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
 
     // Format as markdown
     let mut markdown = String::new();
-    markdown.push_str("# Feed Posts\n\n");
+    markdown.push_str("# BlueSky Feed\n\n");
+    markdown.push_str(&format!("Found {} posts.\n\n", feed_response.feed.len()));
 
     for (i, feed_post) in feed_response.feed.iter().enumerate() {
         let post = &feed_post.post;
-        markdown.push_str(&format!("## Post {}\n", i + 1));
-        markdown.push_str(&format!("**Author:** @{}", post.author.handle));
+        markdown.push_str(&format!("## Post {}\n\n", i + 1));
+        markdown.push_str(&format!("**@{}", post.author.handle));
         if let Some(display_name) = &post.author.display_name {
             markdown.push_str(&format!(" ({})", display_name));
         }
-        markdown.push_str("\n");
-        markdown.push_str(&format!("**URI:** {}\n", post.uri));
-        markdown.push_str(&format!("**Indexed:** {}\n\n", post.indexed_at));
+        markdown.push_str("\n\n");
+        
+        // Convert at:// URI to web URL
+        let web_url = at_uri_to_bsky_url(&post.uri, &post.author.handle);
+        markdown.push_str(&format!("**Link:** {}\n\n", web_url));
+        
         markdown.push_str(&format!("{}\n\n", post.record.text));
+        markdown.push_str(&format!("**Created:** {}\n\n", post.record.created_at));
         
         // Add engagement stats if available
         let stats: Vec<String> = vec![
@@ -153,21 +158,38 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
         .collect();
         
         if !stats.is_empty() {
-            markdown.push_str(&format!("*{}*\n\n", stats.join(", ")));
+            markdown.push_str(&format!("**Stats:** {}\n\n", stats.join(", ")));
         }
 
-        if i < feed_response.feed.len() - 1 {
-            markdown.push_str("---\n\n");
-        }
+        markdown.push_str("---\n\n");
     }
 
     if let Some(cursor) = feed_response.cursor {
-        markdown.push_str(&format!("\n*Cursor for next page: {}*\n", cursor));
-    } else {
-        markdown.push_str("\n*No more pages available*\n");
+        markdown.push_str(&format!("**Next cursor:** `{}`\n", cursor));
     }
 
     Ok(ToolResult::text(markdown))
+}
+
+/// Convert AT URI to BlueSky web URL
+/// at://did:plc:abc/app.bsky.feed.post/xyz -> https://bsky.app/profile/handle/post/xyz
+fn at_uri_to_bsky_url(at_uri: &str, handle: &str) -> String {
+    // Parse AT URI: at://{did}/{collection}/{rkey}
+    if !at_uri.starts_with("at://") {
+        return at_uri.to_string();
+    }
+
+    let parts: Vec<&str> = at_uri.trim_start_matches("at://").split('/').collect();
+    if parts.len() < 3 {
+        return at_uri.to_string();
+    }
+
+    // parts[0] = DID
+    // parts[1] = collection (e.g., app.bsky.feed.post)
+    // parts[2] = rkey
+    let rkey = parts[2];
+
+    format!("https://bsky.app/profile/{}/post/{}", handle, rkey)
 }
 
 #[cfg(test)]
