@@ -28,6 +28,16 @@ func parsePostReference(ref string) (*PostReference, error) {
 		}, nil
 	}
 
+	// Handle compact format @handle/rkey
+	if strings.HasPrefix(ref, "@") && strings.Contains(ref, "/") {
+		parts := strings.SplitN(ref[1:], "/", 2) // Remove @ and split on first /
+		if len(parts) == 2 {
+			// Note: For the post tool, we can't resolve handles here without context
+			// This format should be handled by the caller with proper handle resolution
+			return nil, fmt.Errorf("compact format @handle/rkey requires handle resolution - please use at:// URI or provide handle resolution context")
+		}
+	}
+
 	// Handle https://bsky.app/profile/{handle}/post/{rkey} format
 	if strings.HasPrefix(ref, "https://bsky.app/profile/") {
 		ref = strings.TrimPrefix(ref, "https://bsky.app/profile/")
@@ -35,10 +45,10 @@ func parsePostReference(ref string) (*PostReference, error) {
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid Bluesky URL format: %s", ref)
 		}
-		
+
 		handleOrDID := parts[0]
 		rkey := parts[1]
-		
+
 		// If it's not a DID, we need to resolve the handle
 		// For now, we'll accept both DIDs and handles
 		// The API should handle handle resolution
@@ -48,12 +58,12 @@ func parsePostReference(ref string) (*PostReference, error) {
 			// In a more robust implementation, we'd resolve the handle first
 			return nil, fmt.Errorf("handle resolution not yet implemented, please use at:// URI format or DID in URL")
 		}
-		
+
 		return &PostReference{
 			DID:  handleOrDID,
 			RKey: rkey,
 		}, nil
 	}
 
-	return nil, fmt.Errorf("unsupported post reference format (use at:// URI or https://bsky.app/... URL): %s", ref)
+	return nil, fmt.Errorf("unsupported post reference format (use at:// URI, https://bsky.app/... URL, or @handle/rkey with proper context): %s", ref)
 }

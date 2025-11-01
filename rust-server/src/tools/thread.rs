@@ -229,14 +229,36 @@ fn format_thread_recursive(
 
 /// Parse a post URI from either a BlueSky URL or an at:// URI
 async fn parse_post_uri(client: &reqwest::Client, uri: &str) -> Result<String, AppError> {
+    let trimmed = uri.trim();
+    
     // If it's already an at:// URI, return it
-    if uri.starts_with("at://") {
-        return Ok(uri.to_string());
+    if trimmed.starts_with("at://") {
+        return Ok(trimmed.to_string());
+    }
+
+    // Try compact format @handle/rkey
+    if trimmed.starts_with('@') && trimmed.contains('/') {
+        let without_at = &trimmed[1..]; // Remove leading @
+        let parts: Vec<&str> = without_at.split('/').collect();
+        
+        if parts.len() >= 2 {
+            let handle = parts[0];
+            let rkey = parts[1];
+            
+            // Resolve handle to DID
+            let did = resolve_handle(client, handle).await?;
+            
+            // Construct at:// URI
+            let at_uri = format!("at://{}/app.bsky.feed.post/{}", did, rkey);
+            debug!("Resolved compact format to at:// URI: {}", at_uri);
+            
+            return Ok(at_uri);
+        }
     }
 
     // Try to parse as a BlueSky URL
     // Format: https://bsky.app/profile/{handle}/post/{postId}
-    if let Some(captures) = uri.strip_prefix("https://bsky.app/profile/") {
+    if let Some(captures) = trimmed.strip_prefix("https://bsky.app/profile/") {
         if let Some((handle, post_id)) = captures.split_once("/post/") {
             // Extract just the post ID (remove trailing slashes or query params)
             let post_id = post_id.split('/').next().unwrap_or(post_id);
@@ -261,7 +283,7 @@ async fn parse_post_uri(client: &reqwest::Client, uri: &str) -> Result<String, A
     }
 
     Err(AppError::InvalidInput(format!(
-        "Invalid post URI: {}. Expected at:// URI or https://bsky.app/profile/handle/post/id URL",
+        "Invalid post URI: {}. Expected at:// URI, https://bsky.app/profile/handle/post/id URL, or @handle/rkey",
         uri
     )))
 }
@@ -341,6 +363,16 @@ mod tests {
     async fn test_parse_post_uri_invalid() {
         let client = client_with_timeout(Duration::from_secs(5));
         let uri = "invalid://something";
+        let result = parse_post_uri(&client, uri).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_parse_post_uri_compact_format_with_did() {
+        let client = client_with_timeout(Duration::from_secs(5));
+        // Note: This would normally resolve the handle, but we can't test that without a real server
+        // For now, just verify it rejects invalid formats
+        let uri = "@/xyz123"; // Invalid: no handle
         let result = parse_post_uri(&client, uri).await;
         assert!(result.is_err());
     }

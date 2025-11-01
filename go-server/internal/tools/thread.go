@@ -139,9 +139,30 @@ func (t *ThreadTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 
 // normalizePostURI converts BlueSky web URLs to AT URIs
 func (t *ThreadTool) normalizePostURI(ctx context.Context, uri string) (string, error) {
+	uri = strings.TrimSpace(uri)
+
 	// If already an AT URI, return as is
 	if strings.HasPrefix(uri, "at://") {
 		return uri, nil
+	}
+
+	// Try compact format @handle/rkey
+	if strings.HasPrefix(uri, "@") && strings.Contains(uri, "/") {
+		parts := strings.SplitN(uri[1:], "/", 2) // Remove @ and split on first /
+		if len(parts) == 2 {
+			handle := parts[0]
+			rkey := parts[1]
+
+			// Resolve handle to DID
+			did, err := t.resolveHandle(ctx, handle)
+			if err != nil {
+				return "", fmt.Errorf("failed to resolve handle '%s': %w", handle, err)
+			}
+
+			// Construct AT URI
+			atURI := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, rkey)
+			return atURI, nil
+		}
 	}
 
 	// Try to parse BlueSky web URL
@@ -173,7 +194,7 @@ func (t *ThreadTool) normalizePostURI(ctx context.Context, uri string) (string, 
 		}
 	}
 
-	return "", fmt.Errorf("invalid post URI: %s. Expected at:// URI or https://bsky.app/profile/handle/post/id URL", uri)
+	return "", fmt.Errorf("invalid post URI: %s. Expected at:// URI, https://bsky.app/profile/handle/post/id URL, or @handle/rkey", uri)
 }
 
 // resolveHandle resolves a BlueSky handle to a DID

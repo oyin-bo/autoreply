@@ -256,10 +256,37 @@ type ReplyInfo struct {
 
 // getReplyInfo fetches information about the post being replied to
 func (t *PostTool) getReplyInfo(ctx context.Context, creds *auth.Credentials, replyTo string) (*ReplyInfo, error) {
-	// Parse the URI/URL
-	postRef, err := parsePostReference(replyTo)
-	if err != nil {
-		return nil, err
+	replyTo = strings.TrimSpace(replyTo)
+
+	var postRef *PostReference
+	var err error
+
+	// Try compact format @handle/rkey first
+	if strings.HasPrefix(replyTo, "@") && strings.Contains(replyTo, "/") {
+		parts := strings.SplitN(replyTo[1:], "/", 2)
+		if len(parts) == 2 {
+			handle := parts[0]
+			rkey := parts[1]
+
+			// Resolve handle to DID
+			did, resolveErr := t.resolveHandle(ctx, creds, handle)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("failed to resolve handle '%s': %w", handle, resolveErr)
+			}
+
+			postRef = &PostReference{
+				DID:  did,
+				RKey: rkey,
+			}
+		}
+	}
+
+	// Fall back to parsePostReference for other formats
+	if postRef == nil {
+		postRef, err = parsePostReference(replyTo)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Fetch the post record
@@ -322,6 +349,46 @@ func (t *PostTool) getReplyInfo(ctx context.Context, creds *auth.Credentials, re
 	}
 
 	return replyInfo, nil
+}
+
+// resolveHandle resolves a BlueSky handle to a DID using the public API
+func (t *PostTool) resolveHandle(ctx context.Context, creds *auth.Credentials, handle string) (string, error) {
+	handle = strings.TrimPrefix(handle, "@")
+
+	url := fmt.Sprintf("https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=%s", handle)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if creds != nil {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", creds.AccessToken))
+	}
+	req.Header.Set("User-Agent", "autoreply/1.0")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve handle: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to resolve handle with status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		DID string `json:"did"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if result.DID == "" {
+		return "", fmt.Errorf("did not found in resolve response")
+	}
+
+	return result.DID, nil
 }
 
 // atURIToBskyURL converts an AT URI to a Bluesky web URL
