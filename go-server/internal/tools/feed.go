@@ -119,8 +119,14 @@ func (t *FeedTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp
 	}
 
 	if feed != "" {
-		// Use specified feed (custom feed generator)
-		params["feed"] = feed
+		// Resolve feed URI if needed
+		feedURI, err := t.resolveFeedURI(ctx, feed)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.InvalidInput, "Failed to resolve feed")
+		}
+
+		// Use resolved feed URI
+		params["feed"] = feedURI
 		feedData, err = t.apiClient.GetWithOptionalAuth(ctx, login, "app.bsky.feed.getFeed", params)
 	} else if login != "" && login != "anonymous" {
 		// Get authenticated user's timeline
@@ -146,6 +152,43 @@ func (t *FeedTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp
 			},
 		},
 	}, nil
+}
+
+// resolveFeedURI resolves a feed name/query to a full at:// URI
+func (t *FeedTool) resolveFeedURI(ctx context.Context, feed string) (string, error) {
+	// Check if it's already a valid at:// URI
+	if strings.HasPrefix(feed, "at://") && strings.Contains(feed, "/app.bsky.feed.generator/") {
+		return feed, nil
+	}
+
+	// Not a full URI - search for feed by name
+	params := map[string]string{
+		"query": feed,
+	}
+
+	searchResult, err := t.apiClient.GetPublic(ctx, "app.bsky.unspecced.getPopularFeedGenerators", params)
+	if err != nil {
+		return "", fmt.Errorf("failed to search for feed: %w", err)
+	}
+
+	// Extract feeds from search result
+	feeds, ok := searchResult["feeds"].([]interface{})
+	if !ok || len(feeds) == 0 {
+		return "", fmt.Errorf("no feeds found matching '%s'. Please provide a valid feed URI (at://...) or search term", feed)
+	}
+
+	// Get the first feed's URI
+	firstFeed, ok := feeds[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid feed data in search result")
+	}
+
+	uri, ok := firstFeed["uri"].(string)
+	if !ok || uri == "" {
+		return "", fmt.Errorf("feed URI not found in search result")
+	}
+
+	return uri, nil
 }
 
 // formatFeedMarkdown formats feed data as markdown

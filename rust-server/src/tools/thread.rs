@@ -96,10 +96,10 @@ async fn handle_thread_impl(args: Value) -> Result<ToolResult, AppError> {
 pub async fn execute_thread(thread_args: ThreadArgs) -> Result<ToolResult, AppError> {
     info!("Thread request for post: {}", thread_args.post_uri);
 
-    // Parse the post URI - it could be a URL or an at:// URI
-    let post_uri = parse_post_uri(&thread_args.post_uri)?;
-
     let client = client_with_timeout(Duration::from_secs(30));
+
+    // Parse the post URI - it could be a URL or an at:// URI
+    let post_uri = parse_post_uri(&client, &thread_args.post_uri).await?;
 
     // Build the URL for the getPostThread endpoint
     let url = format!(
@@ -205,7 +205,7 @@ fn format_thread_post(post: &ThreadPost, markdown: &mut String, post_num: usize)
 }
 
 /// Parse a post URI from either a BlueSky URL or an at:// URI
-fn parse_post_uri(uri: &str) -> Result<String, AppError> {
+async fn parse_post_uri(client: &reqwest::Client, uri: &str) -> Result<String, AppError> {
     // If it's already an at:// URI, return it
     if uri.starts_with("at://") {
         return Ok(uri.to_string());
@@ -214,14 +214,26 @@ fn parse_post_uri(uri: &str) -> Result<String, AppError> {
     // Try to parse as a BlueSky URL
     // Format: https://bsky.app/profile/{handle}/post/{postId}
     if let Some(captures) = uri.strip_prefix("https://bsky.app/profile/") {
-        if let Some((handle, rest)) = captures.split_once("/post/") {
-            // We need to resolve the handle to a DID for the at:// URI
-            // For now, we'll return an error asking for the at:// URI directly
-            // In a full implementation, we'd resolve the handle to DID
-            return Err(AppError::InvalidInput(format!(
-                "Please provide the at:// URI directly. URL format is not yet supported. Handle: {}, Post ID: {}",
-                handle, rest
-            )));
+        if let Some((handle, post_id)) = captures.split_once("/post/") {
+            // Extract just the post ID (remove trailing slashes or query params)
+            let post_id = post_id.split('/').next().unwrap_or(post_id);
+            let post_id = post_id.split('?').next().unwrap_or(post_id);
+            
+            debug!("Parsing URL: handle={}, post_id={}", handle, post_id);
+            
+            // Check if handle is already a DID
+            let did = if handle.starts_with("did:") {
+                handle.to_string()
+            } else {
+                // Resolve handle to DID
+                resolve_handle(client, handle).await?
+            };
+            
+            // Construct at:// URI
+            let at_uri = format!("at://{}/app.bsky.feed.post/{}", did, post_id);
+            debug!("Resolved URL to at:// URI: {}", at_uri);
+            
+            return Ok(at_uri);
         }
     }
 
@@ -229,6 +241,44 @@ fn parse_post_uri(uri: &str) -> Result<String, AppError> {
         "Invalid post URI: {}. Expected at:// URI or https://bsky.app/profile/handle/post/id URL",
         uri
     )))
+}
+
+/// Resolve a handle to a DID
+async fn resolve_handle(client: &reqwest::Client, handle: &str) -> Result<String, AppError> {
+    let url = format!(
+        "https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle={}",
+        urlencoding::encode(handle.trim_start_matches('@'))
+    );
+
+    debug!("Resolving handle: {}", handle);
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::NetworkError(format!("Failed to resolve handle: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::InvalidInput(format!(
+            "Failed to resolve handle '{}': {}",
+            handle,
+            response.status()
+        )));
+    }
+
+    #[derive(Deserialize)]
+    struct ResolveHandleResponse {
+        did: String,
+    }
+
+    let resolve_response: ResolveHandleResponse = response
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(format!("Failed to parse handle resolution response: {}", e)))?;
+
+    debug!("Resolved handle {} to DID {}", handle, resolve_response.did);
+
+    Ok(resolve_response.did)
 }
 
 #[cfg(test)]
@@ -248,24 +298,27 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_parse_post_uri_at_protocol() {
+    #[tokio::test]
+    async fn test_parse_post_uri_at_protocol() {
+        let client = client_with_timeout(Duration::from_secs(5));
         let uri = "at://did:plc:example/app.bsky.feed.post/123";
-        let result = parse_post_uri(uri).unwrap();
+        let result = parse_post_uri(&client, uri).await.unwrap();
         assert_eq!(result, uri);
     }
 
-    #[test]
-    fn test_parse_post_uri_url_not_supported() {
-        let uri = "https://bsky.app/profile/alice.bsky.social/post/123";
-        let result = parse_post_uri(uri);
-        assert!(result.is_err());
+    #[tokio::test]
+    async fn test_parse_post_uri_url_with_did() {
+        let client = client_with_timeout(Duration::from_secs(5));
+        let uri = "https://bsky.app/profile/did:plc:example/post/123";
+        let result = parse_post_uri(&client, uri).await.unwrap();
+        assert_eq!(result, "at://did:plc:example/app.bsky.feed.post/123");
     }
 
-    #[test]
-    fn test_parse_post_uri_invalid() {
+    #[tokio::test]
+    async fn test_parse_post_uri_invalid() {
+        let client = client_with_timeout(Duration::from_secs(5));
         let uri = "invalid://something";
-        let result = parse_post_uri(uri);
+        let result = parse_post_uri(&client, uri).await;
         assert!(result.is_err());
     }
 }

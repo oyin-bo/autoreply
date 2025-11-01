@@ -58,6 +58,62 @@ struct FeedResponse {
     cursor: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct FeedGeneratorView {
+    uri: String,
+    #[serde(rename = "displayName")]
+    display_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PopularFeedsResponse {
+    feeds: Vec<FeedGeneratorView>,
+}
+
+/// Resolve a feed name/query to a full at:// URI by searching
+async fn resolve_feed_uri(client: &reqwest::Client, query: &str) -> Result<String, AppError> {
+    let search_url = format!(
+        "https://public.api.bsky.app/xrpc/app.bsky.unspecced.getPopularFeedGenerators?query={}",
+        urlencoding::encode(query)
+    );
+
+    debug!("Searching for feed with query: {}", query);
+
+    let response = client
+        .get(&search_url)
+        .send()
+        .await
+        .map_err(|e| AppError::NetworkError(format!("Failed to search for feed: {}", e)))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::NetworkError(format!(
+            "Feed search API returned error {}",
+            response.status()
+        )));
+    }
+
+    let search_response: PopularFeedsResponse = response
+        .json()
+        .await
+        .map_err(|e| AppError::ParseError(format!("Failed to parse feed search response: {}", e)))?;
+
+    if search_response.feeds.is_empty() {
+        return Err(AppError::InvalidInput(format!(
+            "No feeds found matching '{}'. Please provide a valid feed URI (at://...) or search term.",
+            query
+        )));
+    }
+
+    let first_feed = &search_response.feeds[0];
+    debug!(
+        "Found feed: {} ({})",
+        first_feed.display_name.as_deref().unwrap_or("unnamed"),
+        first_feed.uri
+    );
+
+    Ok(first_feed.uri.clone())
+}
+
 /// Handle feed tool call
 pub async fn handle_feed(id: Option<Value>, args: Value) -> McpResponse {
     match timeout(Duration::from_secs(120), handle_feed_impl(args)).await {
@@ -82,15 +138,30 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
 
     let client = client_with_timeout(Duration::from_secs(30));
     
-    // Determine the feed URI to use
-    let feed_uri = feed_args.feed.as_deref().unwrap_or(
-        "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot"
-    );
+    // Resolve the feed URI
+    let feed_uri = match &feed_args.feed {
+        Some(feed_input) => {
+            // Check if it's already a valid at:// URI
+            if feed_input.starts_with("at://") && feed_input.contains("/app.bsky.feed.generator/") {
+                feed_input.clone()
+            } else {
+                // Not a full URI - search for feed by name
+                debug!("Feed '{}' is not a full URI, searching...", feed_input);
+                resolve_feed_uri(&client, feed_input).await?
+            }
+        }
+        None => {
+            // Default to "What's Hot" feed
+            "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot".to_string()
+        }
+    };
+
+    debug!("Using feed URI: {}", feed_uri);
 
     // Build the URL for the getFeed endpoint
     let mut url = format!(
         "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed={}",
-        urlencoding::encode(feed_uri)
+        urlencoding::encode(&feed_uri)
     );
 
     if let Some(cursor) = &feed_args.cursor {

@@ -83,7 +83,10 @@ func (t *ThreadTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 	}
 
 	// Convert BlueSky web URL to AT URI if needed
-	postURI = t.normalizePostURI(postURI)
+	atURI, err := t.normalizePostURI(ctx, postURI)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.InvalidInput, "Failed to parse post URI")
+	}
 
 	// Extract login parameter
 	login := getStringParam(args, "login", "")
@@ -113,7 +116,7 @@ func (t *ThreadTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 
 	// Fetch thread
 	params := map[string]string{
-		"uri": postURI,
+		"uri": atURI,
 	}
 
 	threadData, err := t.apiClient.GetWithOptionalAuth(ctx, login, "app.bsky.feed.getPostThread", params)
@@ -135,17 +138,63 @@ func (t *ThreadTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 }
 
 // normalizePostURI converts BlueSky web URLs to AT URIs
-func (t *ThreadTool) normalizePostURI(uri string) string {
+func (t *ThreadTool) normalizePostURI(ctx context.Context, uri string) (string, error) {
 	// If already an AT URI, return as is
 	if strings.HasPrefix(uri, "at://") {
-		return uri
+		return uri, nil
 	}
 
-	// Convert BlueSky web URL to AT URI
-	// https://bsky.app/profile/{handle}/post/{rkey} -> at://{did}/app.bsky.feed.post/{rkey}
-	// Note: This is a simplified conversion. In production, you'd need to resolve handle to DID.
-	// For now, we'll return the original URI and let the API handle it.
-	return uri
+	// Try to parse BlueSky web URL
+	// https://bsky.app/profile/{handle}/post/{rkey}
+	if strings.HasPrefix(uri, "https://bsky.app/profile/") {
+		parts := strings.TrimPrefix(uri, "https://bsky.app/profile/")
+		segments := strings.Split(parts, "/post/")
+		if len(segments) == 2 {
+			handle := segments[0]
+			postID := strings.Split(segments[1], "/")[0] // Remove trailing slashes
+			postID = strings.Split(postID, "?")[0]       // Remove query params
+
+			// Check if handle is already a DID
+			var did string
+			if strings.HasPrefix(handle, "did:") {
+				did = handle
+			} else {
+				// Resolve handle to DID
+				resolvedDID, err := t.resolveHandle(ctx, handle)
+				if err != nil {
+					return "", fmt.Errorf("failed to resolve handle '%s': %w", handle, err)
+				}
+				did = resolvedDID
+			}
+
+			// Construct AT URI
+			atURI := fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, postID)
+			return atURI, nil
+		}
+	}
+
+	return "", fmt.Errorf("invalid post URI: %s. Expected at:// URI or https://bsky.app/profile/handle/post/id URL", uri)
+}
+
+// resolveHandle resolves a BlueSky handle to a DID
+func (t *ThreadTool) resolveHandle(ctx context.Context, handle string) (string, error) {
+	handle = strings.TrimPrefix(handle, "@")
+
+	params := map[string]string{
+		"handle": handle,
+	}
+
+	result, err := t.apiClient.GetPublic(ctx, "com.atproto.identity.resolveHandle", params)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve handle: %w", err)
+	}
+
+	did, ok := result["did"].(string)
+	if !ok || did == "" {
+		return "", fmt.Errorf("did not found in resolve response")
+	}
+
+	return did, nil
 }
 
 // formatThreadMarkdown formats thread data as markdown
