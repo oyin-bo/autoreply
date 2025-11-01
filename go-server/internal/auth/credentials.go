@@ -130,3 +130,60 @@ func (s *CredentialStore) ListHandles() ([]string, error) {
 
 	return handles, nil
 }
+
+// Session stores active AT Protocol session data
+type Session struct {
+	Handle       string    `json:"handle"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	DID          string    `json:"did"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+}
+
+// SaveSession stores a session for a handle
+func (s *CredentialStore) SaveSession(session *Session) error {
+	data, err := json.Marshal(session)
+	if err != nil {
+		return fmt.Errorf("failed to marshal session: %w", err)
+	}
+
+	sessionKey := fmt.Sprintf("session:%s", session.Handle)
+	if err := s.ring.Set(keyring.Item{
+		Key:  sessionKey,
+		Data: data,
+	}); err != nil {
+		return fmt.Errorf("failed to save session: %w", err)
+	}
+
+	return nil
+}
+
+// LoadSession retrieves a session for a handle
+func (s *CredentialStore) LoadSession(handle string) (*Session, error) {
+	sessionKey := fmt.Sprintf("session:%s", handle)
+	item, err := s.ring.Get(sessionKey)
+	if err != nil {
+		if err == keyring.ErrKeyNotFound {
+			return nil, nil // No session found, not an error
+		}
+		return nil, fmt.Errorf("failed to load session: %w", err)
+	}
+
+	var session Session
+	if err := json.Unmarshal(item.Data, &session); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal session: %w", err)
+	}
+
+	return &session, nil
+}
+
+// DeleteSession removes a session for a handle
+func (s *CredentialStore) DeleteSession(handle string) error {
+	sessionKey := fmt.Sprintf("session:%s", handle)
+	if err := s.ring.Remove(sessionKey); err != nil {
+		if err != keyring.ErrKeyNotFound {
+			return fmt.Errorf("failed to delete session: %w", err)
+		}
+	}
+	return nil
+}

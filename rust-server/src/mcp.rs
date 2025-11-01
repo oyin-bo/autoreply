@@ -924,7 +924,7 @@ mod tests {
             id: Some(json!(1)),
             result: None,
             error: Some(McpError {
-                code: "-32602".to_string(),
+                code: -32602,
                 message: "Invalid params".to_string(),
             }),
         };

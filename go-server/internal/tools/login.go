@@ -444,6 +444,19 @@ func (t *LoginTool) loginWithPassword(ctx context.Context, handle, password stri
 		return nil, errors.Wrap(err, errors.InternalError, "Failed to store credentials")
 	}
 
+	// Store session (so post/react tools can reuse access token)
+	session := &auth.Session{
+		Handle:       creds.Handle,
+		AccessToken:  creds.AccessToken,
+		RefreshToken: creds.RefreshToken,
+		DID:          creds.DID,
+		ExpiresAt:    creds.ExpiresAt,
+	}
+	if err := t.credStore.SaveSession(session); err != nil {
+		// Non-fatal - just log
+		fmt.Printf("Warning: Failed to store session: %v\n", err)
+	}
+
 	// Set as default handle
 	if err := t.credStore.SetDefault(creds.Handle); err != nil {
 		// Non-fatal - just log
@@ -589,6 +602,19 @@ func (t *LoginTool) loginWithOAuth(ctx context.Context, handle string, port int)
 		if err := t.credStore.Save(creds); err != nil {
 			log.Printf("OAuth background error: failed to store credentials: %v", err)
 			return
+		}
+
+		// Store session for OAuth (so post/react tools can reuse access token)
+		session := &auth.Session{
+			Handle:       creds.Handle,
+			AccessToken:  creds.AccessToken,
+			RefreshToken: creds.RefreshToken,
+			DID:          creds.DID,
+			ExpiresAt:    creds.ExpiresAt,
+		}
+		if err := t.credStore.SaveSession(session); err != nil {
+			log.Printf("OAuth background warning: failed to store session: %v", err)
+			// Not fatal - credentials are stored, session can be recreated
 		}
 
 		// Set as default

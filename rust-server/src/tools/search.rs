@@ -223,12 +223,12 @@ mod tests {
     #[tokio::test]
     async fn test_search_args_parsing() {
         let args = json!({
-            "account": "test.bsky.social",
+            "from": "test.bsky.social",
             "query": "hello world"
         });
 
         let parsed: SearchArgs = serde_json::from_value(args).unwrap();
-        assert_eq!(parsed.account, "test.bsky.social");
+        assert_eq!(parsed.from, "test.bsky.social");
         assert_eq!(parsed.query, "hello world");
     }
 

@@ -128,7 +128,25 @@ func (t *PostTool) getCredentials(postAs string) (*auth.Credentials, error) {
 		postAs = defaultHandle
 	}
 
-	// Load credentials
+	// Try to load session first (for OAuth accounts, session has valid access token)
+	session, err := t.credStore.LoadSession(postAs)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.InternalError, "Failed to load session")
+	}
+
+	if session != nil {
+		// Session found - use it directly
+		return &auth.Credentials{
+			Handle:       session.Handle,
+			AccessToken:  session.AccessToken,
+			RefreshToken: session.RefreshToken,
+			DID:          session.DID,
+			ExpiresAt:    session.ExpiresAt,
+		}, nil
+	}
+
+	// No session - fall back to credentials (for app password accounts)
+	// This shouldn't normally happen if login worked correctly, but handle it gracefully
 	creds, err := t.credStore.Load(postAs)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.NotFound, fmt.Sprintf("No credentials found for %s. Please login first.", postAs))
