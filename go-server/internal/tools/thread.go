@@ -174,74 +174,33 @@ func (t *ThreadTool) formatThreadMarkdown(threadData map[string]interface{}) str
 
 	// Format each post
 	for i, post := range posts {
-		sb.WriteString(fmt.Sprintf("## Post %d\n\n", i+1))
-
-		// Author information
-		if author, ok := post["author"].(map[string]interface{}); ok {
-			handle := getStringFromMap(author, "handle", "unknown")
-			displayName := getStringFromMap(author, "displayName", "")
-
-			sb.WriteString(fmt.Sprintf("**@%s**", handle))
-			if displayName != "" {
-				sb.WriteString(fmt.Sprintf(" (%s)", displayName))
-			}
-			sb.WriteString("\n\n")
-		}
+		sb.WriteString(fmt.Sprintf("## Post %d\n", i+1))
 
 		// Post URI (link to post)
 		if uri, ok := post["uri"].(string); ok {
 			webURL := t.atURIToBskyURL(uri)
-			sb.WriteString(fmt.Sprintf("**Link:** %s\n\n", webURL))
+			sb.WriteString(fmt.Sprintf("**Link:** %s\n", webURL))
 		}
+
+		// Created at
+		if record, ok := post["record"].(map[string]interface{}); ok {
+			if createdAt, ok := record["createdAt"].(string); ok {
+				sb.WriteString(fmt.Sprintf("**Created:** %s\n", createdAt))
+			}
+		}
+
+		sb.WriteString("\n")
 
 		// Post content
 		if record, ok := post["record"].(map[string]interface{}); ok {
 			if text, ok := record["text"].(string); ok && text != "" {
 				sb.WriteString(fmt.Sprintf("%s\n\n", text))
 			}
-
-			// Created at
-			if createdAt, ok := record["createdAt"].(string); ok {
-				sb.WriteString(fmt.Sprintf("**Created:** %s\n\n", createdAt))
-			}
-
-			// Check if this is a reply
-			if reply, ok := record["reply"].(map[string]interface{}); ok {
-				if parent, ok := reply["parent"].(map[string]interface{}); ok {
-					if parentURI, ok := parent["uri"].(string); ok {
-						parentWebURL := t.atURIToBskyURL(parentURI)
-						sb.WriteString(fmt.Sprintf("**In reply to:** %s\n\n", parentWebURL))
-					}
-				}
-			}
 		}
 
-		// Engagement stats
-		likeCount := getIntFromMap(post, "likeCount", 0)
-		replyCount := getIntFromMap(post, "replyCount", 0)
-		repostCount := getIntFromMap(post, "repostCount", 0)
-		quoteCount := getIntFromMap(post, "quoteCount", 0)
-
-		if likeCount > 0 || replyCount > 0 || repostCount > 0 || quoteCount > 0 {
-			sb.WriteString("**Stats:** ")
-			stats := []string{}
-			if likeCount > 0 {
-				stats = append(stats, fmt.Sprintf("%d likes", likeCount))
-			}
-			if replyCount > 0 {
-				stats = append(stats, fmt.Sprintf("%d replies", replyCount))
-			}
-			if repostCount > 0 {
-				stats = append(stats, fmt.Sprintf("%d reposts", repostCount))
-			}
-			if quoteCount > 0 {
-				stats = append(stats, fmt.Sprintf("%d quotes", quoteCount))
-			}
-			sb.WriteString(strings.Join(stats, ", "))
-			sb.WriteString("\n\n")
+		if i < len(posts)-1 {
+			sb.WriteString("---\n\n")
 		}
-
-		sb.WriteString("---\n\n")
 	}
 
 	return sb.String()
