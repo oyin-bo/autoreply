@@ -191,24 +191,24 @@ func (t *FeedTool) resolveFeedURI(ctx context.Context, feed string) (string, err
 	return uri, nil
 }
 
-// formatFeedMarkdown formats feed data as markdown
+// formatFeedMarkdown formats feed data as markdown per docs/16-mcp-schemas.md spec
 func (t *FeedTool) formatFeedMarkdown(feedData map[string]interface{}) string {
 	var sb strings.Builder
-
-	// Header
-	sb.WriteString("# BlueSky Feed\n\n")
 
 	// Extract posts from feed
 	feedArray, ok := feedData["feed"].([]interface{})
 	if !ok || len(feedArray) == 0 {
-		sb.WriteString("No posts found in feed.\n")
+		sb.WriteString("# Feed · 0 posts\n\nNo posts found in feed.\n")
 		return sb.String()
 	}
 
-	sb.WriteString(fmt.Sprintf("Found %d posts.\n\n", len(feedArray)))
+	sb.WriteString(fmt.Sprintf("# Feed · %d posts\n\n", len(feedArray)))
+
+	// Track seen posts for ID compaction
+	seenPosts := make(map[string]bool)
 
 	// Format each post
-	for i, item := range feedArray {
+	for _, item := range feedArray {
 		feedItem, ok := item.(map[string]interface{})
 		if !ok {
 			continue
@@ -219,33 +219,43 @@ func (t *FeedTool) formatFeedMarkdown(feedData map[string]interface{}) string {
 			continue
 		}
 
-		sb.WriteString(fmt.Sprintf("## Post %d\n", i+1))
+		// Extract post data
+		uri, _ := post["uri"].(string)
+		rkey := ExtractRkey(uri)
 
-		// Post URI (link to post)
-		if uri, ok := post["uri"].(string); ok {
-			webURL := t.atURIToBskyURL(uri)
-			sb.WriteString(fmt.Sprintf("**Link:** %s\n", webURL))
-		}
+		author, _ := post["author"].(map[string]interface{})
+		handle, _ := author["handle"].(string)
 
-		// Created at
-		if record, ok := post["record"].(map[string]interface{}); ok {
-			if createdAt, ok := record["createdAt"].(string); ok {
-				sb.WriteString(fmt.Sprintf("**Created:** %s\n", createdAt))
-			}
+		record, _ := post["record"].(map[string]interface{})
+		text, _ := record["text"].(string)
+		createdAt, _ := record["createdAt"].(string)
+
+		likes := GetIntField(post, "likeCount")
+		replies := GetIntField(post, "replyCount")
+		reposts := GetIntField(post, "repostCount")
+		quotes := GetIntField(post, "quoteCount")
+
+		// Author ID line
+		fullID := fmt.Sprintf("%s/%s", handle, rkey)
+		authorID := CompactPostID(handle, rkey, seenPosts)
+		sb.WriteString(fmt.Sprintf("%s\n", authorID))
+		seenPosts[fullID] = true
+
+		// Blockquote content
+		sb.WriteString(BlockquoteContent(text))
+		sb.WriteString("\n")
+
+		// Stats and timestamp
+		stats := FormatStats(likes, reposts, quotes, replies)
+		timestamp := FormatTimestamp(createdAt)
+
+		if stats != "" {
+			sb.WriteString(fmt.Sprintf("%s  %s\n", stats, timestamp))
+		} else {
+			sb.WriteString(fmt.Sprintf("%s\n", timestamp))
 		}
 
 		sb.WriteString("\n")
-
-		// Post content
-		if record, ok := post["record"].(map[string]interface{}); ok {
-			if text, ok := record["text"].(string); ok && text != "" {
-				sb.WriteString(fmt.Sprintf("%s\n\n", text))
-			}
-		}
-
-		if i < len(feedArray)-1 {
-			sb.WriteString("---\n\n")
-		}
 	}
 
 	// Add cursor information for pagination

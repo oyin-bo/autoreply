@@ -197,83 +197,121 @@ func (t *ThreadTool) resolveHandle(ctx context.Context, handle string) (string, 
 	return did, nil
 }
 
-// formatThreadMarkdown formats thread data as markdown
+// formatThreadMarkdown formats thread data as markdown per docs/16-mcp-schemas.md spec
 func (t *ThreadTool) formatThreadMarkdown(threadData map[string]interface{}) string {
 	var sb strings.Builder
-
-	// Header
-	sb.WriteString("# BlueSky Thread\n\n")
 
 	// Extract thread from response
 	thread, ok := threadData["thread"].(map[string]interface{})
 	if !ok {
-		sb.WriteString("No thread data found.\n")
+		sb.WriteString("# Thread · 0 posts\n\nNo thread data found.\n")
 		return sb.String()
 	}
 
-	// Flatten thread into a list of posts
-	posts := t.flattenThread(thread)
+	// Count total posts
+	totalPosts := t.countPosts(thread)
+	sb.WriteString(fmt.Sprintf("# Thread · %d posts\n\n", totalPosts))
 
-	if len(posts) == 0 {
-		sb.WriteString("No posts found in thread.\n")
-		return sb.String()
-	}
+	// Track seen posts for ID compaction
+	seenPosts := make(map[string]bool)
 
-	sb.WriteString(fmt.Sprintf("Found %d posts in thread.\n\n", len(posts)))
-
-	// Format each post
-	for i, post := range posts {
-		sb.WriteString(fmt.Sprintf("## Post %d\n", i+1))
-
-		// Post URI (link to post)
-		if uri, ok := post["uri"].(string); ok {
-			webURL := t.atURIToBskyURL(uri)
-			sb.WriteString(fmt.Sprintf("**Link:** %s\n", webURL))
-		}
-
-		// Created at
-		if record, ok := post["record"].(map[string]interface{}); ok {
-			if createdAt, ok := record["createdAt"].(string); ok {
-				sb.WriteString(fmt.Sprintf("**Created:** %s\n", createdAt))
-			}
-		}
-
-		sb.WriteString("\n")
-
-		// Post content
-		if record, ok := post["record"].(map[string]interface{}); ok {
-			if text, ok := record["text"].(string); ok && text != "" {
-				sb.WriteString(fmt.Sprintf("%s\n\n", text))
-			}
-		}
-
-		if i < len(posts)-1 {
-			sb.WriteString("---\n\n")
-		}
-	}
+	// Format thread recursively
+	t.formatThreadRecursive(&sb, thread, seenPosts, 0, nil)
 
 	return sb.String()
 }
 
-// flattenThread recursively flattens a thread tree into a list of posts
-func (t *ThreadTool) flattenThread(node map[string]interface{}) []map[string]interface{} {
-	var posts []map[string]interface{}
+// countPosts counts total posts in thread
+func (t *ThreadTool) countPosts(node map[string]interface{}) int {
+	count := 0
 
-	// Add the current post if it exists
-	if post, ok := node["post"].(map[string]interface{}); ok {
-		posts = append(posts, post)
+	// Count current post
+	if _, ok := node["post"].(map[string]interface{}); ok {
+		count = 1
 	}
 
-	// Recursively add replies
+	// Count replies recursively
 	if replies, ok := node["replies"].([]interface{}); ok {
 		for _, reply := range replies {
 			if replyMap, ok := reply.(map[string]interface{}); ok {
-				posts = append(posts, t.flattenThread(replyMap)...)
+				count += t.countPosts(replyMap)
 			}
 		}
 	}
 
-	return posts
+	return count
+}
+
+// formatThreadRecursive recursively formats thread with proper indentation and threading indicators
+func (t *ThreadTool) formatThreadRecursive(sb *strings.Builder, node map[string]interface{}, seenPosts map[string]bool, depth int, parentPost map[string]interface{}) {
+	post, ok := node["post"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Extract post data
+	uri, _ := post["uri"].(string)
+	rkey := ExtractRkey(uri)
+
+	author, _ := post["author"].(map[string]interface{})
+	handle, _ := author["handle"].(string)
+
+	record, _ := post["record"].(map[string]interface{})
+	text, _ := record["text"].(string)
+	createdAt, _ := record["createdAt"].(string)
+
+	likes := GetIntField(post, "likeCount")
+	replies := GetIntField(post, "replyCount")
+	reposts := GetIntField(post, "repostCount")
+	quotes := GetIntField(post, "quoteCount")
+
+	// Build the first line with threading indicator (INDENTED)
+	fullID := fmt.Sprintf("%s/%s", handle, rkey)
+	authorID := CompactPostID(handle, rkey, seenPosts)
+
+	if depth == 0 {
+		// Root post - just the author ID, no indent
+		sb.WriteString(fmt.Sprintf("%s\n", authorID))
+	} else if parentPost != nil {
+		// Reply - show threading indicator with indentation
+		parentURI, _ := parentPost["uri"].(string)
+		parentRkey := ExtractRkey(parentURI)
+		parentAuthor, _ := parentPost["author"].(map[string]interface{})
+		parentHandle, _ := parentAuthor["handle"].(string)
+
+		parentCompact := UltraCompactID(parentHandle, parentRkey)
+		indicator := ThreadingIndicator(depth, parentCompact, authorID)
+		sb.WriteString(fmt.Sprintf("%s\n", indicator))
+	}
+
+	// Mark this post as seen
+	seenPosts[fullID] = true
+
+	// Blockquote the content (ALWAYS FLUSH-LEFT, NO INDENTATION)
+	sb.WriteString(BlockquoteContent(text))
+	sb.WriteString("\n")
+
+	// Stats and timestamp on same line (FLUSH-LEFT)
+	stats := FormatStats(likes, reposts, quotes, replies)
+	timestamp := FormatTimestamp(createdAt)
+
+	if stats != "" {
+		sb.WriteString(fmt.Sprintf("%s  %s\n", stats, timestamp))
+	} else {
+		sb.WriteString(fmt.Sprintf("%s\n", timestamp))
+	}
+
+	// Blank line before next post
+	sb.WriteString("\n")
+
+	// Process replies recursively
+	if repliesArray, ok := node["replies"].([]interface{}); ok {
+		for _, reply := range repliesArray {
+			if replyMap, ok := reply.(map[string]interface{}); ok {
+				t.formatThreadRecursive(sb, replyMap, seenPosts, depth+1, post)
+			}
+		}
+	}
 }
 
 // atURIToBskyURL converts an AT URI to a Bluesky web URL

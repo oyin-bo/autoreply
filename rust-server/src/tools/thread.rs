@@ -6,10 +6,10 @@ use crate::cli::ThreadArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
-use crate::tools::util::at_uri_to_bsky_url;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{debug, info};
@@ -137,71 +137,94 @@ pub async fn execute_thread(thread_args: ThreadArgs) -> Result<ToolResult, AppEr
     Ok(ToolResult::text(markdown))
 }
 
-/// Format a thread as markdown
+/// Format a thread as markdown per docs/16-mcp-schemas.md spec
 fn format_thread(node: &ThreadNode) -> String {
+    use crate::tools::post_format::*;
+    use std::collections::HashMap;
+    
     let mut markdown = String::new();
-    markdown.push_str("# BlueSky Thread\n\n");
     
-    // Flatten the thread first to get the count
-    let posts = flatten_thread(node);
-    markdown.push_str(&format!("Found {} posts in thread.\n\n", posts.len()));
+    // Count total posts
+    let total_posts = count_posts(node);
+    markdown.push_str(&format!("# Thread · {} posts\n\n", total_posts));
     
-    for (i, post) in posts.iter().enumerate() {
-        format_thread_post(post, &mut markdown, i + 1);
-    }
+    // Track seen posts for ID compaction
+    let mut seen_posts: HashMap<String, String> = HashMap::new();
+    
+    // Format thread recursively with proper threading indicators
+    format_thread_recursive(node, &mut markdown, &mut seen_posts, 0, None);
     
     markdown
 }
 
-/// Flatten thread into a list of posts
-fn flatten_thread(node: &ThreadNode) -> Vec<&ThreadPost> {
-    let mut posts = Vec::new();
-    flatten_thread_recursive(node, &mut posts);
-    posts
+/// Count total posts in thread
+fn count_posts(node: &ThreadNode) -> usize {
+    match node {
+        ThreadNode::ThreadViewPost { post: _, replies } => {
+            1 + replies.iter().map(|r| count_posts(r)).sum::<usize>()
+        }
+        _ => 0,
+    }
 }
 
-/// Recursively flatten thread nodes into a list
-fn flatten_thread_recursive<'a>(node: &'a ThreadNode, posts: &mut Vec<&'a ThreadPost>) {
+/// Recursively format thread with proper indentation and threading indicators
+fn format_thread_recursive(
+    node: &ThreadNode,
+    markdown: &mut String,
+    seen_posts: &mut HashMap<String, String>,
+    depth: usize,
+    parent_post: Option<&ThreadPost>,
+) {
+    use crate::tools::post_format::*;
+    
     if let ThreadNode::ThreadViewPost { post, replies } = node {
-        posts.push(post);
+        let rkey = extract_rkey(&post.uri);
+        let full_id = format!("{}/{}", post.author.handle, rkey);
+        
+        // Build the first line with threading indicator (INDENTED)
+        let author_id = compact_post_id(&post.author.handle, rkey, seen_posts);
+        
+        if depth == 0 {
+            // Root post - just the author ID, no indent
+            markdown.push_str(&format!("{}\n", author_id));
+        } else if let Some(parent) = parent_post {
+            // Reply - show threading indicator with indentation
+            let parent_rkey = extract_rkey(&parent.uri);
+            let parent_compact = ultra_compact_id(&parent.author.handle, parent_rkey);
+            let indicator = threading_indicator(depth, &parent_compact, &author_id);
+            markdown.push_str(&format!("{}\n", indicator));
+        }
+        
+        // Mark this post as seen for future compaction
+        seen_posts.insert(full_id, post.uri.clone());
+        
+        // Blockquote the content (ALWAYS FLUSH-LEFT, NO INDENTATION)
+        markdown.push_str(&blockquote_content(&post.record.text));
+        markdown.push('\n');
+        
+        // Stats and timestamp on same line (FLUSH-LEFT)
+        let stats = format_stats(
+            post.like_count.unwrap_or(0),
+            post.repost_count.unwrap_or(0),
+            post.quote_count.unwrap_or(0),
+            post.reply_count.unwrap_or(0),
+        );
+        let timestamp = format_timestamp(&post.record.created_at);
+        
+        if !stats.is_empty() {
+            markdown.push_str(&format!("{}  {}\n", stats, timestamp));
+        } else {
+            markdown.push_str(&format!("{}\n", timestamp));
+        }
+        
+        // Blank line before next post
+        markdown.push('\n');
+        
+        // Process replies recursively
         for reply in replies {
-            flatten_thread_recursive(reply, posts);
+            format_thread_recursive(reply, markdown, seen_posts, depth + 1, Some(post));
         }
     }
-}
-
-/// Format a single post in the thread
-fn format_thread_post(post: &ThreadPost, markdown: &mut String, post_num: usize) {
-    markdown.push_str(&format!("## Post {}\n\n", post_num));
-    markdown.push_str(&format!("**@{}", post.author.handle));
-    if let Some(display_name) = &post.author.display_name {
-        markdown.push_str(&format!(" ({})", display_name));
-    }
-    markdown.push_str("\n\n");
-    
-    // Convert at:// URI to web URL
-    let web_url = at_uri_to_bsky_url(&post.uri, &post.author.handle);
-    markdown.push_str(&format!("**Link:** {}\n\n", web_url));
-    
-    markdown.push_str(&format!("{}\n\n", post.record.text));
-    markdown.push_str(&format!("**Created:** {}\n\n", post.record.created_at));
-    
-    // Add engagement stats if available
-    let stats: Vec<String> = vec![
-        post.like_count.map(|c| format!("{} likes", c)),
-        post.reply_count.map(|c| format!("{} replies", c)),
-        post.repost_count.map(|c| format!("{} reposts", c)),
-        post.quote_count.map(|c| format!("{} quotes", c)),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    
-    if !stats.is_empty() {
-        markdown.push_str(&format!("**Stats:** {}\n\n", stats.join(", ")));
-    }
-
-    markdown.push_str("---\n\n");
 }
 
 /// Parse a post URI from either a BlueSky URL or an at:// URI
@@ -320,5 +343,171 @@ mod tests {
         let uri = "invalid://something";
         let result = parse_post_uri(&client, uri).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_count_posts() {
+        let thread = ThreadNode::ThreadViewPost {
+            post: create_mock_post("alice", "3kq8a3f1", "Root post"),
+            replies: vec![
+                ThreadNode::ThreadViewPost {
+                    post: create_mock_post("bob", "3kq8b2e4", "Reply 1"),
+                    replies: vec![
+                        ThreadNode::ThreadViewPost {
+                            post: create_mock_post("carol", "3kq8c3f5", "Nested reply"),
+                            replies: vec![],
+                        },
+                    ],
+                },
+                ThreadNode::ThreadViewPost {
+                    post: create_mock_post("dave", "3kq8d4f6", "Reply 2"),
+                    replies: vec![],
+                },
+            ],
+        };
+
+        assert_eq!(count_posts(&thread), 4);
+    }
+
+    #[test]
+    fn test_format_thread_single_post() {
+        let thread = ThreadNode::ThreadViewPost {
+            post: create_mock_post("utopia-defer.red", "3m4jnj3efp22t", "Test post content"),
+            replies: vec![],
+        };
+
+        let markdown = format_thread(&thread);
+
+        assert!(markdown.contains("# Thread · 1 posts"));
+        assert!(markdown.contains("@utopia-defer.red/3m4jnj3efp22t"));
+        assert!(markdown.contains("> Test post content"));
+        assert!(markdown.contains("👍 33  ♻️ 1  💬 1"));
+        assert!(markdown.contains("2024-10-06T10:15:33Z"));
+        assert!(!markdown.contains("## Post 1"));
+        assert!(!markdown.contains("**Link:**"));
+        assert!(!markdown.contains("**Created:**"));
+    }
+
+    #[test]
+    fn test_format_thread_with_replies() {
+        let thread = ThreadNode::ThreadViewPost {
+            post: create_mock_post("alice.bsky.social", "3kq8a3f1", "Root post"),
+            replies: vec![
+                ThreadNode::ThreadViewPost {
+                    post: create_mock_post("bob.bsky.social", "3kq8b2e4", "First reply"),
+                    replies: vec![],
+                },
+                ThreadNode::ThreadViewPost {
+                    post: create_mock_post("carol.bsky.social", "3kq8c3f5", "Second reply"),
+                    replies: vec![],
+                },
+            ],
+        };
+
+        let markdown = format_thread(&thread);
+
+        assert!(markdown.contains("# Thread · 3 posts"));
+        
+        // Root post - full ID
+        assert!(markdown.contains("@alice.bsky.social/3kq8a3f1\n> Root post"));
+        
+        // First reply - shows parent in ultra-compact format
+        assert!(markdown.contains("└─@a/…a3f1 → @bob.bsky.social/3kq8b2e4\n> First reply"));
+        
+        // Second reply - also shows parent in ultra-compact
+        assert!(markdown.contains("└─@a/…a3f1 → @carol.bsky.social/3kq8c3f5\n> Second reply"));
+        
+        // All content blockquoted
+        assert!(markdown.matches("> ").count() >= 3);
+    }
+
+    #[test]
+    fn test_format_thread_nested_replies() {
+        let thread = ThreadNode::ThreadViewPost {
+            post: create_mock_post("alice", "3kq8a3f1", "Root"),
+            replies: vec![
+                ThreadNode::ThreadViewPost {
+                    post: create_mock_post("bob", "3kq8b2e4", "Reply depth 1"),
+                    replies: vec![
+                        ThreadNode::ThreadViewPost {
+                            post: create_mock_post("carol", "3kq8c3f5", "Reply depth 2"),
+                            replies: vec![],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        let markdown = format_thread(&thread);
+
+        // Check indentation levels - ONLY the threading indicator is indented, NOT the content
+        assert!(markdown.contains("@alice/3kq8a3f1")); // Root, no indent
+        assert!(markdown.contains("└─@a/…a3f1 → @bob/3kq8b2e4")); // Depth 1, no spaces before └─
+        assert!(markdown.contains("  └─@b/…b2e4 → @carol/3kq8c3f5")); // Depth 2, 2 spaces before └─
+        
+        // Content should always be flush-left (no indentation)
+        assert!(markdown.contains("\n> Root\n"));
+        assert!(markdown.contains("\n> Reply depth 1\n"));
+        assert!(markdown.contains("\n> Reply depth 2\n"));
+    }
+
+    #[test]
+    fn test_format_thread_multiline_content() {
+        let thread = ThreadNode::ThreadViewPost {
+            post: create_mock_post_multiline(
+                "alice",
+                "3kq8a3f1",
+                "Line 1\nLine 2\nLine 3"
+            ),
+            replies: vec![],
+        };
+
+        let markdown = format_thread(&thread);
+
+        // Each line should be block-quoted
+        assert!(markdown.contains("> Line 1\n> Line 2\n> Line 3"));
+    }
+
+    #[test]
+    fn test_format_thread_with_markdown_in_content() {
+        let thread = ThreadNode::ThreadViewPost {
+            post: create_mock_post(
+                "alice",
+                "3kq8a3f1",
+                "# This looks like a header\n## But it's quoted!"
+            ),
+            replies: vec![],
+        };
+
+        let markdown = format_thread(&thread);
+
+        // Markdown syntax should be inside blockquotes
+        assert!(markdown.contains("> # This looks like a header\n> ## But it's quoted!"));
+    }
+
+    // Helper to create mock posts
+    fn create_mock_post(handle: &str, rkey: &str, text: &str) -> ThreadPost {
+        ThreadPost {
+            uri: format!("at://did:plc:test{}/app.bsky.feed.post/{}", handle, rkey),
+            cid: format!("cid{}", rkey),
+            author: PostAuthor {
+                did: format!("did:plc:test{}", handle),
+                handle: handle.to_string(),
+                display_name: Some(format!("Display {}", handle)),
+            },
+            record: PostRecord {
+                text: text.to_string(),
+                created_at: "2024-10-06T10:15:33.123Z".to_string(),
+            },
+            indexed_at: Some("2024-10-06T10:15:34Z".to_string()),
+            like_count: Some(33),
+            reply_count: Some(1),
+            repost_count: Some(0),
+            quote_count: Some(1),
+        }
+    }
+
+    fn create_mock_post_multiline(handle: &str, rkey: &str, text: &str) -> ThreadPost {
+        create_mock_post(handle, rkey, text)
     }
 }

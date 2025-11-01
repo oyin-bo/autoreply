@@ -176,102 +176,23 @@ func TestThreadToolFormatting(t *testing.T) {
 
 	markdown := tool.formatThreadMarkdown(threadData)
 
-	// Verify markdown contains expected elements matching search formatting
-	if !strings.Contains(markdown, "BlueSky Thread") {
-		t.Error("Expected markdown to contain 'BlueSky Thread' header")
+	// Verify markdown contains expected elements per docs/16-mcp-schemas.md spec
+	if !strings.Contains(markdown, "# Thread · 2 posts") {
+		t.Error("Expected markdown to contain '# Thread · 2 posts' header")
 	}
-	if !strings.Contains(markdown, "This is the main post") {
-		t.Error("Expected markdown to contain main post text")
+	if !strings.Contains(markdown, "> This is the main post") {
+		t.Error("Expected markdown to contain blockquoted main post text")
 	}
-	if !strings.Contains(markdown, "This is a reply") {
-		t.Error("Expected markdown to contain reply text")
+	if !strings.Contains(markdown, "> This is a reply") {
+		t.Error("Expected markdown to contain blockquoted reply text")
 	}
-	if !strings.Contains(markdown, "**Link:**") {
-		t.Error("Expected markdown to contain Link field")
+	// Should NOT contain old labels
+	if strings.Contains(markdown, "**Link:**") {
+		t.Error("Expected markdown to NOT contain **Link:** label")
 	}
-	if !strings.Contains(markdown, "**Created:**") {
-		t.Error("Expected markdown to contain Created field")
+	if strings.Contains(markdown, "**Created:**") {
+		t.Error("Expected markdown to NOT contain **Created:** label")
 	}
-}
-
-func TestThreadToolFlattenThread(t *testing.T) {
-	tool, err := NewThreadTool()
-	if err != nil {
-		t.Fatalf("Failed to create thread tool: %v", err)
-	}
-
-	t.Run("SinglePost", func(t *testing.T) {
-		node := map[string]interface{}{
-			"post": map[string]interface{}{
-				"uri": "at://did:plc:test/app.bsky.feed.post/123",
-			},
-		}
-
-		posts := tool.flattenThread(node)
-		if len(posts) != 1 {
-			t.Errorf("Expected 1 post, got %d", len(posts))
-		}
-	})
-
-	t.Run("PostWithReplies", func(t *testing.T) {
-		node := map[string]interface{}{
-			"post": map[string]interface{}{
-				"uri": "at://did:plc:test/app.bsky.feed.post/123",
-			},
-			"replies": []interface{}{
-				map[string]interface{}{
-					"post": map[string]interface{}{
-						"uri": "at://did:plc:test/app.bsky.feed.post/456",
-					},
-				},
-				map[string]interface{}{
-					"post": map[string]interface{}{
-						"uri": "at://did:plc:test/app.bsky.feed.post/789",
-					},
-				},
-			},
-		}
-
-		posts := tool.flattenThread(node)
-		if len(posts) != 3 {
-			t.Errorf("Expected 3 posts, got %d", len(posts))
-		}
-	})
-
-	t.Run("NestedReplies", func(t *testing.T) {
-		node := map[string]interface{}{
-			"post": map[string]interface{}{
-				"uri": "at://did:plc:test/app.bsky.feed.post/123",
-			},
-			"replies": []interface{}{
-				map[string]interface{}{
-					"post": map[string]interface{}{
-						"uri": "at://did:plc:test/app.bsky.feed.post/456",
-					},
-					"replies": []interface{}{
-						map[string]interface{}{
-							"post": map[string]interface{}{
-								"uri": "at://did:plc:test/app.bsky.feed.post/789",
-							},
-						},
-					},
-				},
-			},
-		}
-
-		posts := tool.flattenThread(node)
-		if len(posts) != 3 {
-			t.Errorf("Expected 3 posts (including nested), got %d", len(posts))
-		}
-	})
-
-	t.Run("EmptyNode", func(t *testing.T) {
-		node := map[string]interface{}{}
-		posts := tool.flattenThread(node)
-		if len(posts) != 0 {
-			t.Errorf("Expected 0 posts for empty node, got %d", len(posts))
-		}
-	})
 }
 
 func TestThreadToolATURIConversion(t *testing.T) {
@@ -328,16 +249,15 @@ func TestThreadToolNormalizePostURI(t *testing.T) {
 			input:    "at://did:plc:abc123/app.bsky.feed.post/xyz789",
 			expected: "at://did:plc:abc123/app.bsky.feed.post/xyz789",
 		},
-		{
-			name:     "Web URL returned as-is",
-			input:    "https://bsky.app/profile/user.bsky.social/post/123",
-			expected: "https://bsky.app/profile/user.bsky.social/post/123",
-		},
+		// Note: Web URL test removed - normalizePostURI now requires valid context for handle resolution
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tool.normalizePostURI(tt.input)
+			result, err := tool.normalizePostURI(context.Background(), tt.input)
+			if err != nil {
+				t.Fatalf("normalizePostURI failed: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("Expected '%s', got '%s'", tt.expected, result)
 			}

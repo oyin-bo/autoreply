@@ -6,7 +6,6 @@ use crate::cli::FeedArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
-use crate::tools::util::at_uri_to_bsky_url;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -197,43 +196,44 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
 
     debug!("Received {} posts from feed", feed_response.feed.len());
 
-    // Format as markdown
+    // Format as markdown per docs/16-mcp-schemas.md spec
     let mut markdown = String::new();
-    markdown.push_str("# BlueSky Feed\n\n");
-    markdown.push_str(&format!("Found {} posts.\n\n", feed_response.feed.len()));
+    markdown.push_str(&format!("# Feed · {} posts\n\n", feed_response.feed.len()));
 
-    for (i, feed_post) in feed_response.feed.iter().enumerate() {
+    use crate::tools::post_format::*;
+    use std::collections::HashMap;
+    let mut seen_posts: HashMap<String, String> = HashMap::new();
+
+    for feed_post in &feed_response.feed {
         let post = &feed_post.post;
-        markdown.push_str(&format!("## Post {}\n\n", i + 1));
-        markdown.push_str(&format!("**@{}", post.author.handle));
-        if let Some(display_name) = &post.author.display_name {
-            markdown.push_str(&format!(" ({})", display_name));
-        }
-        markdown.push_str("\n\n");
+        let rkey = extract_rkey(&post.uri);
+        let full_id = format!("{}/{}", post.author.handle, rkey);
         
-        // Convert at:// URI to web URL
-        let web_url = at_uri_to_bsky_url(&post.uri, &post.author.handle);
-        markdown.push_str(&format!("**Link:** {}\n\n", web_url));
+        // Author ID line
+        let author_id = compact_post_id(&post.author.handle, rkey, &seen_posts);
+        markdown.push_str(&format!("{}\n", author_id));
+        seen_posts.insert(full_id, post.uri.clone());
         
-        markdown.push_str(&format!("{}\n\n", post.record.text));
-        markdown.push_str(&format!("**Created:** {}\n\n", post.record.created_at));
+        // Blockquote content
+        markdown.push_str(&blockquote_content(&post.record.text));
+        markdown.push('\n');
         
-        // Add engagement stats if available
-        let stats: Vec<String> = vec![
-            post.like_count.map(|c| format!("{} likes", c)),
-            post.reply_count.map(|c| format!("{} replies", c)),
-            post.repost_count.map(|c| format!("{} reposts", c)),
-            post.quote_count.map(|c| format!("{} quotes", c)),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
+        // Stats and timestamp
+        let stats = format_stats(
+            post.like_count.unwrap_or(0),
+            post.repost_count.unwrap_or(0),
+            post.quote_count.unwrap_or(0),
+            post.reply_count.unwrap_or(0),
+        );
+        let timestamp = format_timestamp(&post.record.created_at);
         
         if !stats.is_empty() {
-            markdown.push_str(&format!("**Stats:** {}\n\n", stats.join(", ")));
+            markdown.push_str(&format!("{}  {}\n", stats, timestamp));
+        } else {
+            markdown.push_str(&format!("{}\n", timestamp));
         }
-
-        markdown.push_str("---\n\n");
+        
+        markdown.push('\n');
     }
 
     if let Some(cursor) = feed_response.cursor {

@@ -194,24 +194,75 @@ fn search_posts<'a>(posts: &'a [PostRecord], query: &str) -> Vec<&'a PostRecord>
         .collect()
 }
 
-/// Format search results as markdown
+/// Format search results as markdown per docs/16-mcp-schemas.md spec
 fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> String {
-    let mut markdown = format!("# Search Results for \"{}\" in @{}\n\n", query, handle);
+    use crate::tools::post_format::*;
+    use std::collections::HashMap;
+    
+    let mut markdown = format!("# Search Results · {} posts\n\n", posts.len());
 
-    for (i, post) in posts.iter().enumerate() {
-        markdown.push_str(&format!("## Post {}\n", i + 1));
-        markdown.push_str(&post.to_markdown(handle, query));
+    let mut seen_posts: HashMap<String, String> = HashMap::new();
 
-        // Add separator between posts
-        if i < posts.len() - 1 {
-            markdown.push_str("---\n\n");
-        }
+    for post in posts {
+        let rkey = extract_rkey(&post.uri);
+        let full_id = format!("{}/{}", handle, rkey);
+        
+        // Author ID line
+        let author_id = compact_post_id(handle, rkey, &seen_posts);
+        markdown.push_str(&format!("{}\n", author_id));
+        seen_posts.insert(full_id, post.uri.clone());
+        
+        // Blockquote content (with highlighting preserved inside quote)
+        let highlighted_text = highlight_query(&post.text, query);
+        markdown.push_str(&blockquote_content(&highlighted_text));
+        markdown.push('\n');
+        
+        // Stats and timestamp (search results don't have engagement stats from CAR)
+        let timestamp = format_timestamp(&post.created_at);
+        markdown.push_str(&format!("{}\n", timestamp));
+        
+        markdown.push('\n');
     }
 
-    // Add summary footer aligned with Go output
-    markdown.push_str(&format!("\n**Results:** Showing {} of {} results.\n", posts.len(), posts.len()));
-
     markdown
+}
+
+/// Highlight query matches in text with **bold** markdown
+fn highlight_query(text: &str, query: &str) -> String {
+    if query.is_empty() {
+        return text.to_string();
+    }
+
+    // Simple case-insensitive highlighting
+    let lower_text = text.to_lowercase();
+    let lower_query = query.to_lowercase();
+
+    if !lower_text.contains(&lower_query) {
+        return text.to_string();
+    }
+
+    let mut result = String::new();
+    let mut last_end = 0;
+
+    while let Some(start) = lower_text[last_end..].find(&lower_query) {
+        let absolute_start = last_end + start;
+        let absolute_end = absolute_start + query.len();
+
+        // Add text before match
+        result.push_str(&text[last_end..absolute_start]);
+
+        // Add highlighted match
+        result.push_str("**");
+        result.push_str(&text[absolute_start..absolute_end]);
+        result.push_str("**");
+
+        last_end = absolute_end;
+    }
+
+    // Add remaining text
+    result.push_str(&text[last_end..]);
+
+    result
 }
 
 #[cfg(test)]
@@ -288,8 +339,9 @@ mod tests {
         let posts = vec![&post];
         let markdown = format_search_results(&posts, "test.bsky.social", "hello");
 
-        assert!(markdown.contains("# Search Results for \"hello\" in @test.bsky.social"));
-        assert!(markdown.contains("## Post 1"));
-        assert!(markdown.contains("**Results:** Showing 1 of 1 results."));
+        assert!(markdown.contains("# Search Results · 1 posts"));
+        assert!(markdown.contains("@test.bsky.social/1"));
+        assert!(markdown.contains("> **Hello** world, this is a test"));
+        assert!(markdown.contains("2024-01-01T00:00:00Z"));
     }
 }

@@ -103,18 +103,19 @@ func TestFeedToolFormatting(t *testing.T) {
 
 	markdown := tool.formatFeedMarkdown(feedData)
 
-	// Verify markdown contains expected elements matching search formatting
-	if !strings.Contains(markdown, "BlueSky Feed") {
-		t.Error("Expected markdown to contain 'BlueSky Feed' header")
+	// Verify markdown contains expected elements per docs/16-mcp-schemas.md spec
+	if !strings.Contains(markdown, "# Feed · 1 posts") {
+		t.Error("Expected markdown to contain '# Feed · 1 posts' header")
 	}
-	if !strings.Contains(markdown, "This is a test post") {
-		t.Error("Expected markdown to contain post text")
+	if !strings.Contains(markdown, "> This is a test post") {
+		t.Error("Expected markdown to contain blockquoted post text")
 	}
-	if !strings.Contains(markdown, "**Link:**") {
-		t.Error("Expected markdown to contain Link field")
+	// Should NOT contain old labels
+	if strings.Contains(markdown, "**Link:**") {
+		t.Error("Expected markdown to NOT contain **Link:** label")
 	}
-	if !strings.Contains(markdown, "**Created:**") {
-		t.Error("Expected markdown to contain Created field")
+	if strings.Contains(markdown, "**Created:**") {
+		t.Error("Expected markdown to NOT contain **Created:** label")
 	}
 	if !strings.Contains(markdown, "next-page-cursor") {
 		t.Error("Expected markdown to contain cursor for pagination")

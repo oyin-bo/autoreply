@@ -18,13 +18,12 @@ func TestNormalizeText(t *testing.T) {
 }
 
 func TestHighlightMatches(t *testing.T) {
-	tool := NewSearchTool()
 	text := "hello world, world!"
 	query := "world"
-	got := tool.highlightMatches(text, query)
+	got := HighlightQuery(text, query)
 	want := "hello **world**, **world**!"
 	if got != want {
-		t.Fatalf("highlightMatches() = %q, want %q", got, want)
+		t.Fatalf("HighlightQuery() = %q, want %q", got, want)
 	}
 }
 

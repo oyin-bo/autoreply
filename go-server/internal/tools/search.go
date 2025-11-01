@@ -199,123 +199,41 @@ func normalizeText(text string) string {
 	return strings.ToLower(normalized)
 }
 
-// highlightMatches highlights search matches in text with bold markdown
-func (t *SearchTool) highlightMatches(text, query string) string {
-	if query == "" {
-		return text
-	}
-
-	normalizedText := normalizeText(text)
-	normalizedQuery := normalizeText(query)
-
-	// Simple substring highlighting - in a production implementation,
-	// you would want more sophisticated matching
-	if strings.Contains(normalizedText, normalizedQuery) {
-		// Find all matches and wrap them with **bold**
-		return strings.ReplaceAll(text, query, fmt.Sprintf("**%s**", query))
-	}
-
-	return text
-}
-
-// atURIToBskyURL converts an AT URI to a Bluesky web URL
-// at://did:plc:abc/app.bsky.feed.post/xyz -> https://bsky.app/profile/handle/post/xyz
-func (t *SearchTool) atURIToBskyURL(atURI, handle string) string {
-	// Parse AT URI: at://{did}/{collection}/{rkey}
-	if !strings.HasPrefix(atURI, "at://") {
-		return atURI
-	}
-
-	parts := strings.Split(strings.TrimPrefix(atURI, "at://"), "/")
-	if len(parts) < 3 {
-		return atURI
-	}
-
-	// parts[0] = DID
-	// parts[1] = collection (e.g., app.bsky.feed.post)
-	// parts[2] = rkey
-
-	// Use handle if available, otherwise use DID
-	profile := handle
-	if profile == "" {
-		profile = parts[0] // Use DID as fallback
-	} else {
-		profile = strings.TrimPrefix(profile, "@") // Remove @ if present
-	}
-
-	rkey := parts[2]
-
-	return fmt.Sprintf("https://bsky.app/profile/%s/post/%s", profile, rkey)
-}
-
-// formatSearchResults formats search results as markdown
+// formatSearchResults formats search results as markdown per docs/16-mcp-schemas.md spec
 func (t *SearchTool) formatSearchResults(handle, query string, posts []*bluesky.ParsedPost) string {
 	var sb strings.Builder
 
 	// Header
-	sb.WriteString(fmt.Sprintf("# Search Results for \"%s\" in @%s\n\n",
-		query, strings.TrimPrefix(handle, "@")))
+	sb.WriteString(fmt.Sprintf("# Search Results · %d posts\n\n", len(posts)))
 
 	if len(posts) == 0 {
-		sb.WriteString("No matching posts found.\n")
 		return sb.String()
 	}
 
-	sb.WriteString(fmt.Sprintf("Found %d matching posts.\n\n", len(posts)))
+	// Track seen posts for ID compaction
+	seenPosts := make(map[string]bool)
 
 	// Format each post
-	for i, post := range posts {
-		sb.WriteString(fmt.Sprintf("## Post %d\n", i+1))
+	for _, post := range posts {
+		rkey := ExtractRkey(post.URI)
 
-		if post.URI != "" {
-			// Convert AT URI to Bluesky web URL
-			// at://did:plc:abc/app.bsky.feed.post/xyz -> https://bsky.app/profile/did:plc:abc/post/xyz
-			webURL := t.atURIToBskyURL(post.URI, handle)
-			sb.WriteString(fmt.Sprintf("**Link:** %s\n", webURL))
-		}
+		// Author ID line
+		fullID := fmt.Sprintf("%s/%s", handle, rkey)
+		authorID := CompactPostID(handle, rkey, seenPosts)
+		sb.WriteString(fmt.Sprintf("%s\n", authorID))
+		seenPosts[fullID] = true
 
-		if post.CreatedAt != "" {
-			sb.WriteString(fmt.Sprintf("**Created:** %s\n", post.CreatedAt))
-		}
-
+		// Blockquote content (with highlighting preserved inside quote)
+		highlightedText := HighlightQuery(post.Text, query)
+		sb.WriteString(BlockquoteContent(highlightedText))
 		sb.WriteString("\n")
 
-		// Highlight matches in post text
-		if post.Text != "" {
-			highlightedText := t.highlightMatches(post.Text, query)
-			sb.WriteString(fmt.Sprintf("%s\n\n", highlightedText))
-		}
+		// Stats and timestamp (search results from CAR don't have engagement stats)
+		timestamp := FormatTimestamp(post.CreatedAt)
+		sb.WriteString(fmt.Sprintf("%s\n", timestamp))
 
-		// Format embeds if present
-		if len(post.Embeds) > 0 {
-			sb.WriteString("**Embeds:**\n")
-			for _, embed := range post.Embeds {
-				if embed.External != nil {
-					sb.WriteString(fmt.Sprintf("- **External Link:** [%s](%s)\n",
-						embed.External.Title, embed.External.URI))
-					if embed.External.Description != "" {
-						highlightedDesc := t.highlightMatches(embed.External.Description, query)
-						sb.WriteString(fmt.Sprintf("  %s\n", highlightedDesc))
-					}
-				}
-
-				if len(embed.Images) > 0 {
-					sb.WriteString("- **Images:**\n")
-					for _, img := range embed.Images {
-						highlightedAlt := t.highlightMatches(img.Alt, query)
-						sb.WriteString(fmt.Sprintf("  ![%s](image)\n", highlightedAlt))
-					}
-				}
-			}
-			sb.WriteString("\n")
-		}
-
-		if i < len(posts)-1 {
-			sb.WriteString("---\n\n")
-		}
+		sb.WriteString("\n")
 	}
-
-	sb.WriteString(fmt.Sprintf("\n**Results:** Showing %d of %d results.\n", len(posts), len(posts)))
 
 	return sb.String()
 }
