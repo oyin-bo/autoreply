@@ -6,6 +6,7 @@ use crate::cli::ThreadArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
+use crate::tools::util::at_uri_to_bsky_url;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -139,68 +140,68 @@ pub async fn execute_thread(thread_args: ThreadArgs) -> Result<ToolResult, AppEr
 /// Format a thread as markdown
 fn format_thread(node: &ThreadNode) -> String {
     let mut markdown = String::new();
-    markdown.push_str("# Thread\n\n");
+    markdown.push_str("# BlueSky Thread\n\n");
     
-    format_thread_recursive(node, &mut markdown, 0);
+    // Flatten the thread first to get the count
+    let posts = flatten_thread(node);
+    markdown.push_str(&format!("Found {} posts in thread.\n\n", posts.len()));
+    
+    for (i, post) in posts.iter().enumerate() {
+        format_thread_post(post, &mut markdown, i + 1);
+    }
     
     markdown
 }
 
-/// Recursively format thread nodes
-fn format_thread_recursive(node: &ThreadNode, markdown: &mut String, depth: usize) {
-    match node {
-        ThreadNode::ThreadViewPost { post, replies } => {
-            // Indent based on depth
-            let indent = "  ".repeat(depth);
-            
-            markdown.push_str(&format!("{}## Post by @{}", indent, post.author.handle));
-            if let Some(display_name) = &post.author.display_name {
-                markdown.push_str(&format!(" ({})", display_name));
-            }
-            markdown.push_str("\n");
-            markdown.push_str(&format!("{}**URI:** {}\n", indent, post.uri));
-            if let Some(indexed_at) = &post.indexed_at {
-                markdown.push_str(&format!("{}**Indexed:** {}\n", indent, indexed_at));
-            }
-            markdown.push_str("\n");
-            
-            // Format post text with proper indentation
-            for line in post.record.text.lines() {
-                markdown.push_str(&format!("{}{}\n", indent, line));
-            }
-            markdown.push_str("\n");
-            
-            // Add engagement stats if available
-            let stats: Vec<String> = vec![
-                post.like_count.map(|c| format!("{} likes", c)),
-                post.reply_count.map(|c| format!("{} replies", c)),
-                post.repost_count.map(|c| format!("{} reposts", c)),
-                post.quote_count.map(|c| format!("{} quotes", c)),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            
-            if !stats.is_empty() {
-                markdown.push_str(&format!("{}*{}*\n", indent, stats.join(", ")));
-            }
-            markdown.push_str("\n");
+/// Flatten thread into a list of posts
+fn flatten_thread(node: &ThreadNode) -> Vec<&ThreadPost> {
+    let mut posts = Vec::new();
+    flatten_thread_recursive(node, &mut posts);
+    posts
+}
 
-            // Process replies recursively
-            if !replies.is_empty() {
-                markdown.push_str(&format!("{}### Replies:\n\n", indent));
-                for reply in replies {
-                    format_thread_recursive(reply, markdown, depth + 1);
-                }
-            }
-        }
-        ThreadNode::NotFoundPost { uri, .. } => {
-            markdown.push_str(&format!("*Post not found: {}*\n\n", uri));
-        }
-        ThreadNode::BlockedPost { uri, .. } => {
-            markdown.push_str(&format!("*Post blocked: {}*\n\n", uri));
+/// Recursively flatten thread nodes into a list
+fn flatten_thread_recursive<'a>(node: &'a ThreadNode, posts: &mut Vec<&'a ThreadPost>) {
+    if let ThreadNode::ThreadViewPost { post, replies } = node {
+        posts.push(post);
+        for reply in replies {
+            flatten_thread_recursive(reply, posts);
         }
     }
+}
+
+/// Format a single post in the thread
+fn format_thread_post(post: &ThreadPost, markdown: &mut String, post_num: usize) {
+    markdown.push_str(&format!("## Post {}\n\n", post_num));
+    markdown.push_str(&format!("**@{}", post.author.handle));
+    if let Some(display_name) = &post.author.display_name {
+        markdown.push_str(&format!(" ({})", display_name));
+    }
+    markdown.push_str("\n\n");
+    
+    // Convert at:// URI to web URL
+    let web_url = at_uri_to_bsky_url(&post.uri, &post.author.handle);
+    markdown.push_str(&format!("**Link:** {}\n\n", web_url));
+    
+    markdown.push_str(&format!("{}\n\n", post.record.text));
+    markdown.push_str(&format!("**Created:** {}\n\n", post.record.created_at));
+    
+    // Add engagement stats if available
+    let stats: Vec<String> = vec![
+        post.like_count.map(|c| format!("{} likes", c)),
+        post.reply_count.map(|c| format!("{} replies", c)),
+        post.repost_count.map(|c| format!("{} reposts", c)),
+        post.quote_count.map(|c| format!("{} quotes", c)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    
+    if !stats.is_empty() {
+        markdown.push_str(&format!("**Stats:** {}\n\n", stats.join(", ")));
+    }
+
+    markdown.push_str("---\n\n");
 }
 
 /// Parse a post URI from either a BlueSky URL or an at:// URI

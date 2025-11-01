@@ -6,6 +6,7 @@ use crate::cli::FeedArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
+use crate::tools::util::at_uri_to_bsky_url;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -127,19 +128,24 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
 
     // Format as markdown
     let mut markdown = String::new();
-    markdown.push_str("# Feed Posts\n\n");
+    markdown.push_str("# BlueSky Feed\n\n");
+    markdown.push_str(&format!("Found {} posts.\n\n", feed_response.feed.len()));
 
     for (i, feed_post) in feed_response.feed.iter().enumerate() {
         let post = &feed_post.post;
-        markdown.push_str(&format!("## Post {}\n", i + 1));
-        markdown.push_str(&format!("**Author:** @{}", post.author.handle));
+        markdown.push_str(&format!("## Post {}\n\n", i + 1));
+        markdown.push_str(&format!("**@{}", post.author.handle));
         if let Some(display_name) = &post.author.display_name {
             markdown.push_str(&format!(" ({})", display_name));
         }
-        markdown.push_str("\n");
-        markdown.push_str(&format!("**URI:** {}\n", post.uri));
-        markdown.push_str(&format!("**Indexed:** {}\n\n", post.indexed_at));
+        markdown.push_str("\n\n");
+        
+        // Convert at:// URI to web URL
+        let web_url = at_uri_to_bsky_url(&post.uri, &post.author.handle);
+        markdown.push_str(&format!("**Link:** {}\n\n", web_url));
+        
         markdown.push_str(&format!("{}\n\n", post.record.text));
+        markdown.push_str(&format!("**Created:** {}\n\n", post.record.created_at));
         
         // Add engagement stats if available
         let stats: Vec<String> = vec![
@@ -153,18 +159,14 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
         .collect();
         
         if !stats.is_empty() {
-            markdown.push_str(&format!("*{}*\n\n", stats.join(", ")));
+            markdown.push_str(&format!("**Stats:** {}\n\n", stats.join(", ")));
         }
 
-        if i < feed_response.feed.len() - 1 {
-            markdown.push_str("---\n\n");
-        }
+        markdown.push_str("---\n\n");
     }
 
     if let Some(cursor) = feed_response.cursor {
-        markdown.push_str(&format!("\n*Cursor for next page: {}*\n", cursor));
-    } else {
-        markdown.push_str("\n*No more pages available*\n");
+        markdown.push_str(&format!("**Next cursor:** `{}`\n", cursor));
     }
 
     Ok(ToolResult::text(markdown))
