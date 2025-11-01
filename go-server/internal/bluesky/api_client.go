@@ -28,7 +28,7 @@ func NewAPIClient() (*APIClient, error) {
 
 	return &APIClient{
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 		credStore: credStore,
 	}, nil

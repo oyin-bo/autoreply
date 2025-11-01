@@ -10,7 +10,7 @@ use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Handle post tool call
 pub async fn handle_post(id: Option<Value>, args: Value) -> McpResponse {
@@ -35,7 +35,7 @@ async fn handle_post_impl(args: Value) -> Result<ToolResult, AppError> {
 
 /// Execute post tool (shared implementation for MCP and CLI)
 pub async fn execute_post(post_args: PostArgs) -> Result<ToolResult, AppError> {
-    info!(
+    debug!(
         "Post request for account: {}, text: '{}'",
         post_args.post_as, post_args.text
     );
@@ -65,7 +65,7 @@ pub async fn execute_post(post_args: PostArgs) -> Result<ToolResult, AppError> {
     };
 
     // Create the post
-    let client = crate::http::client_with_timeout(std::time::Duration::from_secs(30));
+    let client = crate::http::client_with_timeout(std::time::Duration::from_secs(120));
     let url = format!("{}/xrpc/com.atproto.repo.createRecord", session.service);
 
     let mut record = serde_json::json!({
@@ -116,7 +116,7 @@ pub async fn execute_post(post_args: PostArgs) -> Result<ToolResult, AppError> {
         .as_str()
         .ok_or_else(|| AppError::ParseError("No URI in response".to_string()))?;
 
-    info!("Post created successfully: {}", post_uri);
+    debug!("Post created successfully: {}", post_uri);
 
     // Format result as markdown
     let markdown = if post_args.reply_to.is_some() {
@@ -145,7 +145,7 @@ async fn parse_and_fetch_reply(
     let post_ref = crate::bluesky::uri::parse_post_uri(reply_to).await?;
 
     // Fetch the post to get its CID
-    let client = crate::http::client_with_timeout(std::time::Duration::from_secs(30));
+    let client = crate::http::client_with_timeout(std::time::Duration::from_secs(120));
     let url = format!(
         "{}/xrpc/com.atproto.repo.getRecord?repo={}&collection=app.bsky.feed.post&rkey={}",
         session.service, post_ref.did, post_ref.rkey

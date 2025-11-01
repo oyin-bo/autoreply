@@ -31,7 +31,7 @@ func NewPostTool() (*PostTool, error) {
 	return &PostTool{
 		credStore: credStore,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 	}, nil
 }

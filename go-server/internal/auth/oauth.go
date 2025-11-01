@@ -60,7 +60,7 @@ func NewOAuthFlow(config *OAuthConfig) (*OAuthFlow, error) {
 		verifier:   verifier,
 		challenge:  challenge,
 		state:      state,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}, nil
 }
 

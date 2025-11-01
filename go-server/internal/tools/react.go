@@ -31,7 +31,7 @@ func NewReactTool() (*ReactTool, error) {
 	return &ReactTool{
 		credStore: credStore,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 	}, nil
 }

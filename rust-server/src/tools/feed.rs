@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::{debug, info};
+use tracing::debug;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 struct PostAuthor {
@@ -133,9 +133,9 @@ async fn handle_feed_impl(args: Value) -> Result<ToolResult, AppError> {
 
 /// Execute feed tool
 pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
-    info!("Feed request for feed: {:?}", feed_args.feed);
+    debug!("Feed request for feed: {:?}", feed_args.feed);
 
-    let client = client_with_timeout(Duration::from_secs(30));
+    let client = client_with_timeout(Duration::from_secs(120));
     
     // Resolve the feed URI
     let feed_uri = match &feed_args.feed {

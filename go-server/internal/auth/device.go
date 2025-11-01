@@ -48,7 +48,7 @@ func NewDeviceAuthFlow(config *DeviceAuthConfig) (*DeviceAuthFlow, error) {
 	return &DeviceAuthFlow{
 		config:     config,
 		dpopKey:    dpopKey,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}, nil
 }
 

@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::{debug, info};
+use tracing::debug;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 struct PostAuthor {
@@ -94,9 +94,9 @@ async fn handle_thread_impl(args: Value) -> Result<ToolResult, AppError> {
 
 /// Execute thread tool
 pub async fn execute_thread(thread_args: ThreadArgs) -> Result<ToolResult, AppError> {
-    info!("Thread request for post: {}", thread_args.post_uri);
+    debug!("Thread request for post: {}", thread_args.post_uri);
 
-    let client = client_with_timeout(Duration::from_secs(30));
+    let client = client_with_timeout(Duration::from_secs(120));
 
     // Parse the post URI - it could be a URL or an at:// URI
     let post_uri = parse_post_uri(&client, &thread_args.post_uri).await?;

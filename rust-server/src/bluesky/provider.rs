@@ -6,7 +6,7 @@ use futures::StreamExt;
 use reqwest::Client;
 use std::path::PathBuf;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Provides a parsed `Repo` object for a given DID.
 ///
@@ -25,7 +25,10 @@ impl RepositoryProvider {
     /// Creates a new `RepositoryProvider`.
     pub fn new() -> Result<Self, AppError> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(30))
+            // No total timeout - let downloads complete as long as data flows
+            .connect_timeout(Duration::from_secs(120))  // 2 minutes to establish connection (slow/flaky networks)
+            .read_timeout(Duration::from_secs(120))     // 2 minutes between data chunks (detect true stalls)
+            .user_agent("autoreply/0.3")
             .build()
             .map_err(|e| AppError::HttpClientInitialization(e.to_string()))?;
 
@@ -64,7 +67,7 @@ impl RepositoryProvider {
 
         // Check if cached file exists (no TTL or metadata per PROCEED-FIX.md spec)
         if final_path.exists() {
-            info!("Using cached repo for {}", did);
+            debug!("Using cached repo for {}", did);
             return Ok(final_path);
         }
 
@@ -76,9 +79,10 @@ impl RepositoryProvider {
         let response = self
             .client
             .get(&url)
+            .header("Accept", "application/vnd.ipld.car")
             .send()
             .await
-            .map_err(|e| AppError::NetworkError(e.to_string()))?;
+            .map_err(|e| AppError::NetworkError(format!("Failed to connect: {}", e)))?;
 
         if !response.status().is_success() {
             return Err(AppError::NetworkError(format!(
@@ -88,11 +92,10 @@ impl RepositoryProvider {
             )));
         }
 
-        info!(
-            "Streaming repo for {} ({} bytes) to {}",
-            did,
-            response.content_length().unwrap_or(0),
-            temp_path.display()
+        let content_length = response.content_length().unwrap_or(0);
+        debug!(
+            "Downloading repo for {} ({} bytes)",
+            did, content_length
         );
 
         // Stream bytes directly to temp file
@@ -101,8 +104,16 @@ impl RepositoryProvider {
             .map_err(|e| AppError::CacheError(format!("Failed to create temp file: {}", e)))?;
 
         let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| AppError::NetworkError(e.to_string()))?;
+        let mut bytes_written = 0;
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| {
+                AppError::NetworkError(format!(
+                    "Connection interrupted after {} bytes: {}",
+                    bytes_written, e
+                ))
+            })?;
+            
+            bytes_written += chunk.len();
             tokio::io::AsyncWriteExt::write_all(&mut temp_file, &chunk)
                 .await
                 .map_err(|e| {
@@ -127,11 +138,7 @@ impl RepositoryProvider {
             AppError::CacheError(format!("Failed to atomically rename temp file: {}", e))
         })?;
 
-        info!(
-            "Successfully cached repo for {} at {}",
-            did,
-            final_path.display()
-        );
+        debug!("Cached repo for {} ({} bytes)", did, bytes_written);
         Ok(final_path)
     }
 

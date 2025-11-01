@@ -59,7 +59,7 @@ func resolveHandleXRPC(ctx context.Context, handle string) (string, error) {
 		"https://bsky.social/xrpc/com.atproto.identity.resolveHandle",
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 
 	var lastErr error
 	for _, endpoint := range endpoints {
@@ -114,7 +114,7 @@ func resolveHandleXRPC(ctx context.Context, handle string) (string, error) {
 func resolveHandleHTTPS(ctx context.Context, handle string) (string, error) {
 	url := fmt.Sprintf("https://%s/.well-known/atproto-did", handle)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err
@@ -176,7 +176,7 @@ func ResolveDID(ctx context.Context, did string) (*DIDDocument, error) {
 func resolveDIDPLC(ctx context.Context, did string) (*DIDDocument, error) {
 	url := fmt.Sprintf("https://plc.directory/%s", did)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -222,7 +222,7 @@ func resolveDIDWeb(ctx context.Context, did string) (*DIDDocument, error) {
 
 	url := fmt.Sprintf("https://%s%s/did.json", domain, path)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err

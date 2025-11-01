@@ -11,7 +11,7 @@ use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Handle react tool call
 pub async fn handle_react(id: Option<Value>, args: Value) -> McpResponse {
@@ -36,7 +36,7 @@ async fn handle_react_impl(args: Value) -> Result<ToolResult, AppError> {
 
 /// Execute react tool (shared implementation for MCP and CLI)
 pub async fn execute_react(react_args: ReactArgs) -> Result<ToolResult, AppError> {
-    info!(
+    debug!(
         "React request for account: {}, like: {}, unlike: {}, repost: {}, delete: {}",
         react_args.react_as,
         react_args.like.len(),
@@ -65,7 +65,7 @@ pub async fn execute_react(react_args: ReactArgs) -> Result<ToolResult, AppError
         session.handle, session.did
     );
 
-    let client = crate::http::client_with_timeout(std::time::Duration::from_secs(30));
+    let client = crate::http::client_with_timeout(std::time::Duration::from_secs(120));
 
     // Track results
     let mut results = Vec::new();
@@ -128,7 +128,7 @@ pub async fn execute_react(react_args: ReactArgs) -> Result<ToolResult, AppError
         errors.len()
     ));
 
-    info!(
+    debug!(
         "React operations completed: {} successful, {} failed",
         results.len(),
         errors.len()

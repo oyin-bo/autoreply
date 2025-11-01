@@ -12,7 +12,7 @@ use anyhow::Result;
 
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Handle search tool call
 pub async fn handle_search(id: Option<Value>, args: Value) -> McpResponse {
@@ -41,7 +41,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     validate_account(&search_args.from)?;
     validate_query(&search_args.query)?;
 
-    info!(
+    debug!(
         "Search request for account: {}, query: '{}'",
         search_args.from, search_args.query
     );
@@ -149,7 +149,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
         )));
     }
 
-    info!(
+    debug!(
         "Found {} matching posts for query: '{}'",
         matching_posts.len(),
         search_args.query

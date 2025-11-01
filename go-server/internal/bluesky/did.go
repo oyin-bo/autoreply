@@ -147,11 +147,11 @@ var didWebRegex = regexp.MustCompile(`^did:web:[A-Za-z0-9.-]+(?::[A-Za-z0-9._%\-
 func NewDIDResolver() *DIDResolver {
 	return &DIDResolver{
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 120 * time.Second,
 			Transport: &http.Transport{
 				Proxy:               http.ProxyFromEnvironment,
 				MaxIdleConns:        10,
-				IdleConnTimeout:     30 * time.Second,
+				IdleConnTimeout:     120 * time.Second,
 				DisableCompression:  false,
 				MaxIdleConnsPerHost: 5,
 			},

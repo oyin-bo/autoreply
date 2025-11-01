@@ -45,7 +45,7 @@ type MetadataDiscovery struct {
 func NewMetadataDiscovery() *MetadataDiscovery {
 	return &MetadataDiscovery{
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 120 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				// Limit redirects to prevent abuse
 				if len(via) >= 3 {

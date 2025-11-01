@@ -154,13 +154,14 @@ func (p *CARProcessor) SearchPosts(did, query string) ([]*ParsedPost, error) {
 func NewCARProcessor(cacheManager *cache.Manager) *CARProcessor {
 	return &CARProcessor{
 		client: &http.Client{
-			Timeout: 60 * time.Second,
+			// No total timeout - let downloads complete as long as data flows
 			Transport: &http.Transport{
-				Proxy:               http.ProxyFromEnvironment,
-				MaxIdleConns:        10,
-				IdleConnTimeout:     30 * time.Second,
-				DisableCompression:  false,
-				MaxIdleConnsPerHost: 5,
+				Proxy:                 http.ProxyFromEnvironment,
+				MaxIdleConns:          10,
+				IdleConnTimeout:       120 * time.Second,    // 2 minutes idle timeout
+				ResponseHeaderTimeout: 120 * time.Second,    // 2 minutes to receive headers (slow connections)
+				DisableCompression:    false,
+				MaxIdleConnsPerHost:   5,
 			},
 		},
 		cacheManager: cacheManager,

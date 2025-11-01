@@ -85,7 +85,7 @@ pub struct SessionManager {
 impl SessionManager {
     /// Create a new session manager
     pub fn new() -> Result<Self, AppError> {
-        let client = crate::http::client_with_timeout(std::time::Duration::from_secs(30));
+        let client = crate::http::client_with_timeout(std::time::Duration::from_secs(120));
         Ok(Self { client })
     }
 

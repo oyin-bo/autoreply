@@ -202,7 +202,7 @@ impl AtProtoOAuthManager {
 
     /// Create OAuth manager with custom config
     pub fn with_config(config: AtProtoOAuthConfig) -> Result<Self, AppError> {
-        let client = crate::http::client_with_timeout(Duration::from_secs(30));
+        let client = crate::http::client_with_timeout(Duration::from_secs(120));
         let dpop = DPoPManager::new()?;
         Ok(Self {
             config,
@@ -231,7 +231,7 @@ impl AtProtoOAuthManager {
         match self
             .client
             .get(&dns_url)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(120))
             .send()
             .await
         {
@@ -255,7 +255,7 @@ impl AtProtoOAuthManager {
         let response = self
             .client
             .get(&api_url)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(120))
             .send()
             .await
             .map_err(|e| {
@@ -311,7 +311,7 @@ impl AtProtoOAuthManager {
         let response = self
             .client
             .get(&did_doc_url)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(120))
             .send()
             .await
             .map_err(|e| AppError::NetworkError(format!("DID resolution failed: {}", e)))?;
@@ -362,7 +362,7 @@ impl AtProtoOAuthManager {
         let pr_response = self
             .client
             .get(&protected_resource_url)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(120))
             .send()
             .await
             .map_err(|e| {
@@ -401,7 +401,7 @@ impl AtProtoOAuthManager {
         let as_response = self
             .client
             .get(&auth_metadata_url)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(120))
             .send()
             .await
             .map_err(|e| {
@@ -580,7 +580,7 @@ impl AtProtoOAuthManager {
         let response = self
             .client
             .get(&auth_metadata_url)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(120))
             .send()
             .await
             .map_err(|e| {
@@ -838,7 +838,7 @@ impl AtProtoOAuthManager {
         let did_doc: serde_json::Value = self
             .client
             .get(&did_doc_url)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(120))
             .send()
             .await
             .map_err(|e| AppError::NetworkError(format!("DID resolution failed: {}", e)))?

@@ -10,7 +10,7 @@ use crate::mcp::{McpResponse, ToolResult};
 use anyhow::Result;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Helper function to extract string field from CBOR map without allocation
 fn get_cbor_string_field(
@@ -55,7 +55,7 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
     // Validate account parameter
     validate_account(&profile_args.account)?;
 
-    info!("Profile request for account: {}", profile_args.account);
+    debug!("Profile request for account: {}", profile_args.account);
 
     // Resolve handle to DID
     let resolver = DidResolver::new();
@@ -139,7 +139,7 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
             .ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?,
     );
 
-    info!("Profile request completed for: {}", profile_args.account);
+    debug!("Profile request completed for: {}", profile_args.account);
 
     Ok(ToolResult::text(markdown))
 }
