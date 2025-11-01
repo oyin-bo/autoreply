@@ -1,5 +1,5 @@
 mod error;
-mod reader;
+pub mod reader;
 mod types;
 
 pub use error::CarError;

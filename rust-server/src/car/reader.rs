@@ -293,7 +293,7 @@ impl CarRecords {
 }
 
 impl Iterator for CarRecords {
-    type Item = Result<(String, Vec<u8>), CarError>;
+    type Item = Result<(String, Vec<u8>, String), CarError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Initialize reader on first call
@@ -310,6 +310,9 @@ impl Iterator for CarRecords {
                 };
 
                 self.processed_count += 1;
+                
+                // Format CID string for mapping
+                let cid_str = format_cid_simple(&entry.cid);
 
                 // Try to decode CBOR and check if it's an AT Protocol record
                 if let Ok(serde_cbor::Value::Map(ref cbor_map)) =
@@ -320,8 +323,8 @@ impl Iterator for CarRecords {
                         if let serde_cbor::Value::Text(key_str) = key {
                             if key_str == "$type" {
                                 if let serde_cbor::Value::Text(type_str) = value {
-                                    // Found an AT Protocol record - return owned data
-                                    return Some(Ok((type_str.clone(), entry.bytes.clone())));
+                                    // Found an AT Protocol record - return owned data with CID
+                                    return Some(Ok((type_str.clone(), entry.bytes.clone(), cid_str)));
                                 }
                             }
                         }
@@ -334,6 +337,17 @@ impl Iterator for CarRecords {
         // No more CAR blocks to process
         None
     }
+}
+
+/// Format CID as simple string for use in mappings
+fn format_cid_simple(cid: &Cid) -> String {
+    format!(
+        "v{}-c{:02x}-d{:02x}-{}",
+        cid.version,
+        cid.codec,
+        cid.digest_type,
+        hex::encode(&cid.digest)
+    )
 }
 
 #[cfg(test)]
@@ -558,7 +572,7 @@ mod tests {
         let results = collected.unwrap();
 
         assert_eq!(results.len(), 1);
-        let (record_type, cbor_data) = &results[0];
+        let (record_type, cbor_data, _cid) = &results[0];
         assert_eq!(record_type, "app.bsky.feed.post");
 
         // Verify we can decode the CBOR data
@@ -593,9 +607,9 @@ mod tests {
 
         assert_eq!(results.len(), 3); // Non-AT-Protocol entry should be filtered out
 
-        let (type1, _) = &results[0];
-        let (type2, _) = &results[1];
-        let (type3, _) = &results[2];
+        let (type1, _, _) = &results[0];
+        let (type2, _, _) = &results[1];
+        let (type3, _, _) = &results[2];
 
         assert_eq!(type1, "app.bsky.feed.post");
         assert_eq!(type2, "app.bsky.actor.profile");

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Search Results Display**: Fixed MST (Merkle Search Tree) parsing to properly extract rkeys from CAR files.
+  - Added `bluesky::mst` module for efficient CID->rkey mapping extraction.
+
+### Changed
+- **CAR Reader API**: `CarRecords` iterator now returns 3-tuple `(record_type, cbor_data, cid_str)` instead of 2-tuple.
+  - Breaking change for code that uses `CarRecords` directly.
+
 ## [0.3.5] - 2025-11-01
 
 ### Fixed

@@ -71,20 +71,31 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     };
 
     debug!("Resolved {} to DID: {:?}", search_args.from, did);
+    
+    let did_str = did.as_ref()
+        .ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?;
 
-    // Get posts using streaming iterator
+    // Get CAR file and extract CID->rkey mappings using MST
     let provider = RepositoryProvider::new()?;
-    let records = provider
-        .records(
-            did.as_ref()
-                .ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?,
-        )
-        .await?;
+    let car_path = provider.fetch_repo_car(did_str).await?;
+    let car_bytes = tokio::fs::read(&car_path).await
+        .map_err(|e| AppError::CacheError(format!("Failed to read CAR file: {}", e)))?;
+    
+    debug!("Extracting CID->rkey mappings from MST for collection app.bsky.feed.post");
+    let cid_to_rkey = crate::bluesky::mst::extract_cid_to_rkey_mapping(
+        &car_bytes,
+        "app.bsky.feed.post"
+    ).map_err(|e| AppError::RepoParseFailed(format!("Failed to extract MST mappings: {:?}", e)))?;
+    
+    debug!("Extracted {} CID->rkey mappings", cid_to_rkey.len());
 
-    // Stream through records and collect posts
+    // Get posts using streaming iterator with CID tracking
+    let records = provider.records(did_str).await?;
+
+    // Stream through records and collect posts with proper rkeys
     let posts: Vec<PostRecord> = records
         .filter_map(|record_result| {
-            let (record_type, cbor_data) = record_result.ok()?;
+            let (record_type, cbor_data, cid_str) = record_result.ok()?;
 
             // Only process post records
             if record_type != "app.bsky.feed.post" {
@@ -106,14 +117,14 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
                         _ => return None,
                     };
 
-                // For now, we'll use a placeholder for rkey - we'd need to extract it from the MST key
-                // This is a limitation of the current approach vs the specialized get_posts method
+                // Look up rkey from CID->rkey mapping
+                let collection_rkey = cid_to_rkey.get(&cid_str)
+                    .map(|s| s.as_str())
+                    .unwrap_or("app.bsky.feed.post/unknown");
+                
                 Some(PostRecord {
-                    uri: format!(
-                        "at://{}/app.bsky.feed.post/unknown",
-                        did.as_deref().unwrap_or("unknown")
-                    ),
-                    cid: "unknown".to_string(), // Would need CID from CAR entry
+                    uri: format!("at://{}/{}", did_str, collection_rkey),
+                    cid: cid_str,
                     text,
                     created_at,
                     embeds: Vec::new(), // TODO: Convert embeds if needed in future
@@ -126,7 +137,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
         .collect();
 
     debug!(
-        "Extracted {} post records using streaming iterator",
+        "Extracted {} post records with rkeys",
         posts.len()
     );
 

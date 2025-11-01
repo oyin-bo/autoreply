@@ -53,7 +53,7 @@ impl RepositoryProvider {
     ///
     /// Streams the CAR file directly to disk with atomic operations as specified in PROCEED-FIX.md.
     /// Returns the path to the cached CAR file.
-    async fn fetch_repo_car(&self, did: &str) -> Result<PathBuf, AppError> {
+    pub async fn fetch_repo_car(&self, did: &str) -> Result<PathBuf, AppError> {
         // Resolve DID to PDS endpoint
         let pds_endpoint = self.did_resolver.discover_pds(did).await?.ok_or_else(|| {
             AppError::DidResolveFailed(format!("Could not determine PDS for DID {}", did))

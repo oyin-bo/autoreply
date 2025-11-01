@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Search Results Display**: Fixed bug where posts showed `@handle/unknown` instead of actual rkey.
+
 ## [0.3.5] - 2025-11-01
 
 ### Added

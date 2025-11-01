@@ -89,7 +89,7 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
         )
         .await?;
     let profile = records.find_map(|record_result| {
-        let (record_type, cbor_data) = record_result.ok()?;
+        let (record_type, cbor_data, _cid_str) = record_result.ok()?;
         debug!("Processing record of type: {}", record_type);
 
         // Check if this is a profile record

@@ -328,8 +328,8 @@ func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, quer
 		// Construct URI from CID to rkey mapping
 		uri := ""
 		if rkey, ok := cidToRKey[cidStr]; ok {
-			// rkey from ForEach already includes collection prefix
-			uri = fmt.Sprintf("at://%s/%s", did, rkey)
+			// Construct full URI with collection and rkey
+			uri = fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, rkey)
 		}
 
 		pr := &PostRecord{
