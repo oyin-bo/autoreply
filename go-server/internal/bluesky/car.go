@@ -158,8 +158,8 @@ func NewCARProcessor(cacheManager *cache.Manager) *CARProcessor {
 			Transport: &http.Transport{
 				Proxy:                 http.ProxyFromEnvironment,
 				MaxIdleConns:          10,
-				IdleConnTimeout:       120 * time.Second,    // 2 minutes idle timeout
-				ResponseHeaderTimeout: 120 * time.Second,    // 2 minutes to receive headers (slow connections)
+				IdleConnTimeout:       120 * time.Second, // 2 minutes idle timeout
+				ResponseHeaderTimeout: 120 * time.Second, // 2 minutes to receive headers (slow connections)
 				DisableCompression:    false,
 				MaxIdleConnsPerHost:   5,
 			},

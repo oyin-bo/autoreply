@@ -58,13 +58,17 @@ enum ThreadNode {
     },
     #[serde(rename = "app.bsky.feed.defs#notFoundPost")]
     NotFoundPost {
+        #[allow(dead_code)]
         uri: String,
         #[serde(rename = "notFound")]
+        #[allow(dead_code)]
         not_found: bool,
     },
     #[serde(rename = "app.bsky.feed.defs#blockedPost")]
     BlockedPost {
+        #[allow(dead_code)]
         uri: String,
+        #[allow(dead_code)]
         blocked: bool,
     },
 }
@@ -139,6 +143,7 @@ pub async fn execute_thread(thread_args: ThreadArgs) -> Result<ToolResult, AppEr
 
 /// Format a thread as markdown per docs/16-mcp-schemas.md spec
 fn format_thread(node: &ThreadNode) -> String {
+    #[allow(unused_imports)]
     use crate::tools::post_format::*;
     use std::collections::HashMap;
     

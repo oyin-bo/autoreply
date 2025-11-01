@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.3.5] - 2025-11-01
+
+### Fixed
+- **CAR File Download Timeouts**: Increased HTTP client timeouts from 30s to 120s across all modules to handle large (30-70MB) repository downloads.
+  - Better error messages showing byte counts when connections are interrupted.
+- **OAuth Callback Server**: Fixed loopback redirect URI to use root path `/` instead of `/callback` per RFC 8252 specification.
+
+### Changed
+- **Markdown Output Format**: Implemented compact formatting per `docs/16-mcp-schemas.md` specification.
+- **Logging**: Changed tool execution logging from `info!` to `debug!` for cleaner CLI output.
+
+### Added
+- **Feed Name Search**: Feed tool now accepts feed names (e.g., "What's Hot") in addition to at:// URIs, with automatic resolution via popular feeds API.
+- **Compact Post URIs**: Thread tool accepts `@handle/rkey` format in addition to full at:// URIs and bsky.app URLs.
+- **OAuth Account Selection**: Login flow now supports handle-free OAuth, allowing users to select any account during authorization (passes `login_hint` when handle is provided).
+
 ## [0.3.4] - 2025-10-30
 
 ### Added

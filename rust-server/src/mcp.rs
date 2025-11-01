@@ -333,6 +333,7 @@ impl ToolResult {
     }
 
     /// Create a result from explicit content items
+    #[allow(dead_code)]
     pub fn from_items(content: Vec<ContentItem>) -> Self {
         Self { content, is_error: None }
     }
@@ -355,6 +356,7 @@ impl ContentItem {
     }
 
     /// Helper to create an input prompt content item
+    #[allow(dead_code)]
     pub fn input_text(prompt: impl Into<String>, metadata: Value) -> Self {
         Self {
             r#type: "input_text".to_string(),

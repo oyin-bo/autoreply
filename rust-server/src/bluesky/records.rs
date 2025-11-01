@@ -113,6 +113,7 @@ pub enum FacetFeature {
 
 impl ProfileRecord {
     /// Convert to markdown format as specified in docs
+    #[allow(dead_code)]
     pub fn to_markdown(&self, handle: &str, did: &str) -> String {
         let mut markdown = format!("# @{} ({})\n\n", handle, did);
 
@@ -180,6 +181,7 @@ impl PostRecord {
     }
 
     /// Convert to markdown format for search results
+    #[allow(dead_code)]
     pub fn to_markdown(&self, handle: &str, query: &str) -> String {
         let mut markdown = String::new();
 
@@ -241,7 +243,7 @@ impl PostRecord {
     }
 }
 
-/// Highlight query matches in text with **bold** markdown
+#[allow(dead_code)]
 fn highlight_text(text: &str, query: &str) -> String {
     if query.is_empty() {
         return text.to_string();

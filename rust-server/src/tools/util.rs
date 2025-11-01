@@ -3,6 +3,7 @@
 /// Convert AT URI to BlueSky web URL
 /// at://did:plc:abc/app.bsky.feed.post/xyz -> https://bsky.app/profile/handle/post/xyz
 /// Falls back to using DID in the URL if handle is empty
+#[allow(dead_code)]
 pub fn at_uri_to_bsky_url(at_uri: &str, handle: &str) -> String {
     // Parse AT URI: at://{did}/{collection}/{rkey}
     if !at_uri.starts_with("at://") {

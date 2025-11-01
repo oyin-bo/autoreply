@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.5] - 2025-11-01
+
+### Added
+- **Thread Tool**: New tool for fetching BlueSky conversation threads with recursive reply structure.
+  - Accepts at:// URIs, bsky.app URLs, or compact `@handle/rkey` format.
+  - Automatic handle resolution to DIDs for URL/compact format inputs.
+  - Formatted markdown output with threading indicators and post counts.
+
+### Changed
+- **Markdown Output Format**: Updated search and thread tools to match compact formatting specification.
+
 ## [0.3.2] - 2025-10-05
 
 ### Added
