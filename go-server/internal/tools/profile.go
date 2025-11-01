@@ -44,7 +44,7 @@ func (t *ProfileTool) InputSchema() mcp.InputSchema {
 		Properties: map[string]mcp.PropertySchema{
 			"account": {
 				Type:        "string",
-				Description: "Handle (alice.bsky.social) or DID (did:plc:...)",
+				Description: "Account to fetch profile for: handle (alice.bsky.social), @handle, DID (did:plc:...), Bsky.app profile URL, or partial DID suffix",
 			},
 		},
 		Required: []string{"account"},

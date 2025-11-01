@@ -47,7 +47,10 @@ struct ThreadPost {
     quote_count: Option<i32>,
 }
 
-#[derive(Deserialize, Debug)]
+/// Represents a node in the thread tree (post, not found, or blocked)
+#[allow(clippy::large_enum_variant)]
+#[allow(clippy::enum_variant_names)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "$type")]
 enum ThreadNode {
     #[serde(rename = "app.bsky.feed.defs#threadViewPost")]
@@ -68,6 +71,7 @@ enum ThreadNode {
     BlockedPost {
         #[allow(dead_code)]
         uri: String,
+        #[serde(rename = "blocked")]
         #[allow(dead_code)]
         blocked: bool,
     },
@@ -98,12 +102,12 @@ async fn handle_thread_impl(args: Value) -> Result<ToolResult, AppError> {
 
 /// Execute thread tool
 pub async fn execute_thread(thread_args: ThreadArgs) -> Result<ToolResult, AppError> {
-    debug!("Thread request for post: {}", thread_args.post_uri);
+    debug!("Thread request for post: {}", thread_args.postURI);
 
     let client = client_with_timeout(Duration::from_secs(120));
 
     // Parse the post URI - it could be a URL or an at:// URI
-    let post_uri = parse_post_uri(&client, &thread_args.post_uri).await?;
+    let post_uri = parse_post_uri(&client, &thread_args.postURI).await?;
 
     // Build the URL for the getPostThread endpoint
     let url = format!(
@@ -146,19 +150,19 @@ fn format_thread(node: &ThreadNode) -> String {
     #[allow(unused_imports)]
     use crate::tools::post_format::*;
     use std::collections::HashMap;
-    
+
     let mut markdown = String::new();
-    
+
     // Count total posts
     let total_posts = count_posts(node);
     markdown.push_str(&format!("# Thread · {} posts\n\n", total_posts));
-    
+
     // Track seen posts for ID compaction
     let mut seen_posts: HashMap<String, String> = HashMap::new();
-    
+
     // Format thread recursively with proper threading indicators
     format_thread_recursive(node, &mut markdown, &mut seen_posts, 0, None);
-    
+
     markdown
 }
 
@@ -166,7 +170,7 @@ fn format_thread(node: &ThreadNode) -> String {
 fn count_posts(node: &ThreadNode) -> usize {
     match node {
         ThreadNode::ThreadViewPost { post: _, replies } => {
-            1 + replies.iter().map(|r| count_posts(r)).sum::<usize>()
+            1 + replies.iter().map(count_posts).sum::<usize>()
         }
         _ => 0,
     }
@@ -181,14 +185,14 @@ fn format_thread_recursive(
     parent_post: Option<&ThreadPost>,
 ) {
     use crate::tools::post_format::*;
-    
+
     if let ThreadNode::ThreadViewPost { post, replies } = node {
         let rkey = extract_rkey(&post.uri);
         let full_id = format!("{}/{}", post.author.handle, rkey);
-        
+
         // Build the first line with threading indicator (INDENTED)
         let author_id = compact_post_id(&post.author.handle, rkey, seen_posts);
-        
+
         if depth == 0 {
             // Root post - just the author ID, no indent
             markdown.push_str(&format!("{}\n", author_id));
@@ -199,14 +203,14 @@ fn format_thread_recursive(
             let indicator = threading_indicator(depth, &parent_compact, &author_id);
             markdown.push_str(&format!("{}\n", indicator));
         }
-        
+
         // Mark this post as seen for future compaction
         seen_posts.insert(full_id, post.uri.clone());
-        
+
         // Blockquote the content (ALWAYS FLUSH-LEFT, NO INDENTATION)
         markdown.push_str(&blockquote_content(&post.record.text));
         markdown.push('\n');
-        
+
         // Stats and timestamp on same line (FLUSH-LEFT)
         let stats = format_stats(
             post.like_count.unwrap_or(0),
@@ -215,16 +219,16 @@ fn format_thread_recursive(
             post.reply_count.unwrap_or(0),
         );
         let timestamp = format_timestamp(&post.record.created_at);
-        
+
         if !stats.is_empty() {
             markdown.push_str(&format!("{}  {}\n", stats, timestamp));
         } else {
             markdown.push_str(&format!("{}\n", timestamp));
         }
-        
+
         // Blank line before next post
         markdown.push('\n');
-        
+
         // Process replies recursively
         for reply in replies {
             format_thread_recursive(reply, markdown, seen_posts, depth + 1, Some(post));
@@ -235,7 +239,7 @@ fn format_thread_recursive(
 /// Parse a post URI from either a BlueSky URL or an at:// URI
 async fn parse_post_uri(client: &reqwest::Client, uri: &str) -> Result<String, AppError> {
     let trimmed = uri.trim();
-    
+
     // If it's already an at:// URI, return it
     if trimmed.starts_with("at://") {
         return Ok(trimmed.to_string());
@@ -245,18 +249,18 @@ async fn parse_post_uri(client: &reqwest::Client, uri: &str) -> Result<String, A
     if trimmed.starts_with('@') && trimmed.contains('/') {
         let without_at = &trimmed[1..]; // Remove leading @
         let parts: Vec<&str> = without_at.split('/').collect();
-        
+
         if parts.len() >= 2 {
             let handle = parts[0];
             let rkey = parts[1];
-            
+
             // Resolve handle to DID
             let did = resolve_handle(client, handle).await?;
-            
+
             // Construct at:// URI
             let at_uri = format!("at://{}/app.bsky.feed.post/{}", did, rkey);
             debug!("Resolved compact format to at:// URI: {}", at_uri);
-            
+
             return Ok(at_uri);
         }
     }
@@ -268,9 +272,9 @@ async fn parse_post_uri(client: &reqwest::Client, uri: &str) -> Result<String, A
             // Extract just the post ID (remove trailing slashes or query params)
             let post_id = post_id.split('/').next().unwrap_or(post_id);
             let post_id = post_id.split('?').next().unwrap_or(post_id);
-            
+
             debug!("Parsing URL: handle={}, post_id={}", handle, post_id);
-            
+
             // Check if handle is already a DID
             let did = if handle.starts_with("did:") {
                 handle.to_string()
@@ -278,11 +282,11 @@ async fn parse_post_uri(client: &reqwest::Client, uri: &str) -> Result<String, A
                 // Resolve handle to DID
                 resolve_handle(client, handle).await?
             };
-            
+
             // Construct at:// URI
             let at_uri = format!("at://{}/app.bsky.feed.post/{}", did, post_id);
             debug!("Resolved URL to at:// URI: {}", at_uri);
-            
+
             return Ok(at_uri);
         }
     }
@@ -321,10 +325,9 @@ async fn resolve_handle(client: &reqwest::Client, handle: &str) -> Result<String
         did: String,
     }
 
-    let resolve_response: ResolveHandleResponse = response
-        .json()
-        .await
-        .map_err(|e| AppError::ParseError(format!("Failed to parse handle resolution response: {}", e)))?;
+    let resolve_response: ResolveHandleResponse = response.json().await.map_err(|e| {
+        AppError::ParseError(format!("Failed to parse handle resolution response: {}", e))
+    })?;
 
     debug!("Resolved handle {} to DID {}", handle, resolve_response.did);
 
@@ -342,10 +345,7 @@ mod tests {
         });
 
         let args: ThreadArgs = serde_json::from_value(json).unwrap();
-        assert_eq!(
-            args.post_uri,
-            "at://did:plc:example/app.bsky.feed.post/123"
-        );
+        assert_eq!(args.postURI, "at://did:plc:example/app.bsky.feed.post/123");
     }
 
     #[tokio::test]
@@ -389,12 +389,10 @@ mod tests {
             replies: vec![
                 ThreadNode::ThreadViewPost {
                     post: create_mock_post("bob", "3kq8b2e4", "Reply 1"),
-                    replies: vec![
-                        ThreadNode::ThreadViewPost {
-                            post: create_mock_post("carol", "3kq8c3f5", "Nested reply"),
-                            replies: vec![],
-                        },
-                    ],
+                    replies: vec![ThreadNode::ThreadViewPost {
+                        post: create_mock_post("carol", "3kq8c3f5", "Nested reply"),
+                        replies: vec![],
+                    }],
                 },
                 ThreadNode::ThreadViewPost {
                     post: create_mock_post("dave", "3kq8d4f6", "Reply 2"),
@@ -444,16 +442,16 @@ mod tests {
         let markdown = format_thread(&thread);
 
         assert!(markdown.contains("# Thread · 3 posts"));
-        
+
         // Root post - full ID
         assert!(markdown.contains("@alice.bsky.social/3kq8a3f1\n> Root post"));
-        
+
         // First reply - shows parent in ultra-compact format
         assert!(markdown.contains("└─@a/…a3f1 → @bob.bsky.social/3kq8b2e4\n> First reply"));
-        
+
         // Second reply - also shows parent in ultra-compact
         assert!(markdown.contains("└─@a/…a3f1 → @carol.bsky.social/3kq8c3f5\n> Second reply"));
-        
+
         // All content blockquoted
         assert!(markdown.matches("> ").count() >= 3);
     }
@@ -462,17 +460,13 @@ mod tests {
     fn test_format_thread_nested_replies() {
         let thread = ThreadNode::ThreadViewPost {
             post: create_mock_post("alice", "3kq8a3f1", "Root"),
-            replies: vec![
-                ThreadNode::ThreadViewPost {
-                    post: create_mock_post("bob", "3kq8b2e4", "Reply depth 1"),
-                    replies: vec![
-                        ThreadNode::ThreadViewPost {
-                            post: create_mock_post("carol", "3kq8c3f5", "Reply depth 2"),
-                            replies: vec![],
-                        },
-                    ],
-                },
-            ],
+            replies: vec![ThreadNode::ThreadViewPost {
+                post: create_mock_post("bob", "3kq8b2e4", "Reply depth 1"),
+                replies: vec![ThreadNode::ThreadViewPost {
+                    post: create_mock_post("carol", "3kq8c3f5", "Reply depth 2"),
+                    replies: vec![],
+                }],
+            }],
         };
 
         let markdown = format_thread(&thread);
@@ -481,7 +475,7 @@ mod tests {
         assert!(markdown.contains("@alice/3kq8a3f1")); // Root, no indent
         assert!(markdown.contains("└─@a/…a3f1 → @bob/3kq8b2e4")); // Depth 1, no spaces before └─
         assert!(markdown.contains("  └─@b/…b2e4 → @carol/3kq8c3f5")); // Depth 2, 2 spaces before └─
-        
+
         // Content should always be flush-left (no indentation)
         assert!(markdown.contains("\n> Root\n"));
         assert!(markdown.contains("\n> Reply depth 1\n"));
@@ -491,11 +485,7 @@ mod tests {
     #[test]
     fn test_format_thread_multiline_content() {
         let thread = ThreadNode::ThreadViewPost {
-            post: create_mock_post_multiline(
-                "alice",
-                "3kq8a3f1",
-                "Line 1\nLine 2\nLine 3"
-            ),
+            post: create_mock_post_multiline("alice", "3kq8a3f1", "Line 1\nLine 2\nLine 3"),
             replies: vec![],
         };
 
@@ -511,7 +501,7 @@ mod tests {
             post: create_mock_post(
                 "alice",
                 "3kq8a3f1",
-                "# This looks like a header\n## But it's quoted!"
+                "# This looks like a header\n## But it's quoted!",
             ),
             replies: vec![],
         };

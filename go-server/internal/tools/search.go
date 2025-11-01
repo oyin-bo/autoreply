@@ -45,9 +45,9 @@ func (t *SearchTool) InputSchema() mcp.InputSchema {
 	return mcp.InputSchema{
 		Type: "object",
 		Properties: map[string]mcp.PropertySchema{
-			"account": {
+			"from": {
 				Type:        "string",
-				Description: "Handle (alice.bsky.social) or DID (did:plc:...)",
+				Description: "Account whose posts to search: handle (alice.bsky.social), @handle, DID, Bsky.app profile URL, or partial DID suffix",
 			},
 			"query": {
 				Type:        "string",
@@ -55,23 +55,21 @@ func (t *SearchTool) InputSchema() mcp.InputSchema {
 			},
 			"limit": {
 				Type:        "integer",
-				Description: "Maximum number of results (default 50, max 200)",
+				Description: "Defaults to 50",
 			},
 		},
-		Required: []string{"account", "query"},
+		Required: []string{"from", "query"},
 	}
-}
-
-// Call executes the search tool
+} // Call executes the search tool
 func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp.Server) (*mcp.ToolResult, error) {
 	// Extract and validate parameters
-	account, query, limit, err := t.validateInput(args)
+	from, query, limit, err := t.validateInput(args)
 	if err != nil {
 		return nil, err
 	}
 
 	// Resolve handle to DID
-	did, err := t.didResolver.ResolveHandle(ctx, account)
+	did, err := t.didResolver.ResolveHandle(ctx, from)
 	if err != nil {
 		return nil, err
 	}
@@ -98,12 +96,9 @@ func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 		return posts[i].CreatedAt > posts[j].CreatedAt
 	})
 
-	// Apply limit (default 50, max 200)
+	// Apply limit (default 50)
 	if limit <= 0 {
 		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
 	}
 	if len(posts) > limit {
 		posts = posts[:limit]
@@ -113,7 +108,7 @@ func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 	// No HTTP requests needed!
 
 	// Format results as markdown
-	markdown := t.formatSearchResults(account, query, posts)
+	markdown := t.formatSearchResults(from, query, posts)
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{
@@ -126,20 +121,20 @@ func (t *SearchTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 }
 
 // validateInput validates the input parameters
-func (t *SearchTool) validateInput(args map[string]interface{}) (account, query string, limit int, err error) {
-	// Validate account
-	accountRaw, ok := args["account"]
+func (t *SearchTool) validateInput(args map[string]interface{}) (from, query string, limit int, err error) {
+	// Validate from
+	fromRaw, ok := args["from"]
 	if !ok {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "account parameter is required")
+		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "from parameter is required")
 	}
 
-	account, ok = accountRaw.(string)
+	from, ok = fromRaw.(string)
 	if !ok {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "account must be a string")
+		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "from must be a string")
 	}
 
-	if strings.TrimSpace(account) == "" {
-		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "account cannot be empty")
+	if strings.TrimSpace(from) == "" {
+		return "", "", 0, errors.NewMCPError(errors.InvalidInput, "from cannot be empty")
 	}
 
 	// Validate query
@@ -184,11 +179,8 @@ func (t *SearchTool) validateInput(args map[string]interface{}) (account, query 
 	if limit < 1 {
 		limit = 1
 	}
-	if limit > 200 {
-		limit = 200
-	}
 
-	return account, query, limit, nil
+	return from, query, limit, nil
 }
 
 // normalizeText normalizes text for consistent searching

@@ -27,19 +27,25 @@ mod tests {
             .find(|t| t.get("name").and_then(|n| n.as_str()) == Some("login"))
             .expect("login tool present");
         let schema = login.get("inputSchema").expect("login schema");
-        
+
         // Check required fields
         let required = schema.get("required").and_then(|r| r.as_array());
-        
+
         // Handle should NOT be in required fields (it's optional for OAuth)
         if let Some(req_fields) = required {
             let has_handle = req_fields.iter().any(|f| f.as_str() == Some("handle"));
-            assert!(!has_handle, "handle should be optional in login schema, not required");
+            assert!(
+                !has_handle,
+                "handle should be optional in login schema, not required"
+            );
         }
-        
+
         // But handle should exist in properties
         let properties = schema.get("properties").expect("properties object");
-        assert!(properties.get("handle").is_some(), "handle should exist as an optional property");
+        assert!(
+            properties.get("handle").is_some(),
+            "handle should exist as an optional property"
+        );
     }
 
     #[tokio::test]
@@ -51,13 +57,14 @@ mod tests {
             .iter()
             .find(|t| t.get("name").and_then(|n| n.as_str()) == Some("login"))
             .expect("login tool present");
-        let description = login.get("description")
+        let description = login
+            .get("description")
             .and_then(|d| d.as_str())
             .expect("login description");
-        
+
         assert!(
-            description.to_lowercase().contains("optional") || 
-            description.to_lowercase().contains("selection"),
+            description.to_lowercase().contains("optional")
+                || description.to_lowercase().contains("selection"),
             "Login description should mention optional handle or account selection"
         );
     }

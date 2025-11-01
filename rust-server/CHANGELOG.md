@@ -1,14 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.6] - 2025-11-01
 
-### Fixed
-- **Search Results Display**: Fixed MST (Merkle Search Tree) parsing to properly extract rkeys from CAR files.
-  - Added `bluesky::mst` module for efficient CID->rkey mapping extraction.
+### Added
+- Support for various account formats: handles, @handles, DIDs, Bsky.app profile URLs, even shortDIDs.
+- MST (Merkle Search Tree) Parsing: finished CID->rkey mapping extraction from CAR files, was missing earlier, added new `bluesky::mst` module.
 
 ### Changed
-- **CAR Reader API**: `CarRecords` iterator now returns 3-tuple `(record_type, cbor_data, cid_str)` instead of 2-tuple.
-  - Breaking change for code that uses `CarRecords` directly.
+- Consistency and clarity across all account parameter names.
+- Removed app password from feed and thread tools: login is where authentication happens.
+- Pagination: batching is internal and allows any number of posts per page.
+- Fixed bug where posts showed `@handle/unknown` instead of actual rkey.
 
 ## [0.3.5] - 2025-11-01
 

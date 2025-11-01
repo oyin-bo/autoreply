@@ -29,16 +29,16 @@ func TestHighlightMatches(t *testing.T) {
 
 func TestValidateInput_Errors(t *testing.T) {
 	tool := NewSearchTool()
-	// Missing account
+	// Missing from
 	if _, _, _, err := tool.validateInput(map[string]interface{}{"query": "x"}); err == nil {
-		t.Fatal("expected error for missing account")
+		t.Fatal("expected error for missing from")
 	}
-	// Non-string account
-	if _, _, _, err := tool.validateInput(map[string]interface{}{"account": 123, "query": "x"}); err == nil {
-		t.Fatal("expected error for non-string account")
+	// Non-string from
+	if _, _, _, err := tool.validateInput(map[string]interface{}{"from": 123, "query": "x"}); err == nil {
+		t.Fatal("expected error for non-string from")
 	}
 	// Empty query
-	if _, _, _, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": "  "}); err == nil {
+	if _, _, _, err := tool.validateInput(map[string]interface{}{"from": "test.bsky.social", "query": "  "}); err == nil {
 		t.Fatal("expected error for empty query")
 	}
 	// Very long query
@@ -46,19 +46,19 @@ func TestValidateInput_Errors(t *testing.T) {
 	for i := range long {
 		long[i] = 'a'
 	}
-	if _, _, _, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": string(long)}); err == nil {
+	if _, _, _, err := tool.validateInput(map[string]interface{}{"from": "test.bsky.social", "query": string(long)}); err == nil {
 		t.Fatal("expected error for too long query")
 	}
 }
 
 func TestValidateInput_OkAndLimit(t *testing.T) {
 	tool := NewSearchTool()
-	acc, q, lim, err := tool.validateInput(map[string]interface{}{"account": "test.bsky.social", "query": "HeLLo"})
+	acc, q, lim, err := tool.validateInput(map[string]interface{}{"from": "test.bsky.social", "query": "HeLLo"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if acc != "test.bsky.social" {
-		t.Fatalf("account got %q", acc)
+		t.Fatalf("from got %q", acc)
 	}
 	if q != "hello" {
 		t.Fatalf("query normalized got %q", q)
@@ -67,15 +67,17 @@ func TestValidateInput_OkAndLimit(t *testing.T) {
 		t.Fatalf("default limit got %d want 50", lim)
 	}
 
-	_, _, lim2, err := tool.validateInput(map[string]interface{}{"account": "t.bsky.social", "query": "x", "limit": 500})
+	// Test with large limit - no longer clamped
+	_, _, lim2, err := tool.validateInput(map[string]interface{}{"from": "t.bsky.social", "query": "x", "limit": 500})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if lim2 != 200 {
-		t.Fatalf("limit clamp got %d want 200", lim2)
+	if lim2 != 500 {
+		t.Fatalf("limit got %d want 500 (no max limit)", lim2)
 	}
 
-	_, _, lim3, err := tool.validateInput(map[string]interface{}{"account": "t.bsky.social", "query": "x", "limit": -5})
+	// Test negative limit - clamped to 1
+	_, _, lim3, err := tool.validateInput(map[string]interface{}{"from": "t.bsky.social", "query": "x", "limit": -5})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

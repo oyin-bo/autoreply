@@ -37,20 +37,23 @@ async fn handle_post_impl(args: Value) -> Result<ToolResult, AppError> {
 pub async fn execute_post(post_args: PostArgs) -> Result<ToolResult, AppError> {
     debug!(
         "Post request for account: {}, text: '{}'",
-        post_args.post_as, post_args.text
+        post_args.postAs, post_args.text
     );
 
     // Get credentials for the account
     let storage = CredentialStorage::new()?;
-    
+
     // Try to get stored session first (for OAuth accounts)
-    let session = if let Some(stored_session) = storage.get_session(&post_args.post_as)? {
-        debug!("Using stored session for {}", post_args.post_as);
+    let session = if let Some(stored_session) = storage.get_session(&post_args.postAs)? {
+        debug!("Using stored session for {}", post_args.postAs);
         stored_session
     } else {
         // Fallback to creating new session with credentials (for app password accounts)
-        debug!("No stored session, creating new session for {}", post_args.post_as);
-        let credentials = storage.get_credentials(&post_args.post_as)?;
+        debug!(
+            "No stored session, creating new session for {}",
+            post_args.postAs
+        );
+        let credentials = storage.get_credentials(&post_args.postAs)?;
         let session_manager = SessionManager::new()?;
         session_manager.login(&credentials).await?
     };
@@ -58,7 +61,7 @@ pub async fn execute_post(post_args: PostArgs) -> Result<ToolResult, AppError> {
     debug!("Authenticated as {} (DID: {})", session.handle, session.did);
 
     // Parse reply-to if provided
-    let reply_ref = if let Some(reply_to) = &post_args.reply_to {
+    let reply_ref = if let Some(reply_to) = &post_args.replyTo {
         Some(parse_and_fetch_reply(&session, reply_to).await?)
     } else {
         None
@@ -119,12 +122,12 @@ pub async fn execute_post(post_args: PostArgs) -> Result<ToolResult, AppError> {
     debug!("Post created successfully: {}", post_uri);
 
     // Format result as markdown
-    let markdown = if post_args.reply_to.is_some() {
+    let markdown = if post_args.replyTo.is_some() {
         format!(
             "# Reply Posted\n\n**Post URI:** {}\n\n**Text:** {}\n\n**Reply To:** {}\n",
             post_uri,
             post_args.text,
-            post_args.reply_to.as_ref().unwrap()
+            post_args.replyTo.as_ref().unwrap()
         )
     } else {
         format!(
@@ -223,9 +226,9 @@ mod tests {
         });
 
         let parsed: PostArgs = serde_json::from_value(args).unwrap();
-        assert_eq!(parsed.post_as, "test.bsky.social");
+        assert_eq!(parsed.postAs, "test.bsky.social");
         assert_eq!(parsed.text, "Hello, world!");
-        assert!(parsed.reply_to.is_none());
+        assert!(parsed.replyTo.is_none());
     }
 
     #[tokio::test]
@@ -237,10 +240,10 @@ mod tests {
         });
 
         let parsed: PostArgs = serde_json::from_value(args).unwrap();
-        assert_eq!(parsed.post_as, "test.bsky.social");
+        assert_eq!(parsed.postAs, "test.bsky.social");
         assert_eq!(parsed.text, "Reply text");
         assert_eq!(
-            parsed.reply_to,
+            parsed.replyTo,
             Some("at://did:plc:abc/app.bsky.feed.post/123".to_string())
         );
     }

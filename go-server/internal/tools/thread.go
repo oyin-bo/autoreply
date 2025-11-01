@@ -43,7 +43,7 @@ func (t *ThreadTool) Name() string {
 
 // Description returns the tool description
 func (t *ThreadTool) Description() string {
-	return "Fetch a thread by post URI. Returns all the replies and replies to replies - the whole conversation. If you're already logged in, this will fetch the thread as viewed by the logged in user. If the handle is 'anonymous', it will fetch the thread in incognito mode."
+	return "Fetch a thread by post reference (at:// URI, https://bsky.app/... URL, or @handle/rkey). Returns all the replies and replies to replies - the whole conversation."
 }
 
 // InputSchema returns the JSON schema for tool input
@@ -53,11 +53,11 @@ func (t *ThreadTool) InputSchema() mcp.InputSchema {
 		Properties: map[string]mcp.PropertySchema{
 			"postURI": {
 				Type:        "string",
-				Description: "The BlueSky URL of the post, or the at:// URI of the post to fetch the thread for.",
+				Description: "Post reference: at:// URI, https://bsky.app/... URL, or @handle/rkey format",
 			},
-			"login": {
+			"viewAs": {
 				Type:        "string",
-				Description: "(Optional) BlueSky handle to use for authenticated fetch. Use 'anonymous' for incognito mode.",
+				Description: "(Optional) Account to view thread as: handle, @handle, DID, Bsky.app profile URL, or partial DID suffix. Use 'anonymous' for incognito mode (default if not specified).",
 			},
 		},
 		Required: []string{"postURI"},
@@ -88,38 +88,38 @@ func (t *ThreadTool) Call(ctx context.Context, args map[string]interface{}, _ *m
 		return nil, errors.Wrap(err, errors.InvalidInput, "Failed to parse post URI")
 	}
 
-	// Extract login parameter
-	login := getStringParam(args, "login", "")
+	// Extract viewAs parameter
+	viewAs := getStringParam(args, "viewAs", "")
 
-	// Validate and normalize login
-	if login != "" && login != "anonymous" {
+	// Validate and normalize viewAs
+	if viewAs != "" && viewAs != "anonymous" {
 		// Check if credentials exist
-		_, err := t.credStore.Load(login)
+		_, err := t.credStore.Load(viewAs)
 		if err != nil {
 			// Try to get default handle
 			defaultHandle, defErr := t.credStore.GetDefault()
 			if defErr == nil && defaultHandle != "" {
-				login = defaultHandle
+				viewAs = defaultHandle
 			} else {
-				login = "anonymous" // Fall back to anonymous
+				viewAs = "anonymous" // Fall back to anonymous
 			}
 		}
 	}
 
-	// If login is empty, try to get default handle
-	if login == "" {
+	// If viewAs is empty, try to get default handle
+	if viewAs == "" {
 		defaultHandle, err := t.credStore.GetDefault()
 		if err == nil && defaultHandle != "" {
-			login = defaultHandle
+			viewAs = defaultHandle
 		}
 	}
 
-	// Fetch thread
+	// Fetch thread data
 	params := map[string]string{
 		"uri": atURI,
 	}
 
-	threadData, err := t.apiClient.GetWithOptionalAuth(ctx, login, "app.bsky.feed.getPostThread", params)
+	threadData, err := t.apiClient.GetWithOptionalAuth(ctx, viewAs, "app.bsky.feed.getPostThread", params)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.InternalError, "Failed to fetch thread")
 	}

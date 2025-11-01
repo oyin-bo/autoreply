@@ -462,8 +462,8 @@ impl AtProtoOAuthManager {
     ///
     /// # Arguments
     /// * `handle` - Optional handle to log in as. If None, uses default bsky.social service
-    ///              and allows user to select any account during OAuth flow.
-    ///              If Some, resolves the handle's PDS and passes it as login_hint.
+    ///   and allows user to select any account during OAuth flow.
+    ///   If Some, resolves the handle's PDS and passes it as login_hint.
     pub async fn start_browser_flow(
         &mut self,
         handle: Option<&str>,
@@ -471,7 +471,7 @@ impl AtProtoOAuthManager {
         // Validate handle format: must contain a dot (e.g., "user.bsky.social")
         // If handle is provided but invalid, treat it like None and use default OAuth
         let valid_handle = handle.filter(|h| h.contains('.'));
-        
+
         let (did, pds_url) = match valid_handle {
             Some(h) => {
                 tracing::debug!("Starting atproto OAuth flow for handle: {}", h);
@@ -492,19 +492,23 @@ impl AtProtoOAuthManager {
                 if let Some(invalid) = handle {
                     tracing::debug!("Handle '{}' is invalid (no domain), using default OAuth flow with account selection", invalid);
                 } else {
-                    tracing::debug!("Starting atproto OAuth flow with default service (account selection)");
+                    tracing::debug!(
+                        "Starting atproto OAuth flow with default service (account selection)"
+                    );
                 }
                 // Use default BlueSky entryway - user will select account during OAuth
                 // Note: bsky.social is an entryway, not a PDS
                 tracing::debug!("Using default entryway for account selection");
-                
+
                 // Discover directly from entryway (skip PDS resolution)
                 let issuer = "https://bsky.social";
                 tracing::debug!("Discovering authorization server from entryway: {}", issuer);
                 let auth_metadata = self.discover_from_issuer(issuer).await?;
                 tracing::debug!("Authorization server: {}", auth_metadata.issuer);
-                
-                return self.complete_browser_flow(auth_metadata, handle, String::new()).await;
+
+                return self
+                    .complete_browser_flow(auth_metadata, handle, String::new())
+                    .await;
             }
         };
 
@@ -512,7 +516,7 @@ impl AtProtoOAuthManager {
         tracing::debug!("Discovering authorization server...");
         let auth_metadata = self.discover_authorization_server(&pds_url).await?;
         tracing::debug!("Authorization server: {}", auth_metadata.issuer);
-        
+
         self.complete_browser_flow(auth_metadata, handle, did).await
     }
 
@@ -547,16 +551,19 @@ impl AtProtoOAuthManager {
         );
 
         // Step 6: Build authorization URL
-        tracing::debug!("Building auth URL with client_id: {}", self.config.client_id);
+        tracing::debug!(
+            "Building auth URL with client_id: {}",
+            self.config.client_id
+        );
         tracing::debug!("request_uri from PAR: {}", par_response.request_uri);
-        
+
         let auth_url = format!(
             "{}?client_id={}&request_uri={}",
             auth_metadata.authorization_endpoint,
             urlencoding::encode(&self.config.client_id),
             urlencoding::encode(&par_response.request_uri)
         );
-        
+
         tracing::debug!("Final authorization URL: {}", auth_url);
 
         Ok(BrowserFlowState {
@@ -572,10 +579,7 @@ impl AtProtoOAuthManager {
     /// Discover authorization server directly from issuer (entryway)
     /// Used when no handle is provided - connects to a known entryway like bsky.social
     async fn discover_from_issuer(&self, issuer: &str) -> Result<AuthServerMetadata, AppError> {
-        let auth_metadata_url = format!(
-            "{}/.well-known/oauth-authorization-server",
-            issuer
-        );
+        let auth_metadata_url = format!("{}/.well-known/oauth-authorization-server", issuer);
 
         let response = self
             .client
@@ -610,8 +614,8 @@ impl AtProtoOAuthManager {
     ///
     /// # Arguments
     /// * `login_hint` - Optional handle to pre-select during OAuth authorization.
-    ///                  When provided, the OAuth server will pre-select this account.
-    ///                  When None, the user can freely select any account.
+    ///   When provided, the OAuth server will pre-select this account.
+    ///   When None, the user can freely select any account.
     async fn submit_par(
         &mut self,
         par_endpoint: &str,
@@ -814,7 +818,9 @@ impl AtProtoOAuthManager {
         let did = token_response
             .sub
             .as_ref()
-            .ok_or_else(|| AppError::Authentication("Token response missing 'sub' field (DID)".to_string()))?
+            .ok_or_else(|| {
+                AppError::Authentication("Token response missing 'sub' field (DID)".to_string())
+            })?
             .clone();
 
         // If we started with a handle, verify the DID matches
@@ -832,7 +838,10 @@ impl AtProtoOAuthManager {
             let domain = did.strip_prefix("did:web:").unwrap();
             format!("https://{}/.well-known/did.json", domain)
         } else {
-            return Err(AppError::Authentication(format!("Unsupported DID method: {}", did)));
+            return Err(AppError::Authentication(format!(
+                "Unsupported DID method: {}",
+                did
+            )));
         };
 
         let did_doc: serde_json::Value = self
@@ -867,7 +876,9 @@ impl AtProtoOAuthManager {
             .find(|s| s.get("id").and_then(|id| id.as_str()) == Some("#atproto_pds"))
             .and_then(|s| s.get("serviceEndpoint"))
             .and_then(|e| e.as_str())
-            .ok_or_else(|| AppError::Authentication("DID document missing PDS endpoint".to_string()))?
+            .ok_or_else(|| {
+                AppError::Authentication("DID document missing PDS endpoint".to_string())
+            })?
             .to_string();
 
         // Create session
@@ -887,6 +898,7 @@ impl AtProtoOAuthManager {
 }
 
 /// State maintained during browser OAuth flow
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct BrowserFlowState {
     /// Authorization URL to open in browser

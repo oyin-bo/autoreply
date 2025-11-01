@@ -39,11 +39,16 @@ func TestLoginToolBasics(t *testing.T) {
 			t.Errorf("Expected schema type 'object', got '%s'", schema.Type)
 		}
 
-		requiredProps := []string{"command", "handle", "password", "service", "port"}
+		requiredProps := []string{"command", "handle", "password", "port"}
 		for _, prop := range requiredProps {
 			if _, ok := schema.Properties[prop]; !ok {
 				t.Errorf("Schema missing '%s' property", prop)
 			}
+		}
+
+		// Service should NOT be in the schema (hidden from MCP)
+		if _, ok := schema.Properties["service"]; ok {
+			t.Error("Schema should not expose 'service' property (internal use only)")
 		}
 	})
 

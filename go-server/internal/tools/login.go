@@ -63,10 +63,6 @@ func (t *LoginTool) InputSchema() mcp.InputSchema {
 				Type:        "integer",
 				Description: "Local callback server port for OAuth (default: 8080)",
 			},
-			"service": {
-				Type:        "string",
-				Description: "Service URL (defaults to https://bsky.social)",
-			},
 		},
 	}
 }

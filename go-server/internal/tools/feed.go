@@ -43,7 +43,7 @@ func (t *FeedTool) Name() string {
 
 // Description returns the tool description
 func (t *FeedTool) Description() string {
-	return "Get the latest feed from BlueSky. Returns a list of posts (also known as tweets or skeets). If you want to see the latest posts from a specific user, provide their handle. These feeds are paginated - you get the top chunk and a cursor to get more posts."
+	return "Get the latest feed from BlueSky. Returns a list of posts (also known as tweets or skeets). If you want to see the latest posts from a specific user, provide their handle."
 }
 
 // InputSchema returns the JSON schema for tool input
@@ -55,17 +55,17 @@ func (t *FeedTool) InputSchema() mcp.InputSchema {
 				Type:        "string",
 				Description: "(Optional) The feed to retrieve, can be a BlueSky feed URI, or a name for a feed to search for. If unspecified, returns the default popular feed 'What is Hot'.",
 			},
-			"login": {
+			"viewAs": {
 				Type:        "string",
-				Description: "(Optional) BlueSky handle for which the feed is requested. If unspecified or 'anonymous', the feed will be retrieved in incognito mode.",
+				Description: "(Optional) Account to view feed as: handle (alice.bsky.social), @handle, DID, Bsky.app profile URL, or partial DID suffix. If unspecified or 'anonymous', the feed will be retrieved in incognito mode.",
 			},
-			"cursor": {
+			"continueAtCursor": {
 				Type:        "string",
-				Description: "(Optional) Cursor for pagination.",
+				Description: "(Optional) Cursor for pagination. When provided, fetches the next batch of posts from where the previous request left off.",
 			},
 			"limit": {
 				Type:        "integer",
-				Description: "(Optional) Limit the number of posts returned, defaults to 20, max 100.",
+				Description: "(Optional) Defaults to 50",
 			},
 		},
 		Required: []string{},
@@ -76,69 +76,114 @@ func (t *FeedTool) InputSchema() mcp.InputSchema {
 func (t *FeedTool) Call(ctx context.Context, args map[string]interface{}, _ *mcp.Server) (*mcp.ToolResult, error) {
 	// Extract parameters
 	feed := getStringParam(args, "feed", "")
-	login := getStringParam(args, "login", "")
-	cursor := getStringParam(args, "cursor", "")
-	limit := getIntParam(args, "limit", 20)
+	viewAs := getStringParam(args, "viewAs", "")
+	continueAtCursor := getStringParam(args, "continueAtCursor", "")
+	limit := getIntParam(args, "limit", 50)
 
-	// Validate and normalize login
-	if login != "" && login != "anonymous" {
+	// Validate and normalize viewAs
+	if viewAs != "" && viewAs != "anonymous" {
 		// Check if credentials exist
-		_, err := t.credStore.Load(login)
+		_, err := t.credStore.Load(viewAs)
 		if err != nil {
 			// Try to get default handle
 			defaultHandle, defErr := t.credStore.GetDefault()
 			if defErr == nil && defaultHandle != "" {
-				login = defaultHandle
+				viewAs = defaultHandle
 			} else {
-				login = "anonymous" // Fall back to anonymous
+				viewAs = "anonymous" // Fall back to anonymous
 			}
 		}
 	}
 
-	// If login is empty, try to get default handle
-	if login == "" {
+	// If viewAs is empty, try to get default handle
+	if viewAs == "" {
 		defaultHandle, err := t.credStore.GetDefault()
 		if err == nil && defaultHandle != "" {
-			login = defaultHandle
+			viewAs = defaultHandle
 		}
 	}
 
-	// Determine which feed to fetch
-	var feedData map[string]interface{}
-	var err error
-
-	params := make(map[string]string)
-	if cursor != "" {
-		params["cursor"] = cursor
+	// Fetch the feed - if limit > 100, fetch in batches
+	var allPosts []interface{}
+	var cursor string
+	if continueAtCursor != "" {
+		cursor = continueAtCursor
 	}
-	if limit > 0 {
-		if limit > 100 {
-			limit = 100
+
+	requestedLimit := limit
+	if requestedLimit <= 0 {
+		requestedLimit = 50
+	}
+
+	// Fetch in batches if needed
+	for len(allPosts) < requestedLimit {
+		batchSize := requestedLimit - len(allPosts)
+		if batchSize > 100 {
+			batchSize = 100 // API limit per request
 		}
-		params["limit"] = fmt.Sprintf("%d", limit)
-	}
 
-	if feed != "" {
-		// Resolve feed URI if needed
-		feedURI, err := t.resolveFeedURI(ctx, feed)
+		params := make(map[string]string)
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		params["limit"] = fmt.Sprintf("%d", batchSize)
+
+		var feedData map[string]interface{}
+		var err error
+
+		if feed != "" {
+			// Resolve feed URI if needed
+			var feedURI string
+			feedURI, err = t.resolveFeedURI(ctx, feed)
+			if err != nil {
+				return nil, errors.Wrap(err, errors.InvalidInput, "Failed to resolve feed")
+			}
+
+			// Use resolved feed URI
+			params["feed"] = feedURI
+			feedData, err = t.apiClient.GetWithOptionalAuth(ctx, viewAs, "app.bsky.feed.getFeed", params)
+		} else if viewAs != "" && viewAs != "anonymous" {
+			// Get authenticated user's timeline
+			feedData, err = t.apiClient.GetWithAuth(ctx, viewAs, "app.bsky.feed.getTimeline", params)
+		} else {
+			// Use default "What's Hot" feed for anonymous users
+			params["feed"] = "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot"
+			feedData, err = t.apiClient.GetPublic(ctx, "app.bsky.feed.getFeed", params)
+		}
+
 		if err != nil {
-			return nil, errors.Wrap(err, errors.InvalidInput, "Failed to resolve feed")
+			return nil, errors.Wrap(err, errors.InternalError, "Failed to fetch feed")
 		}
 
-		// Use resolved feed URI
-		params["feed"] = feedURI
-		feedData, err = t.apiClient.GetWithOptionalAuth(ctx, login, "app.bsky.feed.getFeed", params)
-	} else if login != "" && login != "anonymous" {
-		// Get authenticated user's timeline
-		feedData, err = t.apiClient.GetWithAuth(ctx, login, "app.bsky.feed.getTimeline", params)
-	} else {
-		// Use default "What's Hot" feed for anonymous users
-		params["feed"] = "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot"
-		feedData, err = t.apiClient.GetPublic(ctx, "app.bsky.feed.getFeed", params)
+		// Extract posts from this batch
+		batchPosts, ok := feedData["feed"].([]interface{})
+		if !ok || len(batchPosts) == 0 {
+			// No more posts available
+			break
+		}
+
+		allPosts = append(allPosts, batchPosts...)
+
+		// Check if there's a cursor for next batch
+		nextCursor, hasCursor := feedData["cursor"].(string)
+		if !hasCursor || nextCursor == "" {
+			// No more pages available
+			break
+		}
+		cursor = nextCursor
+
+		// If we got fewer posts than requested in this batch, we've reached the end
+		if len(batchPosts) < batchSize {
+			break
+		}
 	}
 
-	if err != nil {
-		return nil, errors.Wrap(err, errors.InternalError, "Failed to fetch feed")
+	// Rebuild feedData with all collected posts
+	feedData := map[string]interface{}{
+		"feed": allPosts,
+	}
+	if cursor != "" {
+		feedData["cursor"] = cursor
 	}
 
 	// Format results as markdown

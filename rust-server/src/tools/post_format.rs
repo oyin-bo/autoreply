@@ -14,7 +14,7 @@ use std::collections::HashMap;
 /// - Subsequent mentions in thread: @firstletter/…last4
 pub fn compact_post_id(handle: &str, rkey: &str, seen_posts: &HashMap<String, String>) -> String {
     let full_id = format!("{}/{}", handle, rkey);
-    
+
     // Check if we've seen this post before
     if seen_posts.contains_key(&full_id) {
         ultra_compact_id(handle, rkey)
@@ -29,7 +29,7 @@ pub fn compact_post_id(handle: &str, rkey: &str, seen_posts: &HashMap<String, St
 pub fn ultra_compact_id(handle: &str, rkey: &str) -> String {
     let first_letter = handle.chars().next().unwrap_or('?');
     let last_four = if rkey.len() > 4 {
-        &rkey[rkey.len()-4..]
+        &rkey[rkey.len() - 4..]
     } else {
         rkey
     };
@@ -41,7 +41,7 @@ pub fn blockquote_content(text: &str) -> String {
     if text.is_empty() {
         return "> \n".to_string();
     }
-    
+
     text.lines()
         .map(|line| format!("> {}", line))
         .collect::<Vec<_>>()
@@ -53,21 +53,21 @@ pub fn blockquote_content(text: &str) -> String {
 /// Only shows non-zero stats
 pub fn format_stats(likes: i32, reposts: i32, quotes: i32, replies: i32) -> String {
     let mut parts = Vec::new();
-    
+
     if likes > 0 {
         parts.push(format!("👍 {}", likes));
     }
-    
+
     // Combine reposts and quotes into ♻️
     let reshares = reposts + quotes;
     if reshares > 0 {
         parts.push(format!("♻️ {}", reshares));
     }
-    
+
     if replies > 0 {
         parts.push(format!("💬 {}", replies));
     }
-    
+
     parts.join("  ")
 }
 
@@ -81,7 +81,14 @@ pub fn format_timestamp(timestamp: &str) -> String {
     } else if timestamp.ends_with('Z') {
         timestamp.to_string()
     } else {
-        format!("{}Z", timestamp.trim_end_matches('+').split('+').next().unwrap_or(timestamp))
+        format!(
+            "{}Z",
+            timestamp
+                .trim_end_matches('+')
+                .split('+')
+                .next()
+                .unwrap_or(timestamp)
+        )
     }
 }
 
@@ -91,7 +98,7 @@ pub fn extract_rkey(uri: &str) -> &str {
     if uri.is_empty() {
         return "unknown";
     }
-    uri.split('/').last().unwrap_or("unknown")
+    uri.split('/').next_back().unwrap_or("unknown")
 }
 
 /// Build threading indicator with indentation
@@ -130,7 +137,10 @@ mod tests {
 
     #[test]
     fn test_ultra_compact_id() {
-        assert_eq!(ultra_compact_id("alice.bsky.social", "3kq8a3f1"), "@a/…a3f1");
+        assert_eq!(
+            ultra_compact_id("alice.bsky.social", "3kq8a3f1"),
+            "@a/…a3f1"
+        );
         assert_eq!(ultra_compact_id("bob", "3kq8b2e4"), "@b/…b2e4");
         assert_eq!(ultra_compact_id("carol-long-handle", "abc"), "@c/…abc");
     }

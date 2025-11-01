@@ -53,7 +53,7 @@ func (t *PostTool) InputSchema() mcp.InputSchema {
 		Properties: map[string]mcp.PropertySchema{
 			"postAs": {
 				Type:        "string",
-				Description: "Handle or DID to post as (uses default account if not specified)",
+				Description: "Account to post as: handle (alice.bsky.social), @handle, DID (did:plc:...), Bsky.app profile URL, or partial DID suffix (uses default account if not specified)",
 			},
 			"text": {
 				Type:        "string",
@@ -61,7 +61,7 @@ func (t *PostTool) InputSchema() mcp.InputSchema {
 			},
 			"replyTo": {
 				Type:        "string",
-				Description: "Post URI (at://...) or Bluesky URL (https://bsky.app/...) to reply to (optional)",
+				Description: "Post to reply to: at:// URI, https://bsky.app/... URL, or @handle/rkey format (optional)",
 			},
 		},
 		Required: []string{"text"},

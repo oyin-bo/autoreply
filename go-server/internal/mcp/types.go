@@ -112,10 +112,10 @@ type ElicitationResponse struct {
 type InitializeResult struct {
 	// ProtocolVersion indicates the server's MCP protocol version.
 	// Standard MCP protocol version is "2024-11-05".
-	ProtocolVersion string `json:"protocolVersion"`
-	ServerInfo   ServerInfo   `json:"serverInfo"`
-	Capabilities Capabilities `json:"capabilities"`
-	Tools        []ToolInfo   `json:"tools,omitempty"`
+	ProtocolVersion string       `json:"protocolVersion"`
+	ServerInfo      ServerInfo   `json:"serverInfo"`
+	Capabilities    Capabilities `json:"capabilities"`
+	Tools           []ToolInfo   `json:"tools,omitempty"`
 }
 
 // ServerInfo describes this MCP server

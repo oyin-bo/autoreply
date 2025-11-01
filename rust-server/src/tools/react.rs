@@ -38,7 +38,7 @@ async fn handle_react_impl(args: Value) -> Result<ToolResult, AppError> {
 pub async fn execute_react(react_args: ReactArgs) -> Result<ToolResult, AppError> {
     debug!(
         "React request for account: {}, like: {}, unlike: {}, repost: {}, delete: {}",
-        react_args.react_as,
+        react_args.reactAs,
         react_args.like.len(),
         react_args.unlike.len(),
         react_args.repost.len(),
@@ -47,23 +47,23 @@ pub async fn execute_react(react_args: ReactArgs) -> Result<ToolResult, AppError
 
     // Get credentials for the account
     let storage = CredentialStorage::new()?;
-    
+
     // Try to get stored session first (for OAuth accounts)
-    let session = if let Some(stored_session) = storage.get_session(&react_args.react_as)? {
-        debug!("Using stored session for {}", react_args.react_as);
+    let session = if let Some(stored_session) = storage.get_session(&react_args.reactAs)? {
+        debug!("Using stored session for {}", react_args.reactAs);
         stored_session
     } else {
         // Fallback to creating new session with credentials (for app password accounts)
-        debug!("No stored session, creating new session for {}", react_args.react_as);
-        let credentials = storage.get_credentials(&react_args.react_as)?;
+        debug!(
+            "No valid session for {}, using app password flow",
+            react_args.reactAs
+        );
+        let credentials = storage.get_credentials(&react_args.reactAs)?;
         let session_manager = SessionManager::new()?;
         session_manager.login(&credentials).await?
     };
 
-    debug!(
-        "Authenticated as {} (DID: {})",
-        session.handle, session.did
-    );
+    debug!("Authenticated as {} (DID: {})", session.handle, session.did);
 
     let client = crate::http::client_with_timeout(std::time::Duration::from_secs(120));
 
@@ -145,10 +145,7 @@ async fn process_like(
 ) -> Result<String, AppError> {
     let (did, _rkey, uri, cid) = fetch_post_info(client, session, post_uri).await?;
 
-    let url = format!(
-        "{}/xrpc/com.atproto.repo.createRecord",
-        session.service
-    );
+    let url = format!("{}/xrpc/com.atproto.repo.createRecord", session.service);
 
     let body = serde_json::json!({
         "repo": session.did,
@@ -232,7 +229,7 @@ async fn process_unlike(
                 if subject_uri == uri {
                     record["uri"].as_str().and_then(|u| {
                         // Extract rkey from at://{did}/app.bsky.feed.like/{rkey}
-                        u.split('/').last().map(|s| s.to_string())
+                        u.split('/').next_back().map(|s| s.to_string())
                     })
                 } else {
                     None
@@ -242,10 +239,7 @@ async fn process_unlike(
         .ok_or_else(|| AppError::NotFound(format!("No like found for post: {}", post_uri)))?;
 
     // Delete the like record
-    let delete_url = format!(
-        "{}/xrpc/com.atproto.repo.deleteRecord",
-        session.service
-    );
+    let delete_url = format!("{}/xrpc/com.atproto.repo.deleteRecord", session.service);
 
     let delete_body = serde_json::json!({
         "repo": session.did,
@@ -284,10 +278,7 @@ async fn process_repost(
 ) -> Result<String, AppError> {
     let (did, _rkey, uri, cid) = fetch_post_info(client, session, post_uri).await?;
 
-    let url = format!(
-        "{}/xrpc/com.atproto.repo.createRecord",
-        session.service
-    );
+    let url = format!("{}/xrpc/com.atproto.repo.createRecord", session.service);
 
     let body = serde_json::json!({
         "repo": session.did,
@@ -341,10 +332,7 @@ async fn process_delete(
         )));
     }
 
-    let url = format!(
-        "{}/xrpc/com.atproto.repo.deleteRecord",
-        session.service
-    );
+    let url = format!("{}/xrpc/com.atproto.repo.deleteRecord", session.service);
 
     let body = serde_json::json!({
         "repo": session.did,
@@ -442,7 +430,7 @@ mod tests {
         });
 
         let parsed: ReactArgs = serde_json::from_value(args).unwrap();
-        assert_eq!(parsed.react_as, "test.bsky.social");
+        assert_eq!(parsed.reactAs, "test.bsky.social");
         assert_eq!(parsed.like.len(), 1);
         assert_eq!(parsed.unlike.len(), 0);
         assert_eq!(parsed.repost.len(), 0);
@@ -460,7 +448,7 @@ mod tests {
         });
 
         let parsed: ReactArgs = serde_json::from_value(args).unwrap();
-        assert_eq!(parsed.react_as, "test.bsky.social");
+        assert_eq!(parsed.reactAs, "test.bsky.social");
         assert_eq!(parsed.like.len(), 1);
         assert_eq!(parsed.unlike.len(), 1);
         assert_eq!(parsed.repost.len(), 1);

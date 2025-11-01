@@ -135,7 +135,10 @@ async fn handle_login_impl(args: Value, context: &ServerContext) -> Result<ToolR
 }
 
 /// Create error message when elicitation is unavailable
-pub(crate) fn create_elicitation_unavailable_error(context: &ServerContext, field: &str) -> ToolResult {
+pub(crate) fn create_elicitation_unavailable_error(
+    context: &ServerContext,
+    field: &str,
+) -> ToolResult {
     let client_name = context.get_client_name();
 
     let message = format!(

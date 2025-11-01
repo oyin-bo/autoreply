@@ -26,8 +26,8 @@ impl RepositoryProvider {
     pub fn new() -> Result<Self, AppError> {
         let client = Client::builder()
             // No total timeout - let downloads complete as long as data flows
-            .connect_timeout(Duration::from_secs(120))  // 2 minutes to establish connection (slow/flaky networks)
-            .read_timeout(Duration::from_secs(120))     // 2 minutes between data chunks (detect true stalls)
+            .connect_timeout(Duration::from_secs(120)) // 2 minutes to establish connection (slow/flaky networks)
+            .read_timeout(Duration::from_secs(120)) // 2 minutes between data chunks (detect true stalls)
             .user_agent("autoreply/0.3")
             .build()
             .map_err(|e| AppError::HttpClientInitialization(e.to_string()))?;
@@ -93,10 +93,7 @@ impl RepositoryProvider {
         }
 
         let content_length = response.content_length().unwrap_or(0);
-        debug!(
-            "Downloading repo for {} ({} bytes)",
-            did, content_length
-        );
+        debug!("Downloading repo for {} ({} bytes)", did, content_length);
 
         // Stream bytes directly to temp file
         let mut temp_file = tokio::fs::File::create(&temp_path)
@@ -112,7 +109,7 @@ impl RepositoryProvider {
                     bytes_written, e
                 ))
             })?;
-            
+
             bytes_written += chunk.len();
             tokio::io::AsyncWriteExt::write_all(&mut temp_file, &chunk)
                 .await

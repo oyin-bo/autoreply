@@ -1,6 +1,6 @@
 //! Search tool implementation
 //!
-//! Implements the `search(account, query)` MCP tool
+//! Implements the `search(from, query)` MCP tool
 
 use crate::bluesky::did::DidResolver;
 use crate::bluesky::provider::RepositoryProvider;
@@ -71,22 +71,25 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     };
 
     debug!("Resolved {} to DID: {:?}", search_args.from, did);
-    
-    let did_str = did.as_ref()
+
+    let did_str = did
+        .as_ref()
         .ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?;
 
     // Get CAR file and extract CID->rkey mappings using MST
     let provider = RepositoryProvider::new()?;
     let car_path = provider.fetch_repo_car(did_str).await?;
-    let car_bytes = tokio::fs::read(&car_path).await
+    let car_bytes = tokio::fs::read(&car_path)
+        .await
         .map_err(|e| AppError::CacheError(format!("Failed to read CAR file: {}", e)))?;
-    
+
     debug!("Extracting CID->rkey mappings from MST for collection app.bsky.feed.post");
-    let cid_to_rkey = crate::bluesky::mst::extract_cid_to_rkey_mapping(
-        &car_bytes,
-        "app.bsky.feed.post"
-    ).map_err(|e| AppError::RepoParseFailed(format!("Failed to extract MST mappings: {:?}", e)))?;
-    
+    let cid_to_rkey =
+        crate::bluesky::mst::extract_cid_to_rkey_mapping(&car_bytes, "app.bsky.feed.post")
+            .map_err(|e| {
+                AppError::RepoParseFailed(format!("Failed to extract MST mappings: {:?}", e))
+            })?;
+
     debug!("Extracted {} CID->rkey mappings", cid_to_rkey.len());
 
     // Get posts using streaming iterator with CID tracking
@@ -118,10 +121,11 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
                     };
 
                 // Look up rkey from CID->rkey mapping
-                let collection_rkey = cid_to_rkey.get(&cid_str)
+                let collection_rkey = cid_to_rkey
+                    .get(&cid_str)
                     .map(|s| s.as_str())
                     .unwrap_or("app.bsky.feed.post/unknown");
-                
+
                 Some(PostRecord {
                     uri: format!("at://{}/{}", did_str, collection_rkey),
                     cid: cid_str,
@@ -136,10 +140,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
         })
         .collect();
 
-    debug!(
-        "Extracted {} post records with rkeys",
-        posts.len()
-    );
+    debug!("Extracted {} post records with rkeys", posts.len());
 
     // Search posts
     let mut matching_posts = search_posts(&posts, &normalized_query);
@@ -209,7 +210,7 @@ fn search_posts<'a>(posts: &'a [PostRecord], query: &str) -> Vec<&'a PostRecord>
 fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> String {
     use crate::tools::post_format::*;
     use std::collections::HashMap;
-    
+
     let mut markdown = format!("# Search Results · {} posts\n\n", posts.len());
 
     let mut seen_posts: HashMap<String, String> = HashMap::new();
@@ -217,21 +218,21 @@ fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> St
     for post in posts {
         let rkey = extract_rkey(&post.uri);
         let full_id = format!("{}/{}", handle, rkey);
-        
+
         // Author ID line
         let author_id = compact_post_id(handle, rkey, &seen_posts);
         markdown.push_str(&format!("{}\n", author_id));
         seen_posts.insert(full_id, post.uri.clone());
-        
+
         // Blockquote content (with highlighting preserved inside quote)
         let highlighted_text = highlight_query(&post.text, query);
         markdown.push_str(&blockquote_content(&highlighted_text));
         markdown.push('\n');
-        
+
         // Stats and timestamp (search results don't have engagement stats from CAR)
         let timestamp = format_timestamp(&post.created_at);
         markdown.push_str(&format!("{}\n", timestamp));
-        
+
         markdown.push('\n');
     }
 

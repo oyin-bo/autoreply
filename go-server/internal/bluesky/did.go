@@ -160,31 +160,72 @@ func NewDIDResolver() *DIDResolver {
 	}
 }
 
-// ResolveHandle converts a handle to a DID, with caching
-func (r *DIDResolver) ResolveHandle(ctx context.Context, account string) (string, error) {
-	// If it's already a DID, validate and return it
+// ParseAccountReference parses various account reference formats into a normalized form
+// Supports: handles, @handles, DIDs, partial DIDs (suffix only), and Bsky.app profile URLs
+func ParseAccountReference(account string) string {
+	account = strings.TrimSpace(account)
+
+	// Already a full DID
 	if strings.HasPrefix(account, "did:") {
-		if !IsValidDID(account) {
-			return "", errors.NewMCPError(errors.InvalidInput, "Invalid DID format")
-		}
-		return account, nil
+		return account
 	}
 
-	// Check cache first
-	if cached, ok := r.cache.Load(account); ok {
+	// Remove @ prefix for handles
+	if strings.HasPrefix(account, "@") {
+		return strings.TrimPrefix(account, "@")
+	}
+
+	// Parse Bsky.app profile URLs: https://bsky.app/profile/{handle}
+	if strings.HasPrefix(account, "https://bsky.app/profile/") ||
+		strings.HasPrefix(account, "http://bsky.app/profile/") {
+		parts := strings.Split(account, "/profile/")
+		if len(parts) >= 2 {
+			// Extract handle or DID from URL, may have trailing path
+			profilePart := parts[1]
+			// Remove trailing slash and any path components
+			if idx := strings.Index(profilePart, "/"); idx > 0 {
+				profilePart = profilePart[:idx]
+			}
+			return profilePart
+		}
+	}
+
+	// Detect partial DID suffix (did:plc: is 8 chars, suffix is 24 base32 chars)
+	// If we have exactly 24 base32 characters, assume it's a did:plc suffix
+	if len(account) == 24 && regexp.MustCompile(`^[a-z2-7]{24}$`).MatchString(account) {
+		return "did:plc:" + account
+	}
+
+	// Otherwise assume it's a handle
+	return account
+}
+
+// ResolveHandle converts a handle to a DID, with caching
+// Now supports multiple account reference formats via ParseAccountReference
+func (r *DIDResolver) ResolveHandle(ctx context.Context, account string) (string, error) {
+	// Parse the account reference to normalize it
+	normalized := ParseAccountReference(account)
+
+	// If it's already a DID, validate and return it
+	if strings.HasPrefix(normalized, "did:") {
+		if !IsValidDID(normalized) {
+			return "", errors.NewMCPError(errors.InvalidInput, "Invalid DID format")
+		}
+		return normalized, nil
+	}
+
+	// Check cache first (use normalized form as key)
+	if cached, ok := r.cache.Load(normalized); ok {
 		entry := cached.(CacheEntry)
 		if time.Now().Before(entry.ExpiresAt) {
 			return entry.DID, nil
 		}
 		// Remove expired entry
-		r.cache.Delete(account)
+		r.cache.Delete(normalized)
 	}
 
-	// Clean handle (remove @ prefix if present)
-	handle := strings.TrimPrefix(account, "@")
-
 	// Resolve via network resolvers (api.bsky.app, bsky.social)
-	did, err := r.resolveViaXRPC(ctx, handle)
+	did, err := r.resolveViaXRPC(ctx, normalized)
 	if err != nil {
 		return "", err
 	}
@@ -196,7 +237,7 @@ func (r *DIDResolver) ResolveHandle(ctx context.Context, account string) (string
 	}
 
 	// Cache the result
-	r.cache.Store(account, CacheEntry{
+	r.cache.Store(normalized, CacheEntry{
 		DID:       did,
 		ExpiresAt: time.Now().Add(r.cacheTTL),
 	})

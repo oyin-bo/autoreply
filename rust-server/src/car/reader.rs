@@ -310,7 +310,7 @@ impl Iterator for CarRecords {
                 };
 
                 self.processed_count += 1;
-                
+
                 // Format CID string for mapping
                 let cid_str = format_cid_simple(&entry.cid);
 
@@ -324,7 +324,11 @@ impl Iterator for CarRecords {
                             if key_str == "$type" {
                                 if let serde_cbor::Value::Text(type_str) = value {
                                     // Found an AT Protocol record - return owned data with CID
-                                    return Some(Ok((type_str.clone(), entry.bytes.clone(), cid_str)));
+                                    return Some(Ok((
+                                        type_str.clone(),
+                                        entry.bytes.clone(),
+                                        cid_str,
+                                    )));
                                 }
                             }
                         }

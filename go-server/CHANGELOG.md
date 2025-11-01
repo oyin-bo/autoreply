@@ -1,9 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.6] - 2025-11-01
 
-### Fixed
-- **Search Results Display**: Fixed bug where posts showed `@handle/unknown` instead of actual rkey.
+### Added
+- Support for various account formats: handles, @handles, DIDs, Bsky.app profile URLs, even shortDIDs.
+
+### Changed
+- Consistency and clarity across all account parameter names.
+- Removed app password from feed and thread tools: login is where authentication happens.
+- Pagination: batching is internal and allows any number of posts per page.
+- Fixed bug where posts showed `@handle/unknown` instead of actual rkey.
 
 ## [0.3.5] - 2025-11-01
 

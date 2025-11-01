@@ -130,10 +130,12 @@ func TestLoginElicitation_HandleAccept_PasswordCancel(t *testing.T) {
 
 	// Run the call concurrently; it will block awaiting elicitation responses
 	done := make(chan *mcp.ToolResult, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		res, callErr := tool.Call(context.Background(), args, server)
 		if callErr != nil {
-			t.Fatalf("login.Call returned error: %v", callErr)
+			errCh <- callErr
+			return
 		}
 		done <- res
 	}()
@@ -148,6 +150,8 @@ func TestLoginElicitation_HandleAccept_PasswordCancel(t *testing.T) {
 
 	// Final result
 	select {
+	case err := <-errCh:
+		t.Fatalf("login.Call returned error: %v", err)
 	case result := <-done:
 		if result == nil || len(result.Content) == 0 {
 			t.Fatalf("Expected non-empty ToolResult")
@@ -182,10 +186,12 @@ func TestLoginElicitation_HandleAccept_PasswordDecline(t *testing.T) {
 	args := map[string]interface{}{"password": ""}
 
 	done := make(chan *mcp.ToolResult, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		res, callErr := tool.Call(context.Background(), args, server)
 		if callErr != nil {
-			t.Fatalf("login.Call returned error: %v", callErr)
+			errCh <- callErr
+			return
 		}
 		done <- res
 	}()
@@ -200,6 +206,8 @@ func TestLoginElicitation_HandleAccept_PasswordDecline(t *testing.T) {
 
 	// Final result should be "Login declined"
 	select {
+	case err := <-errCh:
+		t.Fatalf("login.Call returned error: %v", err)
 	case result := <-done:
 		if result == nil || len(result.Content) == 0 {
 			t.Fatalf("Expected non-empty ToolResult")
@@ -234,10 +242,12 @@ func TestLoginElicitation_HandleDecline(t *testing.T) {
 	args := map[string]interface{}{"password": ""}
 
 	done := make(chan *mcp.ToolResult, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		res, callErr := tool.Call(context.Background(), args, server)
 		if callErr != nil {
-			t.Fatalf("login.Call returned error: %v", callErr)
+			errCh <- callErr
+			return
 		}
 		done <- res
 	}()
@@ -247,6 +257,8 @@ func TestLoginElicitation_HandleDecline(t *testing.T) {
 	respondElicitation(t, server, id1, "decline", nil)
 
 	select {
+	case err := <-errCh:
+		t.Fatalf("login.Call returned error: %v", err)
 	case result := <-done:
 		if result == nil || len(result.Content) == 0 {
 			t.Fatalf("Expected non-empty ToolResult")

@@ -52,6 +52,42 @@ pub fn is_valid_did(did: &str) -> bool {
     did.starts_with("did:") && did.len() > 4
 }
 
+/// Parse various account reference formats into a normalized form
+/// Supports: handles, @handles, DIDs, partial DIDs (suffix only), and Bsky.app profile URLs
+pub fn parse_account_reference(account: &str) -> String {
+    let account = account.trim();
+
+    // Already a full DID
+    if account.starts_with("did:") {
+        return account.to_string();
+    }
+
+    // Remove @ prefix for handles
+    if let Some(stripped) = account.strip_prefix('@') {
+        return stripped.to_string();
+    }
+
+    // Parse Bsky.app profile URLs: https://bsky.app/profile/{handle}
+    if account.starts_with("https://bsky.app/profile/")
+        || account.starts_with("http://bsky.app/profile/")
+    {
+        if let Some(profile_part) = account.split("/profile/").nth(1) {
+            // Remove trailing slash and any path components
+            let handle_or_did = profile_part.split('/').next().unwrap_or(profile_part);
+            return handle_or_did.to_string();
+        }
+    }
+
+    // Detect partial DID suffix (did:plc: is 8 chars, suffix is 24 base32 chars)
+    // If we have exactly 24 base32 characters, assume it's a did:plc suffix
+    if account.len() == 24 && account.chars().all(|c| matches!(c, 'a'..='z' | '2'..='7')) {
+        return format!("did:plc:{}", account);
+    }
+
+    // Otherwise assume it's a handle
+    account.to_string()
+}
+
 /// Main DID resolver struct
 pub struct DidResolver {
     client: Client,
@@ -67,27 +103,31 @@ impl DidResolver {
     }
 
     /// Resolve handle to DID
+    /// Now supports multiple account reference formats via parse_account_reference
     pub async fn resolve_handle(&self, handle: &str) -> Result<Option<String>, AppError> {
+        // Parse the account reference to normalize it
+        let normalized = parse_account_reference(handle);
+
         // If it's already a DID, return it as-is
-        if handle.starts_with("did:") {
-            return Ok(Some(handle.to_string()));
+        if normalized.starts_with("did:") {
+            return Ok(Some(normalized));
         }
 
         // Basic handle validation
-        if !is_valid_handle(handle) {
+        if !is_valid_handle(&normalized) {
             return Ok(None);
         }
 
         // Check cache first
-        if let Some(cached) = self.get_cached_resolution(handle) {
+        if let Some(cached) = self.get_cached_resolution(&normalized) {
             return Ok(Some(cached));
         }
 
         // Try direct resolution
-        let did = self.try_resolve_handle_direct(handle).await?;
+        let did = self.try_resolve_handle_direct(&normalized).await?;
 
         if let Some(ref did_str) = did {
-            self.cache_resolution(handle, did_str);
+            self.cache_resolution(&normalized, did_str);
         }
 
         Ok(did)

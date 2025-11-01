@@ -38,11 +38,11 @@ func TestFeedToolBasics(t *testing.T) {
 		if _, ok := schema.Properties["feed"]; !ok {
 			t.Error("Expected 'feed' property in schema")
 		}
-		if _, ok := schema.Properties["login"]; !ok {
-			t.Error("Expected 'login' property in schema")
+		if _, ok := schema.Properties["viewAs"]; !ok {
+			t.Error("Expected 'viewAs' property in schema")
 		}
-		if _, ok := schema.Properties["cursor"]; !ok {
-			t.Error("Expected 'cursor' property in schema")
+		if _, ok := schema.Properties["continueAtCursor"]; !ok {
+			t.Error("Expected 'continueAtCursor' property in schema")
 		}
 		if _, ok := schema.Properties["limit"]; !ok {
 			t.Error("Expected 'limit' property in schema")
@@ -221,7 +221,7 @@ func TestFeedToolCall_InvalidContext(t *testing.T) {
 	cancel() // Cancel immediately
 
 	args := map[string]interface{}{
-		"login": "anonymous",
+		"viewAs": "anonymous",
 	}
 
 	server := &mcp.Server{}

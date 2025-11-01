@@ -20,7 +20,7 @@ pub struct PostRef {
 /// For BlueSky URLs and compact format, the handle is resolved to a DID using the DID resolver.
 pub async fn parse_post_uri(uri: &str) -> Result<PostRef, AppError> {
     let trimmed = uri.trim();
-    
+
     if trimmed.starts_with("at://") {
         parse_at_uri(trimmed)
     } else if trimmed.contains("bsky.app/profile/") {
@@ -39,7 +39,7 @@ pub async fn parse_post_uri(uri: &str) -> Result<PostRef, AppError> {
 fn parse_at_uri(uri: &str) -> Result<PostRef, AppError> {
     // Format: at://{did}/app.bsky.feed.post/{rkey}
     let parts: Vec<&str> = uri.trim_start_matches("at://").split('/').collect();
-    
+
     if parts.len() < 3 {
         return Err(AppError::InvalidInput(format!(
             "Invalid at:// URI format: {}. Expected at://{{did}}/app.bsky.feed.post/{{rkey}}",
@@ -57,7 +57,7 @@ fn parse_at_uri(uri: &str) -> Result<PostRef, AppError> {
 async fn parse_bsky_url(url: &str) -> Result<PostRef, AppError> {
     // Format: https://bsky.app/profile/{handle}/post/{rkey}
     let url_parts: Vec<&str> = url.split('/').collect();
-    
+
     if url_parts.len() < 7 {
         return Err(AppError::InvalidInput(format!(
             "Invalid bsky.app URL format: {}. Expected https://bsky.app/profile/{{handle}}/post/{{rkey}}",
@@ -70,10 +70,9 @@ async fn parse_bsky_url(url: &str) -> Result<PostRef, AppError> {
 
     // Resolve handle to DID
     let resolver = DidResolver::new();
-    let did = resolver
-        .resolve_handle(handle)
-        .await?
-        .ok_or_else(|| AppError::DidResolveFailed(format!("Could not resolve handle: {}", handle)))?;
+    let did = resolver.resolve_handle(handle).await?.ok_or_else(|| {
+        AppError::DidResolveFailed(format!("Could not resolve handle: {}", handle))
+    })?;
 
     Ok(PostRef {
         did,
@@ -90,27 +89,26 @@ async fn parse_compact_format(input: &str) -> Result<PostRef, AppError> {
             input
         )));
     }
-    
+
     let without_at = &input[1..]; // Remove leading @
     let parts: Vec<&str> = without_at.split('/').collect();
-    
+
     if parts.len() < 2 {
         return Err(AppError::InvalidInput(format!(
             "Invalid compact format: {}. Expected @handle/rkey",
             input
         )));
     }
-    
+
     let handle = parts[0];
     let rkey = parts[1];
-    
+
     // Resolve handle to DID
     let resolver = DidResolver::new();
-    let did = resolver
-        .resolve_handle(handle)
-        .await?
-        .ok_or_else(|| AppError::DidResolveFailed(format!("Could not resolve handle: {}", handle)))?;
-    
+    let did = resolver.resolve_handle(handle).await?.ok_or_else(|| {
+        AppError::DidResolveFailed(format!("Could not resolve handle: {}", handle))
+    })?;
+
     Ok(PostRef {
         did,
         rkey: rkey.to_string(),
@@ -154,7 +152,7 @@ mod tests {
     #[test]
     fn test_parse_compact_format_invalid_no_slash() {
         let input = "@alice.bsky.social";
-        // Can't test parse_compact_format directly as it's async, 
+        // Can't test parse_compact_format directly as it's async,
         // but parse_post_uri should handle this
         // This just tests the at:// parser doesn't accept it
         let result = parse_at_uri(input);

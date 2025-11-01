@@ -434,7 +434,7 @@ mod tests {
         let post = create_test_post();
         let markdown = post.to_markdown("alice.bsky.social", "hello");
 
-    assert!(markdown.contains("**Link:** https://bsky.app/profile/alice.bsky.social/post/123"));
+        assert!(markdown.contains("**Link:** https://bsky.app/profile/alice.bsky.social/post/123"));
         assert!(markdown.contains("**Created:** 2024-01-01T12:00:00Z"));
         assert!(markdown.contains("**Hello** world!"));
     }

@@ -2,6 +2,8 @@
 //!
 //! Provides command-line interface for the autoreply tools
 
+#![allow(non_snake_case)]
+
 use clap::{Parser, Subcommand};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -45,131 +47,114 @@ pub enum Commands {
 /// Profile tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
 pub struct ProfileArgs {
-    /// Handle (alice.bsky.social) or DID (did:plc:...)
     #[arg(short = 'a', long)]
-    #[schemars(description = "Handle (alice.bsky.social) or DID (did:plc:...)")]
+    #[schemars(
+        description = "Account to find: handle (alice.bsky.social), DID (did:plc:...), Bsky.app profile URL or even display name or search term"
+    )]
     pub account: String,
 }
 
 /// Search tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
 pub struct SearchArgs {
-    /// Handle or DID to search from
     #[arg(short = 'f', long)]
-    #[schemars(description = "Handle or DID for account whose posts you want to search")]
+    #[schemars(description = "Account whose posts to search: handle, DID, Bsky.app profile URL")]
     pub from: String,
 
-    /// Search terms (case-insensitive)
     #[arg(short = 'q', long)]
-    #[schemars(description = "Search terms (case-insensitive)")]
+    #[schemars(description = "Search terms")]
     pub query: String,
 
-    /// Maximum number of results (default 50)
     #[arg(short = 'l', long)]
-    #[schemars(description = "Maximum number of results (default 50)")]
+    #[schemars(description = "Defaults to 50")]
     pub limit: Option<usize>,
 }
 
 /// Post tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
 pub struct PostArgs {
-    /// Handle or DID to post as
     #[arg(short = 'a', long)]
-    #[schemars(description = "Handle or DID to post as (postAs)")]
-    #[serde(rename = "postAs")]
-    pub post_as: String,
+    #[schemars(description = "Account to post as: handle, DID, Bsky.app profile URL")]
+    pub postAs: String,
 
-    /// The text content of the post
     #[arg(short = 't', long)]
-    #[schemars(description = "The text content of the post")]
+    #[schemars(description = "The text of the post")]
     pub text: String,
 
-    /// Optional post URI or URL to reply to
     #[arg(short = 'r', long)]
-    #[schemars(description = "Optional at:// URI or https://bsky.app/... URL to reply to")]
-    #[serde(rename = "replyTo")]
-    pub reply_to: Option<String>,
+    #[schemars(
+        description = "When replying to a post, pass the link to that post here, you can use at:// URI or https://bsky.app/... URL or even a simple @handle/rkey form."
+    )]
+    pub replyTo: Option<String>,
 }
 
 /// Feed tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
 pub struct FeedArgs {
-    /// Optional feed URI or name to search for
     #[arg(short = 'f', long)]
-    #[schemars(description = "Optional feed URI or name. If unspecified, returns the default popular feed")]
+    #[schemars(description = "Feed URI or name. If omitted, returns the default popular feed")]
     pub feed: Option<String>,
 
-    /// Optional BlueSky handle for authenticated feed
-    #[arg(short = 'u', long)]
-    #[schemars(description = "Optional BlueSky handle for authenticated access")]
-    pub login: Option<String>,
+    #[arg(short = 'v', long)]
+    #[schemars(
+        description = "Optional account to view feed with authenticated pattern: handle, DID, Bsky.app profile URL"
+    )]
+    pub viewAs: Option<String>,
 
-    /// Optional password for authentication
-    #[arg(short = 'p', long)]
-    #[schemars(description = "Optional BlueSky password")]
-    pub password: Option<String>,
-
-    /// Cursor for pagination
     #[arg(short = 'c', long)]
-    #[schemars(description = "Optional cursor for pagination")]
-    pub cursor: Option<String>,
+    #[schemars(description = "Optional cursor for pagination.")]
+    pub continueAtCursor: Option<String>,
 
-    /// Limit the number of posts returned (default 20)
     #[arg(short = 'l', long)]
-    #[schemars(description = "Limit the number of posts (default 20)")]
+    #[schemars(
+        description = "Desired number of posts, when omitted will return a reasonable default batch."
+    )]
     pub limit: Option<usize>,
 }
 
 /// Thread tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
 pub struct ThreadArgs {
-    /// The BlueSky URL or at:// URI of the post
     #[arg(short = 'p', long)]
-    #[schemars(description = "The BlueSky URL or at:// URI of the post to fetch the thread for")]
-    #[serde(rename = "postURI")]
-    pub post_uri: String,
+    #[schemars(
+        description = "Thread post reference: at:// URI, https://bsky.app/... URL, or @handle/rkey format"
+    )]
+    pub postURI: String,
 
-    /// Optional BlueSky handle for authenticated access
-    #[arg(short = 'u', long)]
-    #[schemars(description = "Optional BlueSky handle for authenticated access")]
-    pub login: Option<String>,
-
-    /// Optional password for authentication
-    #[arg(short = 'w', long)]
-    #[schemars(description = "Optional BlueSky password")]
-    pub password: Option<String>,
+    #[arg(short = 'v', long)]
+    #[schemars(
+        description = "Optional account to view thread as in authenticated mode: handle, DID, Bsky.app profile URL. Use 'anonymous' for incognito mode"
+    )]
+    pub viewAs: Option<String>,
 }
 
 /// React tool arguments
 #[derive(Parser, JsonSchema, Deserialize, Serialize, Clone, Debug)]
+#[schemars(
+    description = "Perform batch reactions on posts. Post references use at:// URIs, https://bsky.app/... URLs, or @handle/rkey format."
+)]
 pub struct ReactArgs {
-    /// Handle or DID to react as
     #[arg(short = 'a', long)]
-    #[schemars(description = "Handle or DID to react as (reactAs)")]
-    #[serde(rename = "reactAs")]
-    pub react_as: String,
+    #[schemars(description = "Account to react as: handle, DID, Bsky.app profile URL")]
+    pub reactAs: String,
 
-    /// Post URIs/URLs to like
     #[arg(long)]
-    #[schemars(description = "Array of post URIs/URLs to like")]
+    #[schemars(description = "Posts to like")]
     #[serde(default)]
     pub like: Vec<String>,
 
-    /// Post URIs/URLs to unlike
     #[arg(long)]
-    #[schemars(description = "Array of post URIs/URLs to unlike")]
+    #[schemars(description = "Posts to unlike (remove like)")]
     #[serde(default)]
     pub unlike: Vec<String>,
 
-    /// Post URIs/URLs to repost
     #[arg(long)]
-    #[schemars(description = "Array of post URIs/URLs to repost")]
+    #[schemars(description = "Posts to repost")]
     #[serde(default)]
     pub repost: Vec<String>,
 
-    /// Post URIs/URLs to delete
     #[arg(long)]
-    #[schemars(description = "Array of post URIs/URLs to delete")]
+    #[schemars(description = "Posts to delete (must be your own)")]
     #[serde(default)]
     pub delete: Vec<String>,
 }
@@ -180,17 +165,22 @@ pub struct LoginCommand {
     #[command(subcommand)]
     pub command: Option<LoginSubcommands>,
 
-    /// Handle (alice.bsky.social) - optional for OAuth (allows account selection). Required for app password auth.
     #[arg(short = 'u', long, global = true)]
+    #[schemars(
+        description = "Handle (alice.bsky.social) - optional for OAuth (allows account selection). Required for app password auth."
+    )]
     pub handle: Option<String>,
 
-    /// App password (use this to skip OAuth and authenticate with app password)
-    /// If provided without value, will prompt on console
     #[arg(short = 'p', long, num_args = 0..=1, default_missing_value = "", global = true)]
+    #[schemars(
+        description = "App password (use this to skip OAuth and authenticate with app password). If provided without value, will prompt on console"
+    )]
     pub password: Option<String>,
 
-    /// Service URL (defaults to <https://bsky.social>)
+    // Service is hidden from schema but available for internal/CLI use
     #[arg(short = 's', long, global = true)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub service: Option<String>,
 }
 
@@ -200,13 +190,13 @@ pub enum LoginSubcommands {
     List,
     /// Set default account
     Default {
-        /// Handle to set as default
+        #[schemars(description = "Handle to set as default")]
         handle: String,
     },
     /// Remove stored credentials
     Delete {
-        /// Handle to delete (defaults to current/default account)
         #[arg(short = 'u', long)]
+        #[schemars(description = "Handle to delete (defaults to current/default account)")]
         handle: Option<String>,
     },
 }
@@ -238,25 +228,25 @@ mod tests {
     #[test]
     fn test_post_args() {
         let args = PostArgs {
-            post_as: "alice.bsky.social".to_string(),
+            postAs: "alice.bsky.social".to_string(),
             text: "Hello, world!".to_string(),
-            reply_to: None,
+            replyTo: None,
         };
-        assert_eq!(args.post_as, "alice.bsky.social");
+        assert_eq!(args.postAs, "alice.bsky.social");
         assert_eq!(args.text, "Hello, world!");
-        assert!(args.reply_to.is_none());
+        assert!(args.replyTo.is_none());
     }
 
     #[test]
     fn test_react_args() {
         let args = ReactArgs {
-            react_as: "bob.bsky.social".to_string(),
+            reactAs: "bob.bsky.social".to_string(),
             like: vec!["at://did:plc:abc/app.bsky.feed.post/123".to_string()],
             unlike: vec![],
             repost: vec![],
             delete: vec![],
         };
-        assert_eq!(args.react_as, "bob.bsky.social");
+        assert_eq!(args.reactAs, "bob.bsky.social");
         assert_eq!(args.like.len(), 1);
         assert_eq!(args.unlike.len(), 0);
     }
@@ -265,22 +255,23 @@ mod tests {
     fn test_feed_args() {
         let args = FeedArgs {
             feed: Some("at://did:plc:xyz/app.bsky.feed.generator/hot".to_string()),
-            login: Some("alice.bsky.social".to_string()),
-            password: None,
-            cursor: None,
+            viewAs: Some("alice.bsky.social".to_string()),
+            continueAtCursor: None,
             limit: Some(50),
         };
-        assert_eq!(args.feed, Some("at://did:plc:xyz/app.bsky.feed.generator/hot".to_string()));
+        assert_eq!(
+            args.feed,
+            Some("at://did:plc:xyz/app.bsky.feed.generator/hot".to_string())
+        );
         assert_eq!(args.limit, Some(50));
     }
 
     #[test]
     fn test_thread_args() {
         let args = ThreadArgs {
-            post_uri: "at://did:plc:abc/app.bsky.feed.post/123".to_string(),
-            login: None,
-            password: None,
+            postURI: "at://did:plc:abc/app.bsky.feed.post/123".to_string(),
+            viewAs: None,
         };
-        assert_eq!(args.post_uri, "at://did:plc:abc/app.bsky.feed.post/123");
+        assert_eq!(args.postURI, "at://did:plc:abc/app.bsky.feed.post/123");
     }
 }

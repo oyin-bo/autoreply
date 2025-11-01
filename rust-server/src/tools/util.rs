@@ -22,11 +22,7 @@ pub fn at_uri_to_bsky_url(at_uri: &str, handle: &str) -> String {
     let rkey = parts[2];
 
     // Use handle if available, otherwise use DID as fallback
-    let profile = if handle.is_empty() {
-        did
-    } else {
-        handle
-    };
+    let profile = if handle.is_empty() { did } else { handle };
 
     format!("https://bsky.app/profile/{}/post/{}", profile, rkey)
 }
@@ -40,7 +36,10 @@ mod tests {
         let uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789";
         let handle = "alice.bsky.social";
         let result = at_uri_to_bsky_url(uri, handle);
-        assert_eq!(result, "https://bsky.app/profile/alice.bsky.social/post/xyz789");
+        assert_eq!(
+            result,
+            "https://bsky.app/profile/alice.bsky.social/post/xyz789"
+        );
     }
 
     #[test]
@@ -48,7 +47,10 @@ mod tests {
         let uri = "at://did:plc:abc123/app.bsky.feed.post/xyz789";
         let handle = "";
         let result = at_uri_to_bsky_url(uri, handle);
-        assert_eq!(result, "https://bsky.app/profile/did:plc:abc123/post/xyz789");
+        assert_eq!(
+            result,
+            "https://bsky.app/profile/did:plc:abc123/post/xyz789"
+        );
     }
 
     #[test]

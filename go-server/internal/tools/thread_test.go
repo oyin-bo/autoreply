@@ -41,8 +41,8 @@ func TestThreadToolBasics(t *testing.T) {
 		}
 
 		// Check optional parameters
-		if _, ok := schema.Properties["login"]; !ok {
-			t.Error("Expected 'login' property in schema")
+		if _, ok := schema.Properties["viewAs"]; !ok {
+			t.Error("Expected 'viewAs' property in schema")
 		}
 
 		// Verify required fields

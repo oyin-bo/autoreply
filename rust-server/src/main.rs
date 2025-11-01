@@ -204,11 +204,7 @@ async fn execute_login_cli(args: cli::LoginCommand) -> Result<String> {
 async fn execute_feed_cli(args: cli::FeedArgs) -> Result<String> {
     use tokio::time::{timeout, Duration};
 
-    let result = timeout(
-        Duration::from_secs(120),
-        tools::feed::execute_feed(args),
-    )
-    .await;
+    let result = timeout(Duration::from_secs(120), tools::feed::execute_feed(args)).await;
 
     match result {
         Ok(Ok(tool_result)) => {
@@ -252,11 +248,7 @@ async fn execute_thread_cli(args: cli::ThreadArgs) -> Result<String> {
 async fn execute_post_cli(args: cli::PostArgs) -> Result<String> {
     use tokio::time::{timeout, Duration};
 
-    let result = timeout(
-        Duration::from_secs(120),
-        tools::post::execute_post(args),
-    )
-    .await;
+    let result = timeout(Duration::from_secs(120), tools::post::execute_post(args)).await;
 
     match result {
         Ok(Ok(tool_result)) => {
@@ -276,11 +268,7 @@ async fn execute_post_cli(args: cli::PostArgs) -> Result<String> {
 async fn execute_react_cli(args: cli::ReactArgs) -> Result<String> {
     use tokio::time::{timeout, Duration};
 
-    let result = timeout(
-        Duration::from_secs(120),
-        tools::react::execute_react(args),
-    )
-    .await;
+    let result = timeout(Duration::from_secs(120), tools::react::execute_react(args)).await;
 
     match result {
         Ok(Ok(tool_result)) => {

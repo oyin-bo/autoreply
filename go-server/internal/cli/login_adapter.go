@@ -124,11 +124,6 @@ func (a *InteractiveLoginAdapter) Execute(ctx context.Context, args interface{})
 	}
 	argsMap["port"] = float64(port)
 
-	// Add service if provided
-	if loginArgs.Service != "" {
-		argsMap["service"] = loginArgs.Service
-	}
-
 	// Note: CLI no longer uses tool-driven elicitation via input_text metadata.
 	// All interactive prompts are handled here before calling the tool.
 

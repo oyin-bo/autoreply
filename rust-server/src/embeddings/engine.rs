@@ -56,7 +56,7 @@ mod tests {
         // not a path string. Need to load the model first.
         /*
         use super::*;
-        
+
         let table = super::super::load_embeddings().unwrap();
         let tokenizer = SentencePieceProcessor::new("path/to/tokenizer.model").unwrap();
 

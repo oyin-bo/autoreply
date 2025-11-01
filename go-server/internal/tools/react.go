@@ -43,7 +43,7 @@ func (t *ReactTool) Name() string {
 
 // Description returns the tool description
 func (t *ReactTool) Description() string {
-	return "Perform batch reactions on posts: like, unlike, repost, and delete. Supports mixing at:// URIs and https://bsky.app/... URLs."
+	return "Perform batch reactions on posts: like, unlike, repost, and delete. Post references use at:// URIs, https://bsky.app/... URLs, or @handle/rkey format."
 }
 
 // InputSchema returns the JSON schema for tool input
@@ -53,26 +53,26 @@ func (t *ReactTool) InputSchema() mcp.InputSchema {
 		Properties: map[string]mcp.PropertySchema{
 			"reactAs": {
 				Type:        "string",
-				Description: "Handle or DID to react as (uses default account if not specified)",
+				Description: "Account to react as: handle (alice.bsky.social), @handle, DID, Bsky.app profile URL, or partial DID suffix (uses default account if not specified)",
 			},
 			"like": {
 				Type:        "array",
-				Description: "Array of post URIs/URLs to like",
+				Description: "Posts to like",
 				Items:       &mcp.PropertySchema{Type: "string"},
 			},
 			"unlike": {
 				Type:        "array",
-				Description: "Array of post URIs/URLs to unlike (remove like)",
+				Description: "Posts to unlike (remove like)",
 				Items:       &mcp.PropertySchema{Type: "string"},
 			},
 			"repost": {
 				Type:        "array",
-				Description: "Array of post URIs/URLs to repost",
+				Description: "Posts to repost",
 				Items:       &mcp.PropertySchema{Type: "string"},
 			},
 			"delete": {
 				Type:        "array",
-				Description: "Array of post URIs/URLs to delete (must be your own posts)",
+				Description: "Posts to delete (must be your own)",
 				Items:       &mcp.PropertySchema{Type: "string"},
 			},
 		},

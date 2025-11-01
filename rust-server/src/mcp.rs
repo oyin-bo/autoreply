@@ -19,7 +19,8 @@ pub struct ServerContext {
     pub client_capabilities: Option<ClientCapabilities>,
     pub rpc_sender: Option<Arc<RpcSender>>,
     #[cfg(test)]
-    pub test_elicitation_hook: Option<Arc<dyn Fn(String, Value) -> anyhow::Result<ElicitationResponse> + Send + Sync>>, 
+    pub test_elicitation_hook:
+        Option<Arc<dyn Fn(String, Value) -> anyhow::Result<ElicitationResponse> + Send + Sync>>,
 }
 
 /// RPC sender for server-to-client requests
@@ -335,7 +336,10 @@ impl ToolResult {
     /// Create a result from explicit content items
     #[allow(dead_code)]
     pub fn from_items(content: Vec<ContentItem>) -> Self {
-        Self { content, is_error: None }
+        Self {
+            content,
+            is_error: None,
+        }
     }
 
     /// Mark this result as an error with user-facing guidance
@@ -413,7 +417,8 @@ pub async fn handle_stdio() -> Result<()> {
             Ok(request) => request,
             Err(e) => {
                 error!("Failed to parse request: {}", e);
-                let response = McpResponse::error(None, "parse_error", &format!("Invalid JSON: {}", e));
+                let response =
+                    McpResponse::error(None, "parse_error", &format!("Invalid JSON: {}", e));
                 let response_json = serialize_response(&response)?;
                 debug!("Sending response: {}", response_json);
                 let mut stdout = rpc_sender.stdout.lock().await;
@@ -530,7 +535,9 @@ async fn handle_initialize(request: McpRequest, context: &mut ServerContext) -> 
 
 /// Build the tools array returned from tools/list and initialize
 pub(crate) fn build_tools_array() -> serde_json::Value {
-    use crate::cli::{FeedArgs, LoginCommand, PostArgs, ProfileArgs, ReactArgs, SearchArgs, ThreadArgs};
+    use crate::cli::{
+        FeedArgs, LoginCommand, PostArgs, ProfileArgs, ReactArgs, SearchArgs, ThreadArgs,
+    };
     use schemars::schema_for;
 
     // Generate JSON schemas from the CLI argument structs
@@ -599,9 +606,7 @@ mod tests {
         assert!(resp.error.is_none());
         let result = resp.result.expect("result present");
         assert_eq!(
-            result
-                .get("protocolVersion")
-                .and_then(|v| v.as_str()),
+            result.get("protocolVersion").and_then(|v| v.as_str()),
             Some("2024-11-05")
         );
         assert_eq!(

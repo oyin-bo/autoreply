@@ -132,10 +132,7 @@ impl CallbackServer {
         // Shutdown the server gracefully
         server_handle.abort();
         // Wait a bit for the server to actually shut down
-        let _ = tokio::time::timeout(
-            tokio::time::Duration::from_secs(2),
-            server_handle
-        ).await;
+        let _ = tokio::time::timeout(tokio::time::Duration::from_secs(2), server_handle).await;
 
         result
     }

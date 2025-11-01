@@ -91,10 +91,9 @@ async fn resolve_feed_uri(client: &reqwest::Client, query: &str) -> Result<Strin
         )));
     }
 
-    let search_response: PopularFeedsResponse = response
-        .json()
-        .await
-        .map_err(|e| AppError::ParseError(format!("Failed to parse feed search response: {}", e)))?;
+    let search_response: PopularFeedsResponse = response.json().await.map_err(|e| {
+        AppError::ParseError(format!("Failed to parse feed search response: {}", e))
+    })?;
 
     if search_response.feeds.is_empty() {
         return Err(AppError::InvalidInput(format!(
@@ -136,7 +135,7 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
     debug!("Feed request for feed: {:?}", feed_args.feed);
 
     let client = client_with_timeout(Duration::from_secs(120));
-    
+
     // Resolve the feed URI
     let feed_uri = match &feed_args.feed {
         Some(feed_input) => {
@@ -157,67 +156,96 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
 
     debug!("Using feed URI: {}", feed_uri);
 
-    // Build the URL for the getFeed endpoint
-    let mut url = format!(
-        "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed={}",
-        urlencoding::encode(&feed_uri)
-    );
+    // Fetch in batches if needed
+    let requested_limit = feed_args.limit.unwrap_or(50);
+    let mut all_posts = Vec::new();
+    let mut cursor = feed_args.continueAtCursor.clone();
 
-    if let Some(cursor) = &feed_args.cursor {
-        url.push_str(&format!("&cursor={}", urlencoding::encode(cursor)));
+    while all_posts.len() < requested_limit {
+        let batch_size = std::cmp::min(requested_limit - all_posts.len(), 100); // API limit per request
+
+        let mut url = format!(
+            "https://public.api.bsky.app/xrpc/app.bsky.feed.getFeed?feed={}&limit={}",
+            urlencoding::encode(&feed_uri),
+            batch_size
+        );
+
+        if let Some(ref c) = cursor {
+            url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
+        }
+
+        debug!("Fetching batch of {} posts from feed", batch_size);
+
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| AppError::NetworkError(format!("Failed to fetch feed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AppError::NetworkError(format!(
+                "Feed API returned error {}: {}",
+                status, error_text
+            )));
+        }
+
+        let feed_response: FeedResponse = response
+            .json()
+            .await
+            .map_err(|e| AppError::ParseError(format!("Failed to parse feed response: {}", e)))?;
+
+        let batch_count = feed_response.feed.len();
+        debug!("Received {} posts in this batch", batch_count);
+
+        if batch_count == 0 {
+            // No more posts available
+            break;
+        }
+
+        all_posts.extend(feed_response.feed);
+
+        // Update cursor for next batch
+        cursor = feed_response.cursor;
+
+        // If we got fewer posts than requested in this batch, we've reached the end
+        if batch_count < batch_size {
+            break;
+        }
+
+        // If there's no cursor, we've reached the end
+        if cursor.is_none() {
+            break;
+        }
     }
 
-    if let Some(limit) = feed_args.limit {
-        let clamped_limit = limit.clamp(1, 100);
-        url.push_str(&format!("&limit={}", clamped_limit));
-    }
+    debug!("Total posts fetched: {}", all_posts.len());
 
-    debug!("Fetching feed from: {}", url);
-
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| AppError::NetworkError(format!("Failed to fetch feed: {}", e)))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(AppError::NetworkError(format!(
-            "Feed API returned error {}: {}",
-            status, error_text
-        )));
-    }
-
-    let feed_response: FeedResponse = response
-        .json()
-        .await
-        .map_err(|e| AppError::ParseError(format!("Failed to parse feed response: {}", e)))?;
-
-    debug!("Received {} posts from feed", feed_response.feed.len());
+    debug!("Total posts fetched: {}", all_posts.len());
 
     // Format as markdown per docs/16-mcp-schemas.md spec
     let mut markdown = String::new();
-    markdown.push_str(&format!("# Feed · {} posts\n\n", feed_response.feed.len()));
+    markdown.push_str(&format!("# Feed · {} posts\n\n", all_posts.len()));
 
     use crate::tools::post_format::*;
     use std::collections::HashMap;
     let mut seen_posts: HashMap<String, String> = HashMap::new();
 
-    for feed_post in &feed_response.feed {
+    for feed_post in &all_posts {
         let post = &feed_post.post;
         let rkey = extract_rkey(&post.uri);
         let full_id = format!("{}/{}", post.author.handle, rkey);
-        
+
         // Author ID line
         let author_id = compact_post_id(&post.author.handle, rkey, &seen_posts);
         markdown.push_str(&format!("{}\n", author_id));
         seen_posts.insert(full_id, post.uri.clone());
-        
+
         // Blockquote content
         markdown.push_str(&blockquote_content(&post.record.text));
         markdown.push('\n');
-        
+
         // Stats and timestamp
         let stats = format_stats(
             post.like_count.unwrap_or(0),
@@ -226,18 +254,18 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
             post.reply_count.unwrap_or(0),
         );
         let timestamp = format_timestamp(&post.record.created_at);
-        
+
         if !stats.is_empty() {
             markdown.push_str(&format!("{}  {}\n", stats, timestamp));
         } else {
             markdown.push_str(&format!("{}\n", timestamp));
         }
-        
+
         markdown.push('\n');
     }
 
-    if let Some(cursor) = feed_response.cursor {
-        markdown.push_str(&format!("**Next cursor:** `{}`\n", cursor));
+    if let Some(c) = cursor {
+        markdown.push_str(&format!("**Next cursor:** `{}`\n", c));
     }
 
     Ok(ToolResult::text(markdown))
@@ -268,6 +296,6 @@ mod tests {
         let args: FeedArgs = serde_json::from_value(json).unwrap();
         assert_eq!(args.feed, None);
         assert_eq!(args.limit, None);
-        assert_eq!(args.cursor, None);
+        assert_eq!(args.continueAtCursor, None);
     }
 }

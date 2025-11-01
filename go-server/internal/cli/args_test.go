@@ -45,7 +45,6 @@ func TestLoginArgsDeserialization(t *testing.T) {
 			Command:  "list",
 			Handle:   "alice.bsky.social",
 			Password: "app-password",
-			Service:  "https://bsky.social",
 			Port:     8080,
 		}
 
@@ -59,10 +58,6 @@ func TestLoginArgsDeserialization(t *testing.T) {
 
 		if args.Password != "app-password" {
 			t.Errorf("Expected password 'app-password', got '%s'", args.Password)
-		}
-
-		if args.Service != "https://bsky.social" {
-			t.Errorf("Expected service 'https://bsky.social', got '%s'", args.Service)
 		}
 
 		if args.Port != 8080 {
