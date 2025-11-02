@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/oyin-bo/autoreply/go-server/internal/bluesky"
 )
 
 func TestCompactPostID(t *testing.T) {
@@ -565,5 +567,150 @@ func TestFormatStatsOrdering(t *testing.T) {
 	}
 	if !strings.HasPrefix(parts[2], "💬") {
 		t.Errorf("Third stat should be replies, got: %s", parts[2])
+	}
+}
+
+func TestApplyFacetsToText(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		facets []bluesky.Facet
+		want   string
+	}{
+		{
+			name:   "no facets",
+			text:   "Plain text",
+			facets: []bluesky.Facet{},
+			want:   "Plain text",
+		},
+		{
+			name: "mention facet",
+			text: "Hello @alice.bsky.social how are you?",
+			facets: []bluesky.Facet{
+				{
+					Index: bluesky.IndexRange{ByteStart: 6, ByteEnd: 24},
+					Features: []interface{}{
+						map[string]interface{}{
+							"$type": "app.bsky.richtext.facet#mention",
+							"did":   "did:plc:abc123",
+						},
+					},
+				},
+			},
+			want: "Hello [@alice.bsky.social](https://bsky.app/profile/alice.bsky.social) how are you?",
+		},
+		{
+			name: "link facet",
+			text: "Check out https://example.com for more info",
+			facets: []bluesky.Facet{
+				{
+					Index: bluesky.IndexRange{ByteStart: 10, ByteEnd: 29},
+					Features: []interface{}{
+						map[string]interface{}{
+							"$type": "app.bsky.richtext.facet#link",
+							"uri":   "https://example.com",
+						},
+					},
+				},
+			},
+			want: "Check out [https://example.com](https://example.com) for more info",
+		},
+		{
+			name: "hashtag facet",
+			text: "This is #awesome stuff",
+			facets: []bluesky.Facet{
+				{
+					Index: bluesky.IndexRange{ByteStart: 8, ByteEnd: 16},
+					Features: []interface{}{
+						map[string]interface{}{
+							"$type": "app.bsky.richtext.facet#tag",
+							"tag":   "awesome",
+						},
+					},
+				},
+			},
+			want: "This is [#awesome](https://bsky.app/hashtag/awesome) stuff",
+		},
+		{
+			name: "multiple facets",
+			text: "Hey @bob check https://test.com and #cool",
+			facets: []bluesky.Facet{
+				{
+					Index: bluesky.IndexRange{ByteStart: 4, ByteEnd: 8},
+					Features: []interface{}{
+						map[string]interface{}{
+							"$type": "app.bsky.richtext.facet#mention",
+							"did":   "did:plc:xyz",
+						},
+					},
+				},
+				{
+					Index: bluesky.IndexRange{ByteStart: 15, ByteEnd: 31},
+					Features: []interface{}{
+						map[string]interface{}{
+							"$type": "app.bsky.richtext.facet#link",
+							"uri":   "https://test.com",
+						},
+					},
+				},
+				{
+					Index: bluesky.IndexRange{ByteStart: 36, ByteEnd: 41},
+					Features: []interface{}{
+						map[string]interface{}{
+							"$type": "app.bsky.richtext.facet#tag",
+							"tag":   "cool",
+						},
+					},
+				},
+			},
+			want: "Hey [@bob](https://bsky.app/profile/bob) check [https://test.com](https://test.com) and [#cool](https://bsky.app/hashtag/cool)",
+		},
+		{
+			name: "emoji with facet",
+			text: "Hello 👋 @alice",
+			facets: []bluesky.Facet{
+				{
+					Index: bluesky.IndexRange{ByteStart: 11, ByteEnd: 17}, // After "Hello 👋 " (👋 is 4 bytes)
+					Features: []interface{}{
+						map[string]interface{}{
+							"$type": "app.bsky.richtext.facet#mention",
+							"did":   "did:plc:test",
+						},
+					},
+				},
+			},
+			want: "Hello 👋 [@alice](https://bsky.app/profile/alice)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ApplyFacetsToText(tt.text, tt.facets)
+			if got != tt.want {
+				t.Errorf("ApplyFacetsToText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBlockquoteContentWithFacets(t *testing.T) {
+	text := "Hello @alice check this out"
+	facets := []bluesky.Facet{
+		{
+			Index: bluesky.IndexRange{ByteStart: 6, ByteEnd: 12},
+			Features: []interface{}{
+				map[string]interface{}{
+					"$type": "app.bsky.richtext.facet#mention",
+					"did":   "did:plc:abc",
+				},
+			},
+		},
+	}
+
+	got := BlockquoteContentWithFacets(text, facets)
+	want := "> Hello [@alice](https://bsky.app/profile/alice) check this out"
+
+	if got != want {
+		t.Errorf("BlockquoteContentWithFacets() = %q, want %q", got, want)
 	}
 }

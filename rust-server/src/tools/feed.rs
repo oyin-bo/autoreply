@@ -6,6 +6,7 @@ use crate::cli::FeedArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
+use crate::bluesky::records::Facet;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -26,6 +27,8 @@ struct PostRecord {
     text: String,
     #[serde(rename = "createdAt")]
     created_at: String,
+    #[serde(default)]
+    facets: Vec<Facet>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -242,8 +245,13 @@ pub async fn execute_feed(feed_args: FeedArgs) -> Result<ToolResult, AppError> {
         markdown.push_str(&format!("{}\n", author_id));
         seen_posts.insert(full_id, post.uri.clone());
 
-        // Blockquote content
-        markdown.push_str(&blockquote_content(&post.record.text));
+        // Blockquote content with facets applied
+        let content = if !post.record.facets.is_empty() {
+            blockquote_content_with_facets(&post.record.text, &post.record.facets)
+        } else {
+            blockquote_content(&post.record.text)
+        };
+        markdown.push_str(&content);
         markdown.push('\n');
 
         // Stats and timestamp

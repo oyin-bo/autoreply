@@ -309,7 +309,33 @@ func (t *ThreadTool) formatThreadRecursive(sb *strings.Builder, node map[string]
 	seenPosts[fullID] = true
 
 	// Blockquote the content (ALWAYS FLUSH-LEFT, NO INDENTATION)
-	sb.WriteString(BlockquoteContent(text))
+	// Apply facets if available
+	content := text
+	if facetsRaw, ok := record["facets"].([]interface{}); ok && len(facetsRaw) > 0 {
+		// Convert to bluesky.Facet slice
+		facets := make([]bluesky.Facet, 0, len(facetsRaw))
+		for _, f := range facetsRaw {
+			if facetMap, ok := f.(map[string]interface{}); ok {
+				var facet bluesky.Facet
+				if indexMap, ok := facetMap["index"].(map[string]interface{}); ok {
+					if bs, ok := indexMap["byteStart"].(float64); ok {
+						facet.Index.ByteStart = int(bs)
+					}
+					if be, ok := indexMap["byteEnd"].(float64); ok {
+						facet.Index.ByteEnd = int(be)
+					}
+				}
+				if features, ok := facetMap["features"].([]interface{}); ok {
+					facet.Features = features
+				}
+				facets = append(facets, facet)
+			}
+		}
+		if len(facets) > 0 {
+			content = ApplyFacetsToText(text, facets)
+		}
+	}
+	sb.WriteString(BlockquoteContent(content))
 	sb.WriteString("\n")
 
 	// Stats and timestamp on same line (FLUSH-LEFT)

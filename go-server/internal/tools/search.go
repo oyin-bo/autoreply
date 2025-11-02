@@ -216,7 +216,12 @@ func (t *SearchTool) formatSearchResults(handle, query string, posts []*bluesky.
 		seenPosts[fullID] = true
 
 		// Blockquote content (with highlighting preserved inside quote)
-		highlightedText := HighlightQuery(post.Text, query)
+		// First apply facets, then highlight
+		textWithFacets := post.Text
+		if len(post.Facets) > 0 {
+			textWithFacets = ApplyFacetsToText(post.Text, post.Facets)
+		}
+		highlightedText := HighlightQuery(textWithFacets, query)
 		sb.WriteString(BlockquoteContent(highlightedText))
 		sb.WriteString("\n")
 

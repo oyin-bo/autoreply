@@ -11,7 +11,7 @@ mod types;
 #[allow(unused_imports)]
 pub use base32::{decode_base32, decode_multibase};
 #[allow(unused_imports)]
-pub use cbor::{decode_cbor, get_text_field, CborValue};
+pub use cbor::{decode_cbor, get_array_field, get_int_field, get_map_field, get_text_field, CborValue};
 pub use error::CarError;
 #[allow(unused_imports)]
 pub use multihash::{extract_digest, parse_multihash, Multihash};

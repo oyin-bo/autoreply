@@ -6,6 +6,7 @@ use crate::cli::ThreadArgs;
 use crate::error::AppError;
 use crate::http::client_with_timeout;
 use crate::mcp::{McpResponse, ToolResult};
+use crate::bluesky::records::{Facet};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,6 +28,8 @@ struct PostRecord {
     text: String,
     #[serde(rename = "createdAt")]
     created_at: String,
+    #[serde(default)]
+    facets: Vec<Facet>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -208,7 +211,13 @@ fn format_thread_recursive(
         seen_posts.insert(full_id, post.uri.clone());
 
         // Blockquote the content (ALWAYS FLUSH-LEFT, NO INDENTATION)
-        markdown.push_str(&blockquote_content(&post.record.text));
+        // Apply facets if available
+        let content = if !post.record.facets.is_empty() {
+            blockquote_content_with_facets(&post.record.text, &post.record.facets)
+        } else {
+            blockquote_content(&post.record.text)
+        };
+        markdown.push_str(&content);
         markdown.push('\n');
 
         // Stats and timestamp on same line (FLUSH-LEFT)
@@ -525,6 +534,7 @@ mod tests {
             record: PostRecord {
                 text: text.to_string(),
                 created_at: "2024-10-06T10:15:33.123Z".to_string(),
+                facets: vec![],
             },
             indexed_at: Some("2024-10-06T10:15:34Z".to_string()),
             like_count: Some(33),

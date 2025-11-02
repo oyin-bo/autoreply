@@ -186,6 +186,48 @@ pub fn get_text_field<'a>(map: &'a [(CborValue<'a>, CborValue<'a>)], key: &str) 
     None
 }
 
+/// Helper to extract an array field from a CBOR map
+pub fn get_array_field<'a>(map: &'a [(CborValue<'a>, CborValue<'a>)], key: &str) -> Option<&'a [CborValue<'a>]> {
+    for (k, v) in map {
+        if let CborValue::Text(k_str) = k {
+            if *k_str == key {
+                if let CborValue::Array(arr) = v {
+                    return Some(arr.as_slice());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Helper to extract a map field from a CBOR map
+pub fn get_map_field<'a>(map: &'a [(CborValue<'a>, CborValue<'a>)], key: &str) -> Option<&'a [(CborValue<'a>, CborValue<'a>)]> {
+    for (k, v) in map {
+        if let CborValue::Text(k_str) = k {
+            if *k_str == key {
+                if let CborValue::Map(m) = v {
+                    return Some(m.as_slice());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Helper to extract an integer field from a CBOR map
+pub fn get_int_field(map: &[(CborValue<'_>, CborValue<'_>)], key: &str) -> Option<i64> {
+    for (k, v) in map {
+        if let CborValue::Text(k_str) = k {
+            if *k_str == key {
+                if let CborValue::Integer(i) = v {
+                    return Some(*i);
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

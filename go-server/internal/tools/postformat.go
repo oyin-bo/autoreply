@@ -5,10 +5,98 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/oyin-bo/autoreply/go-server/internal/bluesky"
 )
 
 // PostFormatter provides utilities for formatting BlueSky posts as Markdown
 // according to the spec in docs/16-mcp-schemas.md
+
+// ApplyFacetsToText applies facets to text, converting mentions/links/tags to Markdown format
+// Facets use byte indices, so we need to handle UTF-8 properly
+func ApplyFacetsToText(text string, facets []bluesky.Facet) string {
+	if len(facets) == 0 {
+		return text
+	}
+
+	// Sort facets by ByteStart
+	sortedFacets := make([]bluesky.Facet, len(facets))
+	copy(sortedFacets, facets)
+	// Simple bubble sort for small arrays
+	for i := 0; i < len(sortedFacets); i++ {
+		for j := i + 1; j < len(sortedFacets); j++ {
+			if sortedFacets[j].Index.ByteStart < sortedFacets[i].Index.ByteStart {
+				sortedFacets[i], sortedFacets[j] = sortedFacets[j], sortedFacets[i]
+			}
+		}
+	}
+
+	var result strings.Builder
+	lastByteIdx := 0
+	textBytes := []byte(text)
+
+	for _, facet := range sortedFacets {
+		startByte := facet.Index.ByteStart
+		endByte := facet.Index.ByteEnd
+
+		// Add text before this facet
+		if lastByteIdx < startByte {
+			result.Write(textBytes[lastByteIdx:startByte])
+		}
+
+		// Get the text covered by this facet
+		facetText := string(textBytes[startByte:endByte])
+
+		// Apply the facet formatting based on feature type
+		formatted := formatFacetFeature(facetText, facet.Features)
+		result.WriteString(formatted)
+
+		lastByteIdx = endByte
+	}
+
+	// Add remaining text after last facet
+	if lastByteIdx < len(textBytes) {
+		result.Write(textBytes[lastByteIdx:])
+	}
+
+	return result.String()
+}
+
+// formatFacetFeature formats a facet feature (mention, link, or tag) as Markdown
+func formatFacetFeature(text string, features []interface{}) string {
+	if len(features) == 0 {
+		return text
+	}
+
+	// Use the first feature if multiple are present
+	feature := features[0]
+	if featureMap, ok := feature.(map[string]interface{}); ok {
+		facetType, _ := featureMap["$type"].(string)
+
+		switch facetType {
+		case "app.bsky.richtext.facet#mention":
+			// The text already contains the @ symbol and handle
+			// Extract handle without the @ prefix for the URL
+			handle := strings.TrimPrefix(text, "@")
+			return fmt.Sprintf("[%s](https://bsky.app/profile/%s)", text, handle)
+
+		case "app.bsky.richtext.facet#link":
+			// Create a markdown link
+			if uri, ok := featureMap["uri"].(string); ok {
+				return fmt.Sprintf("[%s](%s)", text, uri)
+			}
+
+		case "app.bsky.richtext.facet#tag":
+			// Link to hashtag search
+			if tag, ok := featureMap["tag"].(string); ok {
+				return fmt.Sprintf("[#%s](https://bsky.app/hashtag/%s)", tag, tag)
+			}
+		}
+	}
+
+	// No recognized feature, return text as-is
+	return text
+}
 
 // CompactPostID generates a compact post ID for display
 // First mention: @handle/rkey
@@ -51,6 +139,13 @@ func BlockquoteContent(text string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// BlockquoteContentWithFacets blockquotes user content with facets applied
+// This is the preferred method when you have facet data available
+func BlockquoteContentWithFacets(text string, facets []bluesky.Facet) string {
+	formattedText := ApplyFacetsToText(text, facets)
+	return BlockquoteContent(formattedText)
 }
 
 // FormatStats formats engagement stats with emojis

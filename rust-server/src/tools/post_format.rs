@@ -8,6 +8,74 @@
 //! - ISO timestamps without milliseconds
 
 use std::collections::HashMap;
+use crate::bluesky::records::{Facet, FacetFeature};
+
+/// Apply facets to text, converting mentions/links/tags to Markdown format
+/// Facets use byte indices, so we need to handle UTF-8 properly
+pub fn apply_facets_to_text(text: &str, facets: &[Facet]) -> String {
+    if facets.is_empty() {
+        return text.to_string();
+    }
+
+    // Sort facets by byte_start to process in order
+    let mut sorted_facets = facets.to_vec();
+    sorted_facets.sort_by_key(|f| f.index.byte_start);
+
+    let mut result = String::new();
+    let mut last_byte_idx = 0;
+
+    for facet in &sorted_facets {
+        let start_byte = facet.index.byte_start as usize;
+        let end_byte = facet.index.byte_end as usize;
+
+        // Add text before this facet
+        if last_byte_idx < start_byte {
+            result.push_str(&text[last_byte_idx..start_byte]);
+        }
+
+        // Get the text covered by this facet
+        let facet_text = &text[start_byte..end_byte];
+
+        // Apply the facet formatting based on feature type
+        let formatted = format_facet_feature(facet_text, &facet.features);
+        result.push_str(&formatted);
+
+        last_byte_idx = end_byte;
+    }
+
+    // Add remaining text after last facet
+    if last_byte_idx < text.len() {
+        result.push_str(&text[last_byte_idx..]);
+    }
+
+    result
+}
+
+/// Format a facet feature (mention, link, or tag) as Markdown
+fn format_facet_feature(text: &str, features: &[FacetFeature]) -> String {
+    // Use the first feature if multiple are present
+    if let Some(feature) = features.first() {
+        match feature {
+            FacetFeature::Mention { did: _ } => {
+                // The text already contains the @ symbol and handle
+                // Extract handle without the @ prefix for the URL
+                let handle = text.trim_start_matches('@');
+                format!("[{}](https://bsky.app/profile/{})", text, handle)
+            }
+            FacetFeature::Link { uri } => {
+                // Create a markdown link
+                format!("[{}]({})", text, uri)
+            }
+            FacetFeature::Tag { tag } => {
+                // Link to hashtag search
+                format!("[#{}](https://bsky.app/hashtag/{})", tag, tag)
+            }
+        }
+    } else {
+        // No features, return text as-is
+        text.to_string()
+    }
+}
 
 /// Compact a post ID for display
 /// - First mention: @handle/rkey
@@ -37,6 +105,7 @@ pub fn ultra_compact_id(handle: &str, rkey: &str) -> String {
 }
 
 /// Blockquote user content - prefix every line with `> `
+/// If facets are provided, applies them first to convert mentions/links/tags to Markdown
 pub fn blockquote_content(text: &str) -> String {
     if text.is_empty() {
         return "> \n".to_string();
@@ -46,6 +115,13 @@ pub fn blockquote_content(text: &str) -> String {
         .map(|line| format!("> {}", line))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Blockquote user content with facets applied
+/// This is the preferred method when you have facet data available
+pub fn blockquote_content_with_facets(text: &str, facets: &[Facet]) -> String {
+    let formatted_text = apply_facets_to_text(text, facets);
+    blockquote_content(&formatted_text)
 }
 
 /// Format stats with emojis
@@ -119,6 +195,136 @@ pub fn threading_indicator(depth: usize, reply_to_compact: &str, author_id: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bluesky::records::{Facet, FacetFeature, FacetIndex};
+
+    #[test]
+    fn test_apply_facets_mention() {
+        let text = "Hello @alice.bsky.social how are you?";
+        let facets = vec![Facet {
+            index: FacetIndex {
+                byte_start: 6,
+                byte_end: 24,
+            },
+            features: vec![FacetFeature::Mention {
+                did: "did:plc:abc123".to_string(),
+            }],
+        }];
+
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(
+            result,
+            "Hello [@alice.bsky.social](https://bsky.app/profile/alice.bsky.social) how are you?"
+        );
+    }
+
+    #[test]
+    fn test_apply_facets_link() {
+        let text = "Check out https://example.com for more info";
+        let facets = vec![Facet {
+            index: FacetIndex {
+                byte_start: 10,
+                byte_end: 29,
+            },
+            features: vec![FacetFeature::Link {
+                uri: "https://example.com".to_string(),
+            }],
+        }];
+
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(
+            result,
+            "Check out [https://example.com](https://example.com) for more info"
+        );
+    }
+
+    #[test]
+    fn test_apply_facets_hashtag() {
+        let text = "This is #awesome stuff";
+        let facets = vec![Facet {
+            index: FacetIndex {
+                byte_start: 8,
+                byte_end: 16,
+            },
+            features: vec![FacetFeature::Tag {
+                tag: "awesome".to_string(),
+            }],
+        }];
+
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(
+            result,
+            "This is [#awesome](https://bsky.app/hashtag/awesome) stuff"
+        );
+    }
+
+    #[test]
+    fn test_apply_facets_multiple() {
+        let text = "Hey @bob check https://test.com and #cool";
+        let facets = vec![
+            Facet {
+                index: FacetIndex {
+                    byte_start: 4,
+                    byte_end: 8,
+                },
+                features: vec![FacetFeature::Mention {
+                    did: "did:plc:xyz".to_string(),
+                }],
+            },
+            Facet {
+                index: FacetIndex {
+                    byte_start: 15,
+                    byte_end: 31,
+                },
+                features: vec![FacetFeature::Link {
+                    uri: "https://test.com".to_string(),
+                }],
+            },
+            Facet {
+                index: FacetIndex {
+                    byte_start: 36,
+                    byte_end: 41,
+                },
+                features: vec![FacetFeature::Tag {
+                    tag: "cool".to_string(),
+                }],
+            },
+        ];
+
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(
+            result,
+            "Hey [@bob](https://bsky.app/profile/bob) check [https://test.com](https://test.com) and [#cool](https://bsky.app/hashtag/cool)"
+        );
+    }
+
+    #[test]
+    fn test_apply_facets_emoji() {
+        // Test with multi-byte UTF-8 characters (emoji)
+        // "Hello 👋 @alice"
+        // H=0, e=1, l=2, l=3, o=4, space=5, 👋=6-9, space=10, @=11, a=12, l=13, i=14, c=15, e=16
+        let text = "Hello 👋 @alice";
+        let facets = vec![Facet {
+            index: FacetIndex {
+                byte_start: 11, // Start of @alice (after "Hello 👋 ")
+                byte_end: 17,   // End of @alice
+            },
+            features: vec![FacetFeature::Mention {
+                did: "did:plc:test".to_string(),
+            }],
+        }];
+
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(result, "Hello 👋 [@alice](https://bsky.app/profile/alice)");
+    }
+
+    #[test]
+    fn test_apply_facets_empty() {
+        let text = "No facets here";
+        let facets = vec![];
+
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(result, "No facets here");
+    }
 
     #[test]
     fn test_compact_post_id_first_mention() {

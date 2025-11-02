@@ -4,8 +4,8 @@
 
 use crate::bluesky::did::DidResolver;
 use crate::bluesky::provider::RepositoryProvider;
-use crate::bluesky::records::PostRecord;
-use crate::car::cbor::{decode_cbor, get_text_field, CborValue};
+use crate::bluesky::records::{Facet, FacetFeature, FacetIndex, PostRecord};
+use crate::car::cbor::{decode_cbor, get_array_field, get_int_field, get_map_field, get_text_field, CborValue};
 use crate::cli::SearchArgs;
 use crate::error::{normalize_text, validate_account, validate_query, AppError};
 use crate::mcp::{McpResponse, ToolResult};
@@ -15,6 +15,69 @@ use anyhow::Result;
 use serde_json::Value;
 use tokio::time::{timeout, Duration};
 use tracing::debug;
+
+/// Extract facets from CBOR map (Vec of tuples)
+fn extract_facets(post_map: &[(CborValue, CborValue)]) -> Vec<Facet> {
+    let facets_array = match get_array_field(post_map, "facets") {
+        Some(arr) => arr,
+        None => return Vec::new(),
+    };
+
+    facets_array
+        .iter()
+        .filter_map(|facet_value| {
+            if let CborValue::Map(facet_map) = facet_value {
+                // Extract index
+                let index_map = get_map_field(facet_map, "index")?;
+                let byte_start = get_int_field(index_map, "byteStart")? as u32;
+                let byte_end = get_int_field(index_map, "byteEnd")? as u32;
+
+                // Extract features
+                let features_array = get_array_field(facet_map, "features")?;
+                let features: Vec<FacetFeature> = features_array
+                    .iter()
+                    .filter_map(|feature_value| {
+                        if let CborValue::Map(feature_map) = feature_value {
+                            let type_str = get_text_field(feature_map, "$type")?;
+
+                            match type_str {
+                                "app.bsky.richtext.facet#mention" => {
+                                    let did = get_text_field(feature_map, "did")?.to_string();
+                                    Some(FacetFeature::Mention { did })
+                                }
+                                "app.bsky.richtext.facet#link" => {
+                                    let uri = get_text_field(feature_map, "uri")?.to_string();
+                                    Some(FacetFeature::Link { uri })
+                                }
+                                "app.bsky.richtext.facet#tag" => {
+                                    let tag = get_text_field(feature_map, "tag")?.to_string();
+                                    Some(FacetFeature::Tag { tag })
+                                }
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                if features.is_empty() {
+                    return None;
+                }
+
+                Some(Facet {
+                    index: FacetIndex {
+                        byte_start,
+                        byte_end,
+                    },
+                    features,
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
 
 /// Handle search tool call
 pub async fn handle_search(id: Option<Value>, args: Value) -> McpResponse {
@@ -119,6 +182,9 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
                     _ => return None,
                 };
 
+                // Extract facets using helper function
+                let facets = extract_facets(&post_map);
+
                 // Look up rkey from CID->rkey mapping; skip if not present
                 let collection_rkey = match cid_to_rkey.get(&cid_str) {
                     Some(s) => s.as_str(),
@@ -131,7 +197,7 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
                     text,
                     created_at,
                     embeds: Vec::new(), // TODO: Convert embeds if needed in future
-                    facets: Vec::new(), // TODO: Convert facets if needed in future
+                    facets,
                 })
             } else {
                 None
@@ -216,7 +282,13 @@ fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> St
         seen_posts.insert(full_id, post.uri.clone());
 
         // Blockquote content (with highlighting preserved inside quote)
-        let highlighted_text = highlight_query(&post.text, query);
+        // First apply facets, then highlight
+        let text_with_facets = if !post.facets.is_empty() {
+            crate::tools::post_format::apply_facets_to_text(&post.text, &post.facets)
+        } else {
+            post.text.clone()
+        };
+        let highlighted_text = highlight_query(&text_with_facets, query);
         markdown.push_str(&blockquote_content(&highlighted_text));
         markdown.push('\n');
 
@@ -365,5 +437,117 @@ mod tests {
         assert!(markdown.contains("@test.bsky.social/1"));
         assert!(markdown.contains("> **Hello** world, this is a test"));
         assert!(markdown.contains("2024-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn test_extract_facets() {
+        use crate::car::cbor::CborValue;
+
+        // Build CBOR structure for a post with facets
+        let facets_cbor = vec![
+            CborValue::Map(vec![
+                (
+                    CborValue::Text("index"),
+                    CborValue::Map(vec![
+                        (CborValue::Text("byteStart"), CborValue::Integer(0)),
+                        (CborValue::Text("byteEnd"), CborValue::Integer(10)),
+                    ]),
+                ),
+                (
+                    CborValue::Text("features"),
+                    CborValue::Array(vec![CborValue::Map(vec![
+                        (CborValue::Text("$type"), CborValue::Text("app.bsky.richtext.facet#mention")),
+                        (CborValue::Text("did"), CborValue::Text("did:plc:test123")),
+                    ])]),
+                ),
+            ]),
+            CborValue::Map(vec![
+                (
+                    CborValue::Text("index"),
+                    CborValue::Map(vec![
+                        (CborValue::Text("byteStart"), CborValue::Integer(15)),
+                        (CborValue::Text("byteEnd"), CborValue::Integer(30)),
+                    ]),
+                ),
+                (
+                    CborValue::Text("features"),
+                    CborValue::Array(vec![CborValue::Map(vec![
+                        (CborValue::Text("$type"), CborValue::Text("app.bsky.richtext.facet#link")),
+                        (CborValue::Text("uri"), CborValue::Text("https://example.com")),
+                    ])]),
+                ),
+            ]),
+            CborValue::Map(vec![
+                (
+                    CborValue::Text("index"),
+                    CborValue::Map(vec![
+                        (CborValue::Text("byteStart"), CborValue::Integer(35)),
+                        (CborValue::Text("byteEnd"), CborValue::Integer(45)),
+                    ]),
+                ),
+                (
+                    CborValue::Text("features"),
+                    CborValue::Array(vec![CborValue::Map(vec![
+                        (CborValue::Text("$type"), CborValue::Text("app.bsky.richtext.facet#tag")),
+                        (CborValue::Text("tag"), CborValue::Text("rust")),
+                    ])]),
+                ),
+            ]),
+        ];
+
+        let post_map = vec![
+            (CborValue::Text("text"), CborValue::Text("Test post")),
+            (CborValue::Text("facets"), CborValue::Array(facets_cbor)),
+        ];
+
+        let facets = extract_facets(&post_map);
+
+        assert_eq!(facets.len(), 3);
+
+        // Test mention facet
+        assert_eq!(facets[0].index.byte_start, 0);
+        assert_eq!(facets[0].index.byte_end, 10);
+        match &facets[0].features[0] {
+            FacetFeature::Mention { did } => assert_eq!(did, "did:plc:test123"),
+            _ => panic!("Expected mention facet"),
+        }
+
+        // Test link facet
+        assert_eq!(facets[1].index.byte_start, 15);
+        assert_eq!(facets[1].index.byte_end, 30);
+        match &facets[1].features[0] {
+            FacetFeature::Link { uri } => assert_eq!(uri, "https://example.com"),
+            _ => panic!("Expected link facet"),
+        }
+
+        // Test tag facet
+        assert_eq!(facets[2].index.byte_start, 35);
+        assert_eq!(facets[2].index.byte_end, 45);
+        match &facets[2].features[0] {
+            FacetFeature::Tag { tag } => assert_eq!(tag, "rust"),
+            _ => panic!("Expected tag facet"),
+        }
+    }
+
+    #[test]
+    fn test_extract_facets_empty() {
+        use crate::car::cbor::CborValue;
+
+        // Post with no facets field
+        let post_map = vec![
+            (CborValue::Text("text"), CborValue::Text("Test post")),
+        ];
+
+        let facets = extract_facets(&post_map);
+        assert_eq!(facets.len(), 0);
+
+        // Post with empty facets array
+        let post_map_empty = vec![
+            (CborValue::Text("text"), CborValue::Text("Test post")),
+            (CborValue::Text("facets"), CborValue::Array(vec![])),
+        ];
+
+        let facets = extract_facets(&post_map_empty);
+        assert_eq!(facets.len(), 0);
     }
 }
