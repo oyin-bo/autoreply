@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -337,10 +336,8 @@ func TestResolveURIsForCIDs_WithMockServer(t *testing.T) {
 	processor := NewCARProcessor(cacheManager)
 
 	// Override DID resolver for testing
-	var didCache sync.Map
 	processor.didResolver = &DIDResolver{
 		client:   http.DefaultClient,
-		cache:    didCache,
 		cacheTTL: time.Hour,
 	}
 

@@ -133,8 +133,10 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
             // Decode CBOR data to ProfileRecord
             if let Ok(CborValue::Map(profile_map)) = decode_cbor(&cbor_data) {
                 // Use helper function to avoid string allocations
-                let display_name = get_text_field(&profile_map, "displayName").map(|s| s.to_string());
-                let description = get_text_field(&profile_map, "description").map(|s| s.to_string());
+                let display_name =
+                    get_text_field(&profile_map, "displayName").map(|s| s.to_string());
+                let description =
+                    get_text_field(&profile_map, "description").map(|s| s.to_string());
                 let avatar = get_cbor_blob_field(&profile_map, "avatar");
                 let banner = get_cbor_blob_field(&profile_map, "banner");
                 let created_at = get_text_field(&profile_map, "createdAt")

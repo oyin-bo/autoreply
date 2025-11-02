@@ -153,8 +153,10 @@ func HighlightQuery(text, query string) string {
 	lowerQuery := strings.ToLower(query)
 
 	// Determine if we should use strict word-boundary matching
-	// Apply for: short queries (≤3 chars), all-uppercase acronyms, or all-lowercase abbreviations
-	strictMode := len(query) <= 3 || query == strings.ToUpper(query) || query == strings.ToLower(query)
+	// Apply for: short queries (≤3 chars) or all-uppercase acronyms
+	strictMode := len(query) <= 3 || (len(query) > 0 && query == strings.ToUpper(query) && strings.IndexFunc(query, func(r rune) bool {
+		return r >= 'A' && r <= 'Z'
+	}) >= 0)
 
 	// Try substring matching first
 	if strings.Contains(lowerText, lowerQuery) {

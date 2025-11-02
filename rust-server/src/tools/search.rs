@@ -154,11 +154,8 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     // secondary tie-breaker implicitly when scores are equal (engine already
     // returned a stable order for equals).
     let limit = search_args.limit.unwrap_or(50);
-    let matching_posts: Vec<&PostRecord> = search_results
-        .iter()
-        .take(limit)
-        .map(|r| &r.item)
-        .collect();
+    let matching_posts: Vec<&PostRecord> =
+        search_results.iter().take(limit).map(|r| &r.item).collect();
 
     // Limit applied above via iterator .take(limit)
 

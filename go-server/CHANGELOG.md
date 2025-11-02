@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.7] - 2025-11-02
+
+### Added
+- Fuzzy search, including ranking and Unicode normalisation.
+
 ## [0.3.6] - 2025-11-01
 
 ### Added

@@ -326,7 +326,7 @@ fn format_cid_simple(cid: &Cid) -> String {
 mod tests {
     use super::*;
 
-    // Manual CBOR encoding helpers (no serde_cbor dependency)
+    // Manual CBOR encoding helpers (no  dependency)
     fn encode_cbor_map(pairs: &[(&str, CborVal)]) -> Vec<u8> {
         let mut result = vec![0xA0 | (pairs.len() as u8)]; // Map major type + length
         for (key, value) in pairs {

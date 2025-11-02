@@ -534,13 +534,16 @@ func TestBlockquoteContentPreservesFormatting(t *testing.T) {
 
 // TestHighlightQueryWithOverlap ensures highlighting works with overlapping patterns
 func TestHighlightQueryWithOverlap(t *testing.T) {
-	text := "aaaa"
+	// For very short queries (≤3 chars), word boundaries are required
+	// So "aa" won't match inside "aaaa" without word boundaries
+	text := "test aa test aaaa"
 	query := "aa"
 	got := HighlightQuery(text, query)
 
-	// Should highlight first occurrence: "**aa**aa"
-	if !strings.HasPrefix(got, "**aa**") {
-		t.Errorf("HighlightQuery() should highlight first match, got: %s", got)
+	// Should highlight standalone "aa" with word boundaries: "test **aa** test aaaa"
+	expected := "test **aa** test aaaa"
+	if got != expected {
+		t.Errorf("HighlightQuery() = %q, want %q", got, expected)
 	}
 }
 
