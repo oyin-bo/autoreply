@@ -143,6 +143,7 @@ func GetIntField(m map[string]interface{}, key string) int {
 }
 
 // HighlightQuery highlights query matches in text with **bold** markdown
+// For short queries or acronyms, only highlights whole-word matches to avoid false positives.
 func HighlightQuery(text, query string) string {
 	if query == "" {
 		return text
@@ -151,35 +152,65 @@ func HighlightQuery(text, query string) string {
 	lowerText := strings.ToLower(text)
 	lowerQuery := strings.ToLower(query)
 
-	if !strings.Contains(lowerText, lowerQuery) {
-		return text
-	}
+	// Determine if we should use strict word-boundary matching
+	// Apply for: short queries (≤3 chars), all-uppercase acronyms, or all-lowercase abbreviations
+	strictMode := len(query) <= 3 || query == strings.ToUpper(query) || query == strings.ToLower(query)
 
-	var result strings.Builder
-	remaining := text
-	lowerRemaining := lowerText
+	// Try substring matching first
+	if strings.Contains(lowerText, lowerQuery) {
+		var result strings.Builder
+		remaining := text
+		lowerRemaining := lowerText
+		lowerRunes := []rune(lowerText)
+		queryLen := len([]rune(query))
 
-	for {
-		idx := strings.Index(lowerRemaining, lowerQuery)
-		if idx == -1 {
-			result.WriteString(remaining)
-			break
+		pos := 0
+		for {
+			idx := strings.Index(lowerRemaining, lowerQuery)
+			if idx == -1 {
+				result.WriteString(remaining)
+				break
+			}
+
+			absoluteIdx := pos + idx
+
+			// In strict mode, check word boundaries
+			if strictMode {
+				// Check if match is at word boundary
+				atStart := absoluteIdx == 0 || !isWordChar(lowerRunes[absoluteIdx-1])
+				atEnd := (absoluteIdx+queryLen >= len(lowerRunes)) || !isWordChar(lowerRunes[absoluteIdx+queryLen])
+
+				if !atStart || !atEnd {
+					// Not a whole-word match, skip this occurrence
+					result.WriteString(remaining[:idx+len([]rune(lowerQuery))])
+					remaining = remaining[idx+len([]rune(lowerQuery)):]
+					lowerRemaining = lowerRemaining[idx+len(lowerQuery):]
+					pos += idx + queryLen
+					continue
+				}
+			}
+
+			// Valid match - highlight it
+			result.WriteString(remaining[:idx])
+			result.WriteString("**")
+			result.WriteString(remaining[idx : idx+len(query)])
+			result.WriteString("**")
+
+			remaining = remaining[idx+len(query):]
+			lowerRemaining = lowerRemaining[idx+len(query):]
+			pos += idx + queryLen
 		}
 
-		// Add text before match
-		result.WriteString(remaining[:idx])
-
-		// Add highlighted match
-		result.WriteString("**")
-		result.WriteString(remaining[idx : idx+len(query)])
-		result.WriteString("**")
-
-		// Move to after the match
-		remaining = remaining[idx+len(query):]
-		lowerRemaining = lowerRemaining[idx+len(query):]
+		return result.String()
 	}
 
-	return result.String()
+	// No substring match - don't show scattered fuzzy highlighting as it's confusing
+	return text
+}
+
+// isWordChar returns true if the rune is alphanumeric or underscore
+func isWordChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
 }
 
 // ParseTimestamp attempts to parse various timestamp formats

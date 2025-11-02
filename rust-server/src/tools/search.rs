@@ -148,17 +148,19 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
         post.get_searchable_text()
     });
 
-    // Extract just the posts from search results
-    let mut matching_posts: Vec<&PostRecord> = search_results.iter().map(|r| &r.item).collect();
-
-    // Sort by created_at descending (ISO8601 lexicographic)
-    matching_posts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-    // Apply limit (default 50, no maximum - will fetch as many as requested)
+    // Extract just the posts from search results, preserving relevance order
+    // (highest score first as determined by SearchEngine). We'll keep this
+    // ordering to prioritize quality of match, and apply recency only as a
+    // secondary tie-breaker implicitly when scores are equal (engine already
+    // returned a stable order for equals).
     let limit = search_args.limit.unwrap_or(50);
-    if matching_posts.len() > limit {
-        matching_posts.truncate(limit);
-    }
+    let matching_posts: Vec<&PostRecord> = search_results
+        .iter()
+        .take(limit)
+        .map(|r| &r.item)
+        .collect();
+
+    // Limit applied above via iterator .take(limit)
 
     if matching_posts.is_empty() {
         return Err(AppError::NotFound(format!(
@@ -241,31 +243,44 @@ fn highlight_query(text: &str, query: &str) -> String {
     let lower_text = text.to_lowercase();
     let lower_query = query.to_lowercase();
 
-    if !lower_text.contains(&lower_query) {
-        return text.to_string();
+    if lower_text.contains(&lower_query) {
+        let mut result = String::new();
+        let mut last_end = 0;
+        while let Some(start) = lower_text[last_end..].find(&lower_query) {
+            let absolute_start = last_end + start;
+            let absolute_end = absolute_start + query.len();
+            result.push_str(&text[last_end..absolute_start]);
+            result.push_str("**");
+            result.push_str(&text[absolute_start..absolute_end]);
+            result.push_str("**");
+            last_end = absolute_end;
+        }
+        result.push_str(&text[last_end..]);
+        return result;
     }
 
-    let mut result = String::new();
-    let mut last_end = 0;
-
-    while let Some(start) = lower_text[last_end..].find(&lower_query) {
-        let absolute_start = last_end + start;
-        let absolute_end = absolute_start + query.len();
-
-        // Add text before match
-        result.push_str(&text[last_end..absolute_start]);
-
-        // Add highlighted match
-        result.push_str("**");
-        result.push_str(&text[absolute_start..absolute_end]);
-        result.push_str("**");
-
-        last_end = absolute_end;
+    // Fallback: fuzzy subsequence highlighting (bold the matched characters
+    // of the query in order). This provides visual feedback even when the
+    // match isn't a contiguous substring.
+    let mut result = String::with_capacity(text.len() + query.len() * 2);
+    let mut qi = 0usize;
+    let qchars: Vec<char> = lower_query.chars().collect();
+    for (i, ch) in text.chars().enumerate() {
+        if qi < qchars.len() {
+            // Compare lowercased versions without allocating per-char
+            let tch = ch.to_lowercase().next().unwrap_or(ch);
+            if tch == qchars[qi] {
+                result.push_str("**");
+                result.push(ch);
+                result.push_str("**");
+                qi += 1;
+                continue;
+            }
+        }
+        result.push(ch);
+        // avoid unused i warning
+        let _ = i;
     }
-
-    // Add remaining text
-    result.push_str(&text[last_end..]);
-
     result
 }
 

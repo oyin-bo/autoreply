@@ -16,6 +16,7 @@ import (
 	"github.com/ipld/go-ipld-prime/codec/dagcbor"
 	ipld "github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/oyin-bo/autoreply/go-server/internal/cache"
 	"github.com/oyin-bo/autoreply/go-server/pkg/errors"
@@ -294,11 +295,11 @@ func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, quer
 		text := getStringNode(n, "text")
 		createdAt := getStringNode(n, "createdAt")
 
-		searchable := strings.ToLower(text)
+		searchable := normalizeSearchText(text)
 		if em, err := n.LookupByString("embed"); err == nil && em != nil && em.Kind() == ipld.Kind_Map {
 			if ext, err := em.LookupByString("external"); err == nil && ext != nil && ext.Kind() == ipld.Kind_Map {
-				searchable += "\n" + strings.ToLower(getStringNode(ext, "title"))
-				searchable += "\n" + strings.ToLower(getStringNode(ext, "description"))
+				searchable += "\n" + normalizeSearchText(getStringNode(ext, "title"))
+				searchable += "\n" + normalizeSearchText(getStringNode(ext, "description"))
 			}
 			if imgs, err := em.LookupByString("images"); err == nil && imgs != nil && imgs.Kind() == ipld.Kind_List {
 				itr := imgs.ListIterator()
@@ -308,18 +309,18 @@ func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, quer
 						break
 					}
 					if v.Kind() == ipld.Kind_Map {
-						searchable += "\n" + strings.ToLower(getStringNode(v, "alt"))
+						searchable += "\n" + normalizeSearchText(getStringNode(v, "alt"))
 					}
 				}
 			}
 			if rec, err := em.LookupByString("record"); err == nil && rec != nil && rec.Kind() == ipld.Kind_Map {
 				if inner, err := rec.LookupByString("record"); err == nil && inner != nil && inner.Kind() == ipld.Kind_Map {
-					searchable += "\n" + strings.ToLower(getStringNode(inner, "text"))
+					searchable += "\n" + normalizeSearchText(getStringNode(inner, "text"))
 				}
 			}
 		}
 
-		if normalizedQuery != "" && !strings.Contains(searchable, normalizedQuery) {
+		if normalizedQuery != "" && !strings.Contains(searchable, normalizedQuery) && !fuzzyMatch(normalizedQuery, searchable) {
 			continue
 		}
 
@@ -346,6 +347,62 @@ func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, quer
 		})
 	}
 	return results, nil
+}
+
+// normalizeSearchText normalizes text for consistent searching:
+// applies Unicode NFKC normalization (e.g., mathematical bold → ASCII) then lowercase.
+func normalizeSearchText(text string) string {
+	return strings.ToLower(norm.NFKC.String(text))
+}
+
+// fuzzyMatch performs a subsequence fuzzy check with quality threshold:
+// - All characters of pattern must appear in order within text (case-insensitive)
+// - For short patterns (≤ 3 chars), average gap between chars must be ≤ 20
+// - For longer patterns, average gap must be ≤ 10
+// This prevents meaningless scattered matches like "WFH" matching "will...format...than"
+func fuzzyMatch(pattern, text string) bool {
+	if pattern == "" {
+		return true
+	}
+	// Fast path: direct substring
+	if strings.Contains(text, pattern) {
+		return true
+	}
+	// Subsequence check on runes to handle Unicode safely
+	pr := []rune(pattern)
+	tr := []rune(text)
+	pi := 0
+	lastMatchPos := -1
+	totalGap := 0
+	matches := 0
+
+	for ti, r := range tr {
+		if pi < len(pr) && r == pr[pi] {
+			if lastMatchPos >= 0 {
+				gap := ti - lastMatchPos - 1
+				totalGap += gap
+			}
+			lastMatchPos = ti
+			matches++
+			pi++
+			if pi == len(pr) {
+				// All pattern chars found - check quality
+				if matches == 0 {
+					return true
+				}
+				avgGap := float64(totalGap) / float64(matches-1)
+
+				// Threshold depends on pattern length
+				maxAvgGap := 10.0
+				if len(pr) <= 3 {
+					maxAvgGap = 20.0
+				}
+
+				return avgGap <= maxAvgGap
+			}
+		}
+	}
+	return false
 }
 
 // strFromMap safely extracts a string from a generic map

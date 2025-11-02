@@ -771,11 +771,111 @@ func TestSearchPosts_WithRealCAR(t *testing.T) {
 			}
 			lowerSearchable := strings.ToLower(post.SearchableText)
 			lowerQuery := strings.ToLower(query)
-			if !strings.Contains(lowerSearchable, lowerQuery) {
+			if !strings.Contains(lowerSearchable, lowerQuery) && !fuzzyMatch(lowerQuery, lowerSearchable) {
 				t.Errorf("Post searchable text doesn't contain query %q. Post text: %s, Searchable: %s",
 					query, post.Text, post.SearchableText)
 			}
 		}
+	}
+}
+
+func TestSearchPosts_FuzzyQuery_RealCAR(t *testing.T) {
+	carData := downloadAndCacheAutoreplyCAR(t)
+	if carData == nil {
+		return
+	}
+
+	cacheManager, err := cache.NewManager()
+	if err != nil {
+		t.Fatalf("Failed to create cache manager: %v", err)
+	}
+	processor := NewCARProcessor(cacheManager)
+
+	// Store the real CAR data in cache
+	etag := "test-etag-fuzzy"
+	err = cacheManager.StoreCar(cachedAutoreplyDID, carData, cache.Metadata{
+		ETag: &etag,
+	})
+	if err != nil {
+		t.Fatalf("Failed to store CAR: %v", err)
+	}
+
+	// Get all posts to construct a fuzzy-only pattern from real text
+	posts, err := processor.SearchPosts(cachedAutoreplyDID, "")
+	if err != nil {
+		t.Fatalf("SearchPosts with empty query failed: %v", err)
+	}
+	if len(posts) == 0 {
+		t.Skip("No posts in repository; skipping fuzzy integration test")
+		return
+	}
+
+	// Find a sufficiently long searchable text
+	var base string
+	for _, p := range posts {
+		if len(p.SearchableText) >= 16 {
+			base = strings.ToLower(p.SearchableText)
+			break
+		}
+	}
+	if base == "" {
+		t.Skip("No sufficiently long post found for fuzzy pattern")
+		return
+	}
+
+	// Build a subsequence pattern that is unlikely to be a contiguous substring
+	// Take every second alphanumeric rune to form the pattern
+	var letters []rune
+	for _, r := range []rune(base) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			letters = append(letters, r)
+		}
+		if len(letters) >= 20 { // cap
+			break
+		}
+	}
+	if len(letters) < 8 {
+		t.Skip("Not enough alphanumeric data to form a robust fuzzy pattern")
+		return
+	}
+	patternRunes := []rune{letters[0], letters[2], letters[4], letters[6]}
+	pattern := string(patternRunes)
+	if strings.Contains(base, pattern) {
+		// Shift by one to avoid accidental substring
+		patternRunes = []rune{letters[1], letters[3], letters[5], letters[7]}
+		pattern = string(patternRunes)
+	}
+
+	// Sanity: ensure our pattern is not a substring but is a subsequence of base
+	if strings.Contains(base, pattern) {
+		t.Skip("Could not construct a non-substring fuzzy pattern reliably; skipping")
+		return
+	}
+	if !fuzzyMatch(pattern, base) {
+		t.Skip("Constructed pattern not a subsequence; skipping to avoid flake")
+		return
+	}
+
+	// Execute search with fuzzy-only pattern
+	fuzzyPosts, err := processor.SearchPosts(cachedAutoreplyDID, pattern)
+	if err != nil {
+		t.Fatalf("SearchPosts(%q) failed: %v", pattern, err)
+	}
+	if len(fuzzyPosts) == 0 {
+		t.Fatalf("Expected some posts for fuzzy pattern %q", pattern)
+	}
+
+	// Verify at least one result satisfies fuzzy-only (not substring) condition
+	foundFuzzyOnly := false
+	for _, p := range fuzzyPosts {
+		s := strings.ToLower(p.SearchableText)
+		if !strings.Contains(s, pattern) && fuzzyMatch(pattern, s) {
+			foundFuzzyOnly = true
+			break
+		}
+	}
+	if !foundFuzzyOnly {
+		t.Fatalf("Expected at least one fuzzy-only match for %q; got %d results", pattern, len(fuzzyPosts))
 	}
 }
 
