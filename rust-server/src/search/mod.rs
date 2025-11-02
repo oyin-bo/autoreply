@@ -7,7 +7,11 @@ pub mod fuzzy;
 pub mod parser;
 pub mod ranking;
 
+#[allow(unused_imports)]
 pub use engine::{SearchEngine, SearchResult};
+#[allow(unused_imports)]
 pub use fuzzy::FuzzyMatcher;
+#[allow(unused_imports)]
 pub use parser::{ParsedQuery, QueryParser};
+#[allow(unused_imports)]
 pub use ranking::{MatchScore, ScoringWeights};

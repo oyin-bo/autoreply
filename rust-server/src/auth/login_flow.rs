@@ -382,7 +382,7 @@ mod tests {
     #[test]
     fn prompt_ids_removed_placeholder() {
         // placeholder test to keep module structure stable; prompt_id generator removed
-        assert!(true);
+        // This test intentionally does nothing
     }
 
     #[test]

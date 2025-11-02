@@ -388,7 +388,7 @@ mod tests {
         assert!(is_valid_handle("user-name.test.io"));
         assert!(is_valid_handle("123.example.net"));
         assert!(is_valid_handle("a.b.c.d.example.org"));
-        
+
         // Invalid handles
         assert!(!is_valid_handle(""));
         assert!(!is_valid_handle("nodot"));
@@ -405,11 +405,11 @@ mod tests {
     fn test_handle_validation_edge_cases() {
         // Minimum valid handle
         assert!(is_valid_handle("a.bc"));
-        
+
         // Long but valid
         let long_handle = format!("{}.example.com", "a".repeat(100));
         assert!(is_valid_handle(&long_handle));
-        
+
         // Special characters
         assert!(is_valid_handle("user-name.example.com"));
         assert!(is_valid_handle("123-456.example.com"));
@@ -430,11 +430,13 @@ mod tests {
         // Valid DIDs with different methods
         assert!(is_valid_did("did:plc:abcd1234efgh5678"));
         assert!(is_valid_did("did:web:example.com"));
-        assert!(is_valid_did("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"));
+        assert!(is_valid_did(
+            "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+        ));
         assert!(is_valid_did("did:method:suffix"));
         assert!(is_valid_did("did:x:y")); // Minimal valid
         assert!(is_valid_did("did:plc")); // Actually valid per implementation (> 4 chars)
-        
+
         // Invalid DIDs
         assert!(!is_valid_did(""));
         assert!(!is_valid_did("did"));
@@ -448,21 +450,33 @@ mod tests {
     fn test_parse_account_reference_did_passthrough() {
         let did = "did:plc:abcd1234efgh5678";
         assert_eq!(parse_account_reference(did), did);
-        
+
         let did_web = "did:web:example.com";
         assert_eq!(parse_account_reference(did_web), did_web);
     }
 
     #[test]
     fn test_parse_account_reference_handle() {
-        assert_eq!(parse_account_reference("alice.bsky.social"), "alice.bsky.social");
-        assert_eq!(parse_account_reference("user.example.com"), "user.example.com");
+        assert_eq!(
+            parse_account_reference("alice.bsky.social"),
+            "alice.bsky.social"
+        );
+        assert_eq!(
+            parse_account_reference("user.example.com"),
+            "user.example.com"
+        );
     }
 
     #[test]
     fn test_parse_account_reference_at_prefix() {
-        assert_eq!(parse_account_reference("@alice.bsky.social"), "alice.bsky.social");
-        assert_eq!(parse_account_reference("@user.example.com"), "user.example.com");
+        assert_eq!(
+            parse_account_reference("@alice.bsky.social"),
+            "alice.bsky.social"
+        );
+        assert_eq!(
+            parse_account_reference("@user.example.com"),
+            "user.example.com"
+        );
     }
 
     #[test]
@@ -475,7 +489,7 @@ mod tests {
             parse_account_reference("http://bsky.app/profile/bob.example.com"),
             "bob.example.com"
         );
-        
+
         // With DID in URL
         assert_eq!(
             parse_account_reference("https://bsky.app/profile/did:plc:abc123"),
@@ -499,8 +513,11 @@ mod tests {
     fn test_parse_account_reference_partial_did() {
         // 24 base32 characters
         let partial = "abcdefg234567hijklmn2345";
-        assert_eq!(parse_account_reference(partial), format!("did:plc:{}", partial));
-        
+        assert_eq!(
+            parse_account_reference(partial),
+            format!("did:plc:{}", partial)
+        );
+
         // Not exactly 24 chars - treated as handle
         let not_partial = "abcdefg234567hijklmn234";
         assert_eq!(parse_account_reference(not_partial), not_partial);
@@ -510,15 +527,18 @@ mod tests {
     fn test_parse_account_reference_partial_did_validation() {
         // Valid base32: only a-z and 2-7
         let valid_partial = "a2b3c4d5e6f7g2h3i4j5k6l7";
-        assert_eq!(parse_account_reference(valid_partial), format!("did:plc:{}", valid_partial));
-        
+        assert_eq!(
+            parse_account_reference(valid_partial),
+            format!("did:plc:{}", valid_partial)
+        );
+
         // Invalid characters (has 8, 9, uppercase)
         let invalid_partial1 = "abcdefg234567hijklmn8945";
         assert_eq!(parse_account_reference(invalid_partial1), invalid_partial1);
-        
+
         let invalid_partial2 = "ABCDEFG234567HIJKLMN2345";
         assert_eq!(parse_account_reference(invalid_partial2), invalid_partial2);
-        
+
         // Has special characters
         let invalid_partial3 = "abcdefg-34567hijklmn2345";
         assert_eq!(parse_account_reference(invalid_partial3), invalid_partial3);
@@ -526,27 +546,33 @@ mod tests {
 
     #[test]
     fn test_parse_account_reference_whitespace() {
-        assert_eq!(parse_account_reference("  alice.bsky.social  "), "alice.bsky.social");
-        assert_eq!(parse_account_reference(" did:plc:abc123 "), "did:plc:abc123");
+        assert_eq!(
+            parse_account_reference("  alice.bsky.social  "),
+            "alice.bsky.social"
+        );
+        assert_eq!(
+            parse_account_reference(" did:plc:abc123 "),
+            "did:plc:abc123"
+        );
     }
 
     #[test]
     fn test_parse_account_reference_edge_cases() {
         // Empty string after trim
         assert_eq!(parse_account_reference(""), "");
-        
+
         // Just @ - strip_prefix returns empty string
         assert_eq!(parse_account_reference("@"), "");
-        
+
         // URL without profile part - doesn't match pattern, returned as-is
-        assert_eq!(parse_account_reference("https://bsky.app/"), "https://bsky.app/");
-        
+        assert_eq!(
+            parse_account_reference("https://bsky.app/"),
+            "https://bsky.app/"
+        );
+
         // Malformed URL - split returns empty after "/profile/"
         // Actually the implementation uses split('/').next() which returns ""
-        assert_eq!(
-            parse_account_reference("https://bsky.app/profile/"),
-            ""
-        );
+        assert_eq!(parse_account_reference("https://bsky.app/profile/"), "");
     }
 
     #[test]
@@ -621,14 +647,14 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_handle_invalid() {
         let resolver = DidResolver::new();
-        
+
         // Invalid handles should return None
         let result = resolver.resolve_handle("not_a_handle").await;
         assert!(matches!(result, Ok(None)));
-        
+
         let result = resolver.resolve_handle("").await;
         assert!(matches!(result, Ok(None)));
-        
+
         let result = resolver.resolve_handle("x.y").await; // TLD too short
         assert!(matches!(result, Ok(None)));
     }
@@ -637,7 +663,9 @@ mod tests {
     async fn test_resolve_handle_with_at_prefix() {
         let resolver = DidResolver::new();
         // This will fail to resolve but shouldn't error
-        let result = resolver.resolve_handle("@nonexistent.example.invalid").await;
+        let result = resolver
+            .resolve_handle("@nonexistent.example.invalid")
+            .await;
         assert!(matches!(result, Ok(None)));
     }
 
@@ -662,7 +690,7 @@ mod tests {
     fn test_is_valid_handle_internationalized_domain() {
         // ASCII-only for now in this implementation
         assert!(is_valid_handle("user.example.com"));
-        
+
         // Punycode would be valid but testing basic ASCII validation
         assert!(is_valid_handle("xn--user-xxa.example.com"));
     }
@@ -694,9 +722,12 @@ mod tests {
     fn test_parse_account_reference_case_sensitivity() {
         // DIDs are case-sensitive
         assert_eq!(parse_account_reference("did:plc:ABC123"), "did:plc:ABC123");
-        
+
         // Handles are lowercase by convention but we preserve them
-        assert_eq!(parse_account_reference("Alice.Example.COM"), "Alice.Example.COM");
+        assert_eq!(
+            parse_account_reference("Alice.Example.COM"),
+            "Alice.Example.COM"
+        );
     }
 
     #[test]
@@ -707,7 +738,7 @@ mod tests {
             parse_account_reference("https://bsky.app/profile/alice.com?param=value"),
             "alice.com?param=value"
         );
-        
+
         // URL with hash - implementation doesn't strip hash
         assert_eq!(
             parse_account_reference("https://bsky.app/profile/alice.com#section"),

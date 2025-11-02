@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -983,6 +984,122 @@ func TestResolveURIsForCIDs_RealData(t *testing.T) {
 		}
 		if !strings.Contains(uri, cachedAutoreplyDID) {
 			t.Errorf("URI doesn't contain DID for CID %s: %s", cid, uri)
+		}
+	}
+}
+
+// Detection-only: the MST mapping must not be empty for app.bsky.feed.post in the real CAR.
+// If it is empty, downstream search will be unable to construct URIs with rkeys.
+func TestCIDToRKeyMapping_MustNotBeEmpty_RealCAR(t *testing.T) {
+	carData := downloadAndCacheAutoreplyCAR(t)
+	if carData == nil {
+		return
+	}
+
+	mapping, err := ExtractCIDToRKeyMapping(carData, "app.bsky.feed.post")
+	if err != nil {
+		t.Fatalf("ExtractCIDToRKeyMapping failed: %v", err)
+	}
+
+	if len(mapping) == 0 {
+		t.Fatalf("MST mapping for app.bsky.feed.post must not be empty")
+	}
+}
+
+// Detection-only: reconcile post record CIDs from CAR blocks with MST mapping keys.
+// Every post CID surfaced from CAR must be present in CID->rkey mapping.
+func TestCIDToRKeyMapping_ReconcilesWithPostCIDs_RealCAR(t *testing.T) {
+	carData := downloadAndCacheAutoreplyCAR(t)
+	if carData == nil {
+		return
+	}
+
+	mapping, err := ExtractCIDToRKeyMapping(carData, "app.bsky.feed.post")
+	if err != nil {
+		t.Fatalf("ExtractCIDToRKeyMapping failed: %v", err)
+	}
+	if len(mapping) == 0 {
+		t.Fatalf("MST mapping for app.bsky.feed.post must not be empty")
+	}
+
+	reader := bytes.NewReader(carData)
+	carReader, err := carv2.NewBlockReader(reader)
+	if err != nil {
+		t.Fatalf("Failed to parse CAR: %v", err)
+	}
+
+	total := 0
+	missing := make([]string, 0)
+	for {
+		blk, err := carReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Failed reading CAR block: %v", err)
+		}
+
+		nb := basicnode.Prototype.Any.NewBuilder()
+		if err := dagcbor.Decode(nb, bytes.NewReader(blk.RawData())); err != nil {
+			continue
+		}
+		n := nb.Build()
+		if tpe := getStringNode(n, "$type"); tpe != "app.bsky.feed.post" {
+			continue
+		}
+
+		total++
+		cidStr := blk.Cid().String()
+		if _, ok := mapping[cidStr]; !ok {
+			missing = append(missing, cidStr)
+		}
+		if total >= 50 { // limit traversal for test performance, still strong signal
+			break
+		}
+	}
+
+	if total == 0 {
+		t.Fatalf("Expected at least one post in CAR, found none")
+	}
+	if len(missing) > 0 {
+		t.Fatalf("%d post CID(s) missing from MST mapping: %v", len(missing), missing)
+	}
+}
+
+// Detection-only: ensure SearchPosts returns URIs containing collection and rkey for real CAR.
+func TestSearchPosts_ReturnsURIsWithRKey_RealCAR(t *testing.T) {
+	carData := downloadAndCacheAutoreplyCAR(t)
+	if carData == nil {
+		return
+	}
+
+	cacheManager, err := cache.NewManager()
+	if err != nil {
+		t.Fatalf("Failed to create cache manager: %v", err)
+	}
+	processor := NewCARProcessor(cacheManager)
+
+	etag := "test-search-uris"
+	if err := cacheManager.StoreCar(cachedAutoreplyDID, carData, cache.Metadata{ETag: &etag}); err != nil {
+		t.Fatalf("Failed to store CAR: %v", err)
+	}
+
+	posts, err := processor.SearchPosts(cachedAutoreplyDID, "a")
+	if err != nil {
+		t.Fatalf("SearchPosts failed: %v", err)
+	}
+	if len(posts) == 0 {
+		t.Fatalf("Expected some posts to be returned")
+	}
+
+	checked := 0
+	for _, p := range posts {
+		if p.URI == "" || !strings.HasPrefix(p.URI, "at://") || !strings.Contains(p.URI, "/app.bsky.feed.post/") {
+			t.Fatalf("Invalid or missing URI for post CID %s: %q", p.CID, p.URI)
+		}
+		checked++
+		if checked >= 5 {
+			break
 		}
 	}
 }

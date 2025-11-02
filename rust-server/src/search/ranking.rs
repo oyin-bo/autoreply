@@ -49,11 +49,11 @@ impl Default for ScoringWeights {
 impl Default for PositionMultipliers {
     fn default() -> Self {
         Self {
-            full_word: 1.0,      // Highest priority
-            word_start: 0.8,     // Second highest
-            word_end: 0.6,       // Third
-            word_middle: 0.4,    // Lowest
-            multi_word: 0.9,     // High, but slightly less than full word
+            full_word: 1.0,   // Highest priority
+            word_start: 0.8,  // Second highest
+            word_end: 0.6,    // Third
+            word_middle: 0.4, // Lowest
+            multi_word: 0.9,  // High, but slightly less than full word
         }
     }
 }
@@ -62,18 +62,24 @@ impl Default for PositionMultipliers {
 #[derive(Debug, Clone)]
 pub struct MatchScore {
     /// Base fuzzy match score
+    #[allow(dead_code)]
     pub base_score: f64,
     /// Position-based weight
+    #[allow(dead_code)]
     pub position_weight: f64,
     /// Proximity boost
+    #[allow(dead_code)]
     pub proximity_boost: f64,
     /// Whether this is an exact match
+    #[allow(dead_code)]
     pub is_exact_match: bool,
     /// Whether this is an exact Unicode match
+    #[allow(dead_code)]
     pub is_exact_unicode: bool,
     /// Final weighted score
     pub final_score: f64,
     /// Match type
+    #[allow(dead_code)]
     pub match_type: MatchType,
 }
 
@@ -87,7 +93,7 @@ impl MatchScore {
         weights: &ScoringWeights,
     ) -> Self {
         let base_score = fuzzy_match.score as f64 * weights.fuzzy_base;
-        
+
         // Get position multiplier based on match type
         let position_weight = match fuzzy_match.match_type {
             MatchType::FullWord => weights.position_multipliers.full_word,
@@ -96,26 +102,26 @@ impl MatchScore {
             MatchType::WordMiddle => weights.position_multipliers.word_middle,
             MatchType::MultiWord => weights.position_multipliers.multi_word,
         };
-        
+
         // Calculate proximity boost (scaled to max_proximity_boost)
         let proximity_boost = proximity_score * weights.max_proximity_boost;
-        
+
         // Start with base score and apply position weight
         let mut final_score = base_score * position_weight;
-        
+
         // Add proximity boost
         final_score += proximity_boost * base_score;
-        
+
         // Apply exact match bonus (multiplicative)
         if is_exact {
             final_score *= weights.exact_match_bonus;
         }
-        
+
         // Apply Unicode exact bonus
         if is_exact_unicode {
             final_score *= weights.unicode_exact_bonus;
         }
-        
+
         Self {
             base_score,
             position_weight,
@@ -126,19 +132,19 @@ impl MatchScore {
             match_type: fuzzy_match.match_type,
         }
     }
-    
+
     /// Create a score for exact match (highest possible)
     pub fn exact_match(_haystack_len: usize, weights: &ScoringWeights) -> Self {
         let base_score = 1000.0; // High base score for exact match
-        
+
         Self {
             base_score,
             position_weight: weights.position_multipliers.full_word,
             proximity_boost: weights.max_proximity_boost,
             is_exact_match: true,
             is_exact_unicode: true,
-            final_score: base_score 
-                * weights.position_multipliers.full_word 
+            final_score: base_score
+                * weights.position_multipliers.full_word
                 * weights.exact_match_bonus
                 * weights.unicode_exact_bonus,
             match_type: MatchType::FullWord,
@@ -147,26 +153,27 @@ impl MatchScore {
 }
 
 /// Normalize scores to 0-1 range for comparison across different sources
+#[allow(dead_code)]
 pub fn normalize_scores(scores: &mut [MatchScore]) {
     if scores.is_empty() {
         return;
     }
-    
+
     // Find min and max scores
     let max_score = scores
         .iter()
         .map(|s| s.final_score)
         .max_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap_or(1.0);
-    
+
     let min_score = scores
         .iter()
         .map(|s| s.final_score)
         .min_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap_or(0.0);
-    
+
     let range = max_score - min_score;
-    
+
     if range > 0.0 {
         for score in scores.iter_mut() {
             score.final_score = (score.final_score - min_score) / range;
@@ -197,7 +204,7 @@ mod tests {
     fn test_exact_match_score() {
         let weights = ScoringWeights::default();
         let score = MatchScore::exact_match(10, &weights);
-        
+
         assert!(score.is_exact_match);
         assert!(score.is_exact_unicode);
         assert!(score.final_score > 1000.0); // Should be very high
@@ -234,19 +241,27 @@ mod tests {
                 match_type: MatchType::FullWord,
             },
         ];
-        
+
         normalize_scores(&mut scores);
-        
+
         // Check all scores are in 0-1 range
         for score in &scores {
             assert!(score.final_score >= 0.0);
             assert!(score.final_score <= 1.0);
         }
-        
+
         // Max should be 1.0, min should be 0.0
-        let max = scores.iter().map(|s| s.final_score).max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        let min = scores.iter().map(|s| s.final_score).min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        
+        let max = scores
+            .iter()
+            .map(|s| s.final_score)
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let min = scores
+            .iter()
+            .map(|s| s.final_score)
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+
         assert!((max - 1.0).abs() < 0.001);
         assert!((min - 0.0).abs() < 0.001);
     }

@@ -89,27 +89,25 @@ pub struct BlobRef {
 /// Custom serde module for handling CID as either string or bytes
 mod cid_or_bytes {
     use serde::{Deserialize, Deserializer, Serializer};
-    
-    pub fn serialize<S>(value: &String, serializer: S) -> Result<S::Ok, S::Error>
+
+    pub fn serialize<S>(value: &str, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         serializer.serialize_str(value)
     }
-    
+
     pub fn deserialize<'de, D>(deserializer: D) -> Result<String, D::Error>
     where
         D: Deserializer<'de>,
     {
-        use serde::de::Error;
-        
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum StringOrBytes {
             String(String),
             Bytes(serde_bytes::ByteBuf),
         }
-        
+
         match StringOrBytes::deserialize(deserializer)? {
             StringOrBytes::String(s) => Ok(s),
             StringOrBytes::Bytes(bytes) => {
@@ -165,10 +163,7 @@ impl ProfileRecord {
         }
 
         if let Some(avatar) = &self.avatar {
-            markdown.push_str(&format!(
-                "**Avatar:** ![Avatar](blob:{})\n\n",
-                avatar.ref_
-            ));
+            markdown.push_str(&format!("**Avatar:** ![Avatar](blob:{})\n\n", avatar.ref_));
         }
 
         markdown.push_str("**Stats:**\n");
@@ -672,7 +667,10 @@ mod tests {
 
         // Create avatar blob reference
         let mut avatar_map = BTreeMap::new();
-        avatar_map.insert(Value::Text("$type".to_string()), Value::Text("blob".to_string()));
+        avatar_map.insert(
+            Value::Text("$type".to_string()),
+            Value::Text("blob".to_string()),
+        );
         avatar_map.insert(
             Value::Text("ref".to_string()),
             Value::Text("bafyavatar123".to_string()),
@@ -686,7 +684,10 @@ mod tests {
 
         // Create banner blob reference
         let mut banner_map = BTreeMap::new();
-        banner_map.insert(Value::Text("$type".to_string()), Value::Text("blob".to_string()));
+        banner_map.insert(
+            Value::Text("$type".to_string()),
+            Value::Text("blob".to_string()),
+        );
         banner_map.insert(
             Value::Text("ref".to_string()),
             Value::Text("bafybanner456".to_string()),
@@ -854,17 +855,14 @@ mod tests {
             Value::Map(external_map),
         );
 
-        post_map.insert(
-            Value::Text("embed".to_string()),
-            Value::Map(embed_wrapper),
-        );
+        post_map.insert(Value::Text("embed".to_string()), Value::Map(embed_wrapper));
 
         let cbor_bytes = serde_cbor::to_vec(&Value::Map(post_map)).unwrap();
-        
+
         // Parse the post (note: single embed in CBOR becomes embeds array in struct)
         // This tests the flexibility of the deserialization
         let result = serde_cbor::from_slice::<PostRecord>(&cbor_bytes);
-        
+
         // May fail due to schema differences, but test the CBOR structure is valid
         assert!(result.is_ok() || result.is_err()); // Just validate CBOR parses
     }
@@ -977,7 +975,7 @@ mod tests {
 
     #[test]
     fn test_post_searchable_text_with_facet_links() {
-        let mut post = PostRecord {
+        let post = PostRecord {
             uri: "at://test/post/2".to_string(),
             cid: "cid2".to_string(),
             text: "Check out https://example.com and https://rust-lang.org".to_string(),
@@ -1032,7 +1030,7 @@ mod tests {
 
     #[test]
     fn test_post_searchable_text_with_record_embed() {
-        let mut post = PostRecord {
+        let post = PostRecord {
             uri: "at://test/post/4".to_string(),
             cid: "cid4".to_string(),
             text: "Quoting someone".to_string(),
@@ -1140,9 +1138,7 @@ mod tests {
     fn test_profile_with_multiline_description() {
         let profile = ProfileRecord {
             display_name: Some("Multi Line".to_string()),
-            description: Some(
-                "Line 1\nLine 2\nLine 3\n\nLine 5 after blank\n\nEnd".to_string(),
-            ),
+            description: Some("Line 1\nLine 2\nLine 3\n\nLine 5 after blank\n\nEnd".to_string()),
             avatar: None,
             banner: None,
             created_at: "2024-03-21T01:00:00Z".to_string(),
@@ -1457,4 +1453,3 @@ mod tests {
         }
     }
 }
-

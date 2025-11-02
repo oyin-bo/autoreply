@@ -7,10 +7,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// Stop words that should be excluded from individual word searches
 const STOP_WORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "by",
-    "for", "from", "has", "he", "in", "is", "it",
-    "its", "of", "on", "or", "that", "the", "to",
-    "was", "will", "with", "i", "you",
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "he", "in", "is", "it",
+    "its", "of", "on", "or", "that", "the", "to", "was", "will", "with", "i", "you",
 ];
 
 /// Parsed and processed search query
@@ -33,16 +31,16 @@ impl QueryParser {
     /// Parse a search query into its components
     pub fn parse(query: &str) -> ParsedQuery {
         let original = query.to_string();
-        
+
         // Extract quoted phrases
         let (quoted_phrases, query_without_quotes) = Self::extract_quoted_phrases(query);
-        
+
         // The whole query is the original, but we'll use it for full-text matching
         let whole_query = query.to_string();
-        
+
         // Tokenize the query without quoted parts
         let individual_words = Self::tokenize_and_filter(&query_without_quotes);
-        
+
         ParsedQuery {
             original,
             whole_query,
@@ -50,22 +48,22 @@ impl QueryParser {
             quoted_phrases,
         }
     }
-    
+
     /// Extract quoted phrases (both single and double quotes)
     /// Returns (quoted_phrases, query_with_quotes_removed)
     fn extract_quoted_phrases(query: &str) -> (Vec<String>, String) {
         let mut phrases = Vec::new();
         let mut remaining = String::new();
         let mut chars = query.chars().peekable();
-        
+
         while let Some(&ch) = chars.peek() {
             if ch == '"' || ch == '\'' {
                 let quote_char = ch;
                 chars.next(); // consume opening quote
-                
+
                 let mut phrase = String::new();
                 let mut found_closing = false;
-                
+
                 while let Some(&ch) = chars.peek() {
                     if ch == quote_char {
                         chars.next(); // consume closing quote
@@ -83,7 +81,7 @@ impl QueryParser {
                         chars.next();
                     }
                 }
-                
+
                 if found_closing && !phrase.is_empty() {
                     phrases.push(phrase);
                 } else if !found_closing {
@@ -96,10 +94,10 @@ impl QueryParser {
                 chars.next();
             }
         }
-        
+
         (phrases, remaining)
     }
-    
+
     /// Tokenize text into words and filter stop words
     fn tokenize_and_filter(text: &str) -> Vec<String> {
         text.unicode_words()
@@ -107,7 +105,7 @@ impl QueryParser {
             .filter(|w| !Self::is_stop_word(w))
             .collect()
     }
-    
+
     /// Check if a word is a stop word
     fn is_stop_word(word: &str) -> bool {
         STOP_WORDS.contains(&word)

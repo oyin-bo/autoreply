@@ -5,6 +5,7 @@
 use crate::bluesky::did::DidResolver;
 use crate::bluesky::provider::RepositoryProvider;
 use crate::bluesky::records::PostRecord;
+use crate::car::cbor::{decode_cbor, get_text_field, CborValue};
 use crate::cli::SearchArgs;
 use crate::error::{normalize_text, validate_account, validate_query, AppError};
 use crate::mcp::{McpResponse, ToolResult};
@@ -107,25 +108,22 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
             }
 
             // Decode CBOR data to extract post fields
-            if let Ok(serde_cbor::Value::Map(post_map)) =
-                serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data)
-            {
-                let text = match post_map.get(&serde_cbor::Value::Text("text".to_string())) {
-                    Some(serde_cbor::Value::Text(t)) => t.clone(),
+            if let Ok(CborValue::Map(post_map)) = decode_cbor(&cbor_data) {
+                let text = match get_text_field(&post_map, "text") {
+                    Some(t) => t.to_string(),
                     _ => return None,
                 };
 
-                let created_at =
-                    match post_map.get(&serde_cbor::Value::Text("createdAt".to_string())) {
-                        Some(serde_cbor::Value::Text(t)) => t.clone(),
-                        _ => return None,
-                    };
+                let created_at = match get_text_field(&post_map, "createdAt") {
+                    Some(t) => t.to_string(),
+                    _ => return None,
+                };
 
-                // Look up rkey from CID->rkey mapping
-                let collection_rkey = cid_to_rkey
-                    .get(&cid_str)
-                    .map(|s| s.as_str())
-                    .unwrap_or("app.bsky.feed.post/unknown");
+                // Look up rkey from CID->rkey mapping; skip if not present
+                let collection_rkey = match cid_to_rkey.get(&cid_str) {
+                    Some(s) => s.as_str(),
+                    None => return None,
+                };
 
                 Some(PostRecord {
                     uri: format!("at://{}/{}", did_str, collection_rkey),
@@ -145,18 +143,13 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
 
     // Use new fuzzy search engine
     let mut search_engine = SearchEngine::new();
-    
-    let search_results = search_engine.search(
-        &search_args.query,
-        &posts,
-        |post| post.get_searchable_text(),
-    );
+
+    let search_results = search_engine.search(&search_args.query, &posts, |post| {
+        post.get_searchable_text()
+    });
 
     // Extract just the posts from search results
-    let mut matching_posts: Vec<&PostRecord> = search_results
-        .iter()
-        .map(|r| &r.item)
-        .collect();
+    let mut matching_posts: Vec<&PostRecord> = search_results.iter().map(|r| &r.item).collect();
 
     // Sort by created_at descending (ISO8601 lexicographic)
     matching_posts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -297,7 +290,7 @@ mod tests {
     #[test]
     fn test_fuzzy_search_integration() {
         use crate::search::SearchEngine;
-        
+
         let posts = vec![
             PostRecord {
                 uri: "at://test/app.bsky.feed.post/1".to_string(),
@@ -327,10 +320,12 @@ mod tests {
 
         let mut engine = SearchEngine::new();
         let results = engine.search("hello", &posts, |p| p.get_searchable_text());
-        
+
         assert_eq!(results.len(), 2);
         assert!(results.iter().any(|r| r.item.text.contains("Hello world")));
-        assert!(results.iter().any(|r| r.item.text.contains("Hello everyone")));
+        assert!(results
+            .iter()
+            .any(|r| r.item.text.contains("Hello everyone")));
 
         let results = engine.search("programming", &posts, |p| p.get_searchable_text());
         assert_eq!(results.len(), 1);

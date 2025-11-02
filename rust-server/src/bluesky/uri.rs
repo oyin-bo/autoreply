@@ -169,7 +169,10 @@ mod tests {
         // After split, parts = ["  did:plc:abc123", "app.bsky.feed.post", "xyz789  "]
         // Actually no - trim_start_matches removes ALL leading whitespace if present
         // Let's test actual behavior
-        assert!(result.is_ok() || result.is_err(), "Implementation specific whitespace handling");
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Implementation specific whitespace handling"
+        );
     }
 
     #[test]
@@ -194,7 +197,10 @@ mod tests {
     fn test_parse_at_uri_invalid_too_short() {
         let uri = "at://did:plc:abc123";
         let result = parse_at_uri(uri);
-        assert!(result.is_err(), "Should fail with only DID, missing collection/rkey");
+        assert!(
+            result.is_err(),
+            "Should fail with only DID, missing collection/rkey"
+        );
     }
 
     #[test]
@@ -267,7 +273,7 @@ mod tests {
         let uri = "invalid://not-a-uri";
         let result = parse_post_uri(uri).await;
         assert!(result.is_err(), "Should reject invalid format");
-        
+
         if let Err(AppError::InvalidInput(msg)) = result {
             assert!(msg.contains("Invalid post URI/URL format"));
         } else {
@@ -310,7 +316,10 @@ mod tests {
         // Implementation tries to resolve handle, which will succeed if handle is real
         // For test purposes, this might succeed or fail depending on network
         // The key is that it attempts compact format parsing
-        assert!(result.is_ok() || result.is_err(), "Should attempt compact format parsing");
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Should attempt compact format parsing"
+        );
     }
 
     #[tokio::test]
@@ -331,7 +340,7 @@ mod tests {
             did: "did:plc:abc".to_string(),
             rkey: "xyz".to_string(),
         };
-        
+
         let cloned = post_ref.clone();
         assert_eq!(cloned.did, post_ref.did);
         assert_eq!(cloned.rkey, post_ref.rkey);
@@ -343,7 +352,7 @@ mod tests {
             did: "did:plc:test".to_string(),
             rkey: "rkey123".to_string(),
         };
-        
+
         let debug_str = format!("{:?}", post_ref);
         assert!(debug_str.contains("did:plc:test"));
         assert!(debug_str.contains("rkey123"));
@@ -394,7 +403,7 @@ mod tests {
             "at://did:plc:x/app.bsky.actor.profile/r",
             "at://did:plc:x/app.bsky.graph.follow/r",
         ];
-        
+
         for uri in test_cases {
             let result = parse_at_uri(uri);
             assert!(result.is_ok(), "Should parse collection variation: {}", uri);

@@ -4,6 +4,7 @@
 
 use crate::bluesky::did::DidResolver;
 use crate::bluesky::provider::RepositoryProvider;
+use crate::car::cbor::{decode_cbor, get_text_field, CborValue};
 use crate::cli::ProfileArgs;
 use crate::error::{validate_account, AppError};
 use crate::mcp::{McpResponse, ToolResult};
@@ -12,16 +13,13 @@ use serde_json::Value;
 use tokio::time::{timeout, Duration};
 use tracing::debug;
 
-/// Helper function to extract string field from CBOR map without allocation
-fn get_cbor_string_field(
-    map: &std::collections::BTreeMap<serde_cbor::Value, serde_cbor::Value>,
-    key: &str,
-) -> Option<String> {
+/// Helper function to extract integer field from CBOR map
+fn get_cbor_int_field(map: &[(CborValue, CborValue)], key: &str) -> Option<i64> {
     for (k, v) in map.iter() {
-        if let serde_cbor::Value::Text(text_key) = k {
-            if text_key == key {
-                if let serde_cbor::Value::Text(text_value) = v {
-                    return Some(text_value.clone());
+        if let CborValue::Text(text_key) = k {
+            if *text_key == key {
+                if let CborValue::Integer(i) = v {
+                    return Some(*i);
                 }
             }
         }
@@ -31,33 +29,27 @@ fn get_cbor_string_field(
 
 /// Helper function to extract blob field from CBOR map
 fn get_cbor_blob_field(
-    map: &std::collections::BTreeMap<serde_cbor::Value, serde_cbor::Value>,
+    map: &[(CborValue, CborValue)],
     key: &str,
 ) -> Option<crate::bluesky::records::BlobRef> {
     use crate::bluesky::records::BlobRef;
-    
+
     for (k, v) in map.iter() {
-        if let serde_cbor::Value::Text(text_key) = k {
-            if text_key == key {
+        if let CborValue::Text(text_key) = k {
+            if *text_key == key {
                 // Blob is a map with $type, ref, mimeType, size
-                if let serde_cbor::Value::Map(blob_map) = v {
-                    let type_ = get_cbor_string_field(blob_map, "$type").unwrap_or_default();
-                    let ref_ = get_cbor_string_field(blob_map, "ref").unwrap_or_default();
-                    let mime_type = get_cbor_string_field(blob_map, "mimeType").unwrap_or_default();
-                    let size = blob_map
-                        .iter()
-                        .find_map(|(k, v)| {
-                            if let serde_cbor::Value::Text(key) = k {
-                                if key == "size" {
-                                    if let serde_cbor::Value::Integer(i) = v {
-                                        return Some(*i as u64);
-                                    }
-                                }
-                            }
-                            None
-                        })
-                        .unwrap_or(0);
-                    
+                if let CborValue::Map(blob_map) = v {
+                    let type_ = get_text_field(blob_map, "$type")
+                        .unwrap_or_default()
+                        .to_string();
+                    let ref_ = get_text_field(blob_map, "ref")
+                        .unwrap_or_default()
+                        .to_string();
+                    let mime_type = get_text_field(blob_map, "mimeType")
+                        .unwrap_or_default()
+                        .to_string();
+                    let size = get_cbor_int_field(blob_map, "size").unwrap_or(0) as u64;
+
                     return Some(BlobRef {
                         type_,
                         ref_,
@@ -139,16 +131,15 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
             debug!("Found profile record!");
 
             // Decode CBOR data to ProfileRecord
-            if let Ok(serde_cbor::Value::Map(profile_map)) =
-                serde_cbor::from_slice::<serde_cbor::Value>(&cbor_data)
-            {
+            if let Ok(CborValue::Map(profile_map)) = decode_cbor(&cbor_data) {
                 // Use helper function to avoid string allocations
-                let display_name = get_cbor_string_field(&profile_map, "displayName");
-                let description = get_cbor_string_field(&profile_map, "description");
+                let display_name = get_text_field(&profile_map, "displayName").map(|s| s.to_string());
+                let description = get_text_field(&profile_map, "description").map(|s| s.to_string());
                 let avatar = get_cbor_blob_field(&profile_map, "avatar");
                 let banner = get_cbor_blob_field(&profile_map, "banner");
-                let created_at = get_cbor_string_field(&profile_map, "createdAt")
-                    .unwrap_or_else(|| "unknown".to_string());
+                let created_at = get_text_field(&profile_map, "createdAt")
+                    .unwrap_or("unknown")
+                    .to_string();
 
                 return Some(ProfileRecord {
                     display_name,

@@ -19,10 +19,7 @@ mod tests {
         // In a full test, we'd mock the HTTP calls and verify login_hint is included
         // This is a compilation test to ensure the API is correct
 
-        assert!(
-            true,
-            "OAuth manager can be created with optional handle support"
-        );
+        // OAuth manager can be created with optional handle support
     }
 
     #[tokio::test]
@@ -36,10 +33,7 @@ mod tests {
         // In a full test, we'd mock HTTP calls and verify login_hint is absent
         // This is a compilation test to ensure the API is correct
 
-        assert!(
-            true,
-            "OAuth manager accepts None handle for account selection"
-        );
+        // OAuth manager accepts None handle for account selection
     }
 
     #[test]

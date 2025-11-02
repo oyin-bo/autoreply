@@ -12,6 +12,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info};
 
+#[cfg(test)]
+type ElicitationHook =
+    Arc<dyn Fn(String, Value) -> anyhow::Result<ElicitationResponse> + Send + Sync>;
+
 /// Server context for tracking client information and bidirectional RPC
 #[derive(Clone)]
 pub struct ServerContext {
@@ -19,8 +23,7 @@ pub struct ServerContext {
     pub client_capabilities: Option<ClientCapabilities>,
     pub rpc_sender: Option<Arc<RpcSender>>,
     #[cfg(test)]
-    pub test_elicitation_hook:
-        Option<Arc<dyn Fn(String, Value) -> anyhow::Result<ElicitationResponse> + Send + Sync>>,
+    pub test_elicitation_hook: Option<ElicitationHook>,
 }
 
 /// RPC sender for server-to-client requests
@@ -176,6 +179,7 @@ impl ServerContext {
 
 #[cfg(test)]
 impl ServerContext {
+    #[allow(dead_code)]
     pub fn set_test_elicitation_hook<F>(&mut self, f: F)
     where
         F: Fn(String, Value) -> anyhow::Result<ElicitationResponse> + Send + Sync + 'static,
