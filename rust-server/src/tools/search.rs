@@ -8,6 +8,7 @@ use crate::bluesky::records::PostRecord;
 use crate::cli::SearchArgs;
 use crate::error::{normalize_text, validate_account, validate_query, AppError};
 use crate::mcp::{McpResponse, ToolResult};
+use crate::search::SearchEngine;
 use anyhow::Result;
 
 use serde_json::Value;
@@ -142,8 +143,20 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
 
     debug!("Extracted {} post records with rkeys", posts.len());
 
-    // Search posts
-    let mut matching_posts = search_posts(&posts, &normalized_query);
+    // Use new fuzzy search engine
+    let mut search_engine = SearchEngine::new();
+    
+    let search_results = search_engine.search(
+        &search_args.query,
+        &posts,
+        |post| post.get_searchable_text(),
+    );
+
+    // Extract just the posts from search results
+    let mut matching_posts: Vec<&PostRecord> = search_results
+        .iter()
+        .map(|r| &r.item)
+        .collect();
 
     // Sort by created_at descending (ISO8601 lexicographic)
     matching_posts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -162,9 +175,10 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     }
 
     debug!(
-        "Found {} matching posts for query: '{}'",
+        "Found {} matching posts for query: '{}' (fuzzy search with {} total matches before limit)",
         matching_posts.len(),
-        search_args.query
+        search_args.query,
+        search_results.len()
     );
 
     // Construct full URIs from DID + collection + rkey (already extracted from CAR)
@@ -189,21 +203,6 @@ pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppEr
     let markdown = format_search_results(&enriched_refs, &display_handle, &search_args.query);
 
     Ok(ToolResult::text(markdown))
-}
-
-/// Search posts for query matches
-fn search_posts<'a>(posts: &'a [PostRecord], query: &str) -> Vec<&'a PostRecord> {
-    let lower_query = query.to_lowercase();
-
-    posts
-        .iter()
-        .filter(|post| {
-            // Check if any searchable text contains the query
-            post.get_searchable_text()
-                .iter()
-                .any(|text| normalize_text(text).to_lowercase().contains(&lower_query))
-        })
-        .collect()
 }
 
 /// Format search results as markdown per docs/16-mcp-schemas.md spec
@@ -296,7 +295,9 @@ mod tests {
     }
 
     #[test]
-    fn test_search_posts() {
+    fn test_fuzzy_search_integration() {
+        use crate::search::SearchEngine;
+        
         let posts = vec![
             PostRecord {
                 uri: "at://test/app.bsky.feed.post/1".to_string(),
@@ -324,16 +325,18 @@ mod tests {
             },
         ];
 
-        let results = search_posts(&posts, "hello");
+        let mut engine = SearchEngine::new();
+        let results = engine.search("hello", &posts, |p| p.get_searchable_text());
+        
         assert_eq!(results.len(), 2);
-        assert!(results.iter().any(|p| p.text.contains("Hello world")));
-        assert!(results.iter().any(|p| p.text.contains("Hello everyone")));
+        assert!(results.iter().any(|r| r.item.text.contains("Hello world")));
+        assert!(results.iter().any(|r| r.item.text.contains("Hello everyone")));
 
-        let results = search_posts(&posts, "programming");
+        let results = engine.search("programming", &posts, |p| p.get_searchable_text());
         assert_eq!(results.len(), 1);
-        assert!(results[0].text.contains("programming"));
+        assert!(results[0].item.text.contains("programming"));
 
-        let results = search_posts(&posts, "nonexistent");
+        let results = engine.search("nonexistent", &posts, |p| p.get_searchable_text());
         assert_eq!(results.len(), 0);
     }
 

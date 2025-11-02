@@ -15,6 +15,7 @@ mod cli;
 mod error;
 mod http;
 mod mcp;
+mod search;
 
 #[cfg(feature = "experimental-sentencepiece")]
 mod sentencepiece;

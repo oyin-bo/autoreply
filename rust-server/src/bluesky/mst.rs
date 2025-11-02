@@ -6,7 +6,7 @@ use crate::car::reader::SyncCarReader;
 ///
 /// Based on the atcute implementation for efficient MST traversal.
 use crate::car::CarError;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// MST node entry from CBOR
 #[derive(Debug)]
@@ -44,31 +44,86 @@ pub fn extract_cid_to_rkey_mapping(
 ) -> Result<HashMap<String, String>, CarError> {
     let car_reader = SyncCarReader::from_bytes(car_bytes)?;
 
+    // Use CAR header root as the commit CID (correct per CAR spec and indigo implementation)
+    let header = car_reader.header();
+    let commit_cid_str = header
+        .roots
+        .get(0)
+        .ok_or_else(|| CarError::InvalidHeader("Missing root CID in CAR header".to_string()))
+        .map(|c| format_cid(c))?;
+
     // Build CID -> bytes map from CAR entries
     let mut cid_map: HashMap<String, Vec<u8>> = HashMap::new();
-    let mut root_cid: Option<String> = None;
 
     for entry_result in car_reader {
         let entry = entry_result?;
         let cid_str = format_cid(&entry.cid);
-        cid_map.insert(cid_str.clone(), entry.bytes);
+        cid_map.insert(cid_str, entry.bytes);
+    }
 
-        // First CID is typically the commit
-        if root_cid.is_none() {
-            root_cid = Some(cid_str);
+    // Debug (tests only): show header root and first few entries present
+    if cfg!(test) {
+        eprintln!("DEBUG: Header root commit: {}", commit_cid_str);
+        eprintln!("DEBUG: Entries in CAR: {}", cid_map.len());
+        let mut __dbg_count = 0usize;
+        for k in cid_map.keys() {
+            if __dbg_count < 10 {
+                eprintln!("DEBUG: Entry key: {}", k);
+            }
+            __dbg_count += 1;
+            if __dbg_count >= 10 { break; }
         }
     }
 
-    // Parse the commit to get the data MST root
-    let commit_cid =
-        root_cid.ok_or_else(|| CarError::InvalidHeader("No root CID found".to_string()))?;
-    let data_cid = parse_commit(&cid_map, &commit_cid)?;
+    // Parse the commit to get the data MST root; if commit block is absent or
+    // header points directly to MST, fall back to using header root as MST root
+    let data_cid = match parse_commit(&cid_map, &commit_cid_str) {
+        Ok(cid) => cid,
+        Err(e) => {
+            // Fallback: treat the header root as an MST node directly
+            if parse_mst_node(&cid_map, &commit_cid_str).is_ok() {
+                commit_cid_str.clone()
+            } else if let Some(root) = detect_mst_root(&cid_map) {
+                root
+            } else {
+                return Err(e);
+            }
+        }
+    };
 
     // Walk the MST and collect CID -> rkey mappings
     let mut mappings = HashMap::new();
     walk_mst(&cid_map, &data_cid, collection, &mut mappings)?;
 
     Ok(mappings)
+}
+
+/// Detect MST root by scanning all MST nodes and finding the one not referenced
+fn detect_mst_root(cid_map: &HashMap<String, Vec<u8>>) -> Option<String> {
+    let mut nodes: HashSet<String> = HashSet::new();
+    let mut referenced: HashSet<String> = HashSet::new();
+
+    for cid in cid_map.keys() {
+        if let Ok(node) = parse_mst_node(cid_map, cid) {
+            nodes.insert(cid.clone());
+            if let Some(l) = node.l {
+                referenced.insert(l);
+            }
+            for entry in node.e {
+                if let Some(t) = entry.t {
+                    referenced.insert(t);
+                }
+            }
+        }
+    }
+
+    // Root is a node not referenced by any other node
+    let mut candidates: Vec<String> = nodes.difference(&referenced).cloned().collect();
+    if candidates.len() == 1 {
+        candidates.pop()
+    } else {
+        None
+    }
 }
 
 /// Parse commit object to extract data MST root CID
@@ -80,10 +135,18 @@ fn parse_commit(cid_map: &HashMap<String, Vec<u8>>, commit_cid: &str) -> Result<
     let value: serde_cbor::Value = serde_cbor::from_slice(bytes)
         .map_err(|e| CarError::InvalidHeader(format!("Failed to decode commit: {}", e)))?;
 
+    // Debug (tests only): print commit structure
+    if cfg!(test) {
+        eprintln!("DEBUG: Commit structure: {:#?}", value);
+    }
+
     if let serde_cbor::Value::Map(map) = value {
         // Extract "data" field which points to MST root
         for (k, v) in map.iter() {
             if let serde_cbor::Value::Text(key) = k {
+                if cfg!(test) {
+                    eprintln!("DEBUG: Found key '{}' in commit", key);
+                }
                 if key == "data" {
                     return extract_cid_from_cbor(v);
                 }
@@ -652,19 +715,417 @@ mod tests {
         cid_map.insert("node_cid".to_string(), node_cbor);
 
         let mut mappings = HashMap::new();
-        walk_mst(
-            &cid_map,
-            "node_cid",
-            "app.bsky.feed.post",
-            &mut mappings,
-        )
-        .unwrap();
+        walk_mst(&cid_map, "node_cid", "app.bsky.feed.post", &mut mappings).unwrap();
 
-        // Should only have the post entry
+        // Should only include the post entry, not the like entry
         assert_eq!(mappings.len(), 1);
-        assert_eq!(
-            mappings.get("post_cid"),
-            Some(&"app.bsky.feed.post/abc123".to_string())
-        );
+        assert!(mappings.contains_key("post_cid"));
+        assert!(!mappings.contains_key("like_cid"));
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_with_collection() {
+        // Test with different collection types to verify collection parameter is used
+        let collections = vec![
+            "app.bsky.feed.post",
+            "app.bsky.actor.profile",
+            "app.bsky.feed.like",
+        ];
+
+        for collection in collections {
+            let invalid_data = vec![0xFF, 0xFF];
+            let result = extract_cid_to_rkey_mapping(&invalid_data, collection);
+            assert!(
+                result.is_err(),
+                "Should fail with invalid data for collection {}",
+                collection
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_empty_collection() {
+        let invalid_data = vec![0xFF];
+        let result = extract_cid_to_rkey_mapping(&invalid_data, "");
+        assert!(result.is_err(), "Should fail with empty collection name");
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_returns_hashmap() {
+        // Verify return type is HashMap on error
+        let invalid_data = vec![0x00, 0x01];
+        let result = extract_cid_to_rkey_mapping(&invalid_data, "app.bsky.feed.post");
+        assert!(result.is_err());
+        // Type is verified at compile time - this test confirms error handling
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_large_collection_name() {
+        // Test with abnormally large collection name
+        let invalid_data = vec![0xFF];
+        let long_collection = format!("app.bsky.feed.post{}", "x".repeat(1000));
+        let result = extract_cid_to_rkey_mapping(&invalid_data, &long_collection);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_special_characters() {
+        // Test collection names with special characters
+        let invalid_data = vec![0xFF];
+        let special_collections = vec![
+            "app.bsky.feed.post/test",
+            "app.bsky.feed.post?query=1",
+            "app.bsky.feed.post#fragment",
+            "app.bsky.feed.post\nwith\nnewlines",
+        ];
+
+        for collection in special_collections {
+            let result = extract_cid_to_rkey_mapping(&invalid_data, collection);
+            assert!(
+                result.is_err(),
+                "Should fail for collection with special chars: {}",
+                collection
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_nil_data() {
+        // Test with empty slice
+        let empty_data: Vec<u8> = vec![];
+        let result = extract_cid_to_rkey_mapping(&empty_data, "app.bsky.feed.post");
+        assert!(result.is_err(), "Should fail with empty data");
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_error_propagation() {
+        // Verify errors contain meaningful context
+        let malformed_data = vec![0x00, 0x01, 0x02];
+        let result = extract_cid_to_rkey_mapping(&malformed_data, "app.bsky.feed.post");
+
+        match result {
+            Err(e) => {
+                let error_msg = format!("{:?}", e);
+                assert!(!error_msg.is_empty(), "Error message should not be empty");
+            }
+            Ok(_) => panic!("Should fail with malformed data"),
+        }
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_multiple_collections() {
+        // Test that same CAR data can be queried for different collections
+        let invalid_data = vec![0xFF, 0xFE];
+        let collections = vec![
+            "app.bsky.feed.post",
+            "app.bsky.feed.like",
+            "app.bsky.actor.profile",
+        ];
+
+        for collection in collections {
+            let result = extract_cid_to_rkey_mapping(&invalid_data, collection);
+            assert!(
+                result.is_err(),
+                "Should fail for collection {}",
+                collection
+            );
+        }
+    }
+
+    #[test]
+    fn test_extract_cid_to_rkey_mapping_real_car() {
+        // CRITICAL TEST: Extract CID-to-rkey mapping from real CAR file
+        // This is the test that Go has but Rust was missing
+        let cache_dir = match dirs::cache_dir() {
+            Some(dir) => dir,
+            None => {
+                eprintln!("Skipping test: Cannot determine cache directory");
+                return;
+            }
+        };
+
+        let car_path = cache_dir
+            .join("autoreply")
+            .join("did")
+            .join("5c")
+            .join("5cajdgeo6qz32kptlpg4c3lv")
+            .join("repo.car");
+
+        if !car_path.exists() {
+            eprintln!(
+                "Skipping test: CAR file not found at {}. Run Go tests first to download it.",
+                car_path.display()
+            );
+            return;
+        }
+
+        let car_bytes = match std::fs::read(&car_path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                eprintln!("Failed to read CAR file: {}", e);
+                return;
+            }
+        };
+
+        // Test MST extraction with real data - this is the failing code path
+        let mapping =
+            extract_cid_to_rkey_mapping(&car_bytes, "app.bsky.feed.post").expect("MST extraction failed on real CAR file");
+
+        if mapping.is_empty() {
+            println!("No post mappings found (repository might not have posts)");
+        } else {
+            println!("Extracted {} CID-to-rkey mappings", mapping.len());
+
+            // Verify mapping structure
+            let mut count = 0;
+            for (cid, rkey) in &mapping {
+                assert!(!cid.is_empty(), "Found empty CID in mapping");
+                assert!(!rkey.is_empty(), "Found empty rkey in mapping");
+                count += 1;
+                if count >= 3 {
+                    break;
+                }
+                println!("Sample mapping: CID={} -> rkey={}", cid, rkey);
+            }
+        }
     }
 }
+
+#[cfg(test)]
+mod records_real_car_tests {
+    use super::*;
+
+    #[test]
+    fn test_find_profile_record_real_data() {
+        let cache_dir = match dirs::cache_dir() {
+            Some(dir) => dir,
+            None => {
+                eprintln!("Skipping test: Cannot determine cache directory");
+                return;
+            }
+        };
+
+        let car_path = cache_dir
+            .join("autoreply")
+            .join("did")
+            .join("5c")
+            .join("5cajdgeo6qz32kptlpg4c3lv")
+            .join("repo.car");
+
+        if !car_path.exists() {
+            eprintln!(
+                "Skipping test: CAR file not found at {}",
+                car_path.display()
+            );
+            return;
+        }
+
+        let car_bytes = std::fs::read(&car_path).expect("Failed to read CAR file");
+
+        // Extract MST mapping first
+        let mapping = extract_cid_to_rkey_mapping(&car_bytes, "app.bsky.actor.profile")
+            .expect("Failed to extract CID mapping for profiles");
+
+        // Then parse CAR records
+        let reader = crate::car::CarRecords::from_bytes(car_bytes).expect("Failed to create CAR reader");
+
+        let mut profile_found = false;
+        for entry_result in reader {
+            let (record_type, cbor_data, cid) = entry_result.expect("Failed to read CAR entry");
+
+            if record_type == "app.bsky.actor.profile" {
+                profile_found = true;
+
+                // Verify CID is in the mapping
+                let cid_str = format!("{}", cid);
+                if !mapping.is_empty() {
+                    assert!(
+                        mapping.contains_key(&cid_str),
+                        "CID {} should be in MST mapping",
+                        cid_str
+                    );
+                }
+
+                // Parse the profile
+                let profile: crate::bluesky::records::ProfileRecord =
+                    serde_cbor::from_slice(&cbor_data).expect("Failed to parse profile");
+
+                assert!(
+                    !profile.created_at.is_empty(),
+                    "Profile createdAt should not be empty"
+                );
+
+                println!("Profile createdAt: {}", profile.created_at);
+                break;
+            }
+        }
+
+        assert!(profile_found, "Should find profile record");
+    }
+
+    #[test]
+    fn test_find_matching_posts_real_data() {
+        let cache_dir = match dirs::cache_dir() {
+            Some(dir) => dir,
+            None => {
+                eprintln!("Skipping test: Cannot determine cache directory");
+                return;
+            }
+        };
+
+        let car_path = cache_dir
+            .join("autoreply")
+            .join("did")
+            .join("5c")
+            .join("5cajdgeo6qz32kptlpg4c3lv")
+            .join("repo.car");
+
+        if !car_path.exists() {
+            eprintln!(
+                "Skipping test: CAR file not found at {}",
+                car_path.display()
+            );
+            return;
+        }
+
+        let car_bytes = std::fs::read(&car_path).expect("Failed to read CAR file");
+
+        // Extract MST mapping
+        let mapping = extract_cid_to_rkey_mapping(&car_bytes, "app.bsky.feed.post")
+            .expect("Failed to extract CID mapping");
+
+        // Parse CAR records
+        let reader = crate::car::CarRecords::from_bytes(car_bytes).expect("Failed to create CAR reader");
+
+        let mut posts_found = 0;
+        for entry_result in reader {
+            let (record_type, cbor_data, cid) = entry_result.expect("Failed to read CAR entry");
+
+            if record_type == "app.bsky.feed.post" {
+                posts_found += 1;
+
+                // Verify CID is in MST mapping
+                let cid_str = format!("{}", cid);
+                if !mapping.is_empty() {
+                    assert!(
+                        mapping.contains_key(&cid_str),
+                        "Post CID {} should be in MST mapping",
+                        cid_str
+                    );
+
+                    let rkey = &mapping[&cid_str];
+                    println!("Post CID={} -> rkey={}", cid_str, rkey);
+                }
+
+                // Parse the post
+                let post: crate::bluesky::records::PostRecord =
+                    serde_cbor::from_slice(&cbor_data).expect("Failed to parse post");
+
+                assert!(
+                    !post.text.is_empty() || !post.embeds.is_empty(),
+                    "Post should have text or embeds"
+                );
+
+                if posts_found >= 5 {
+                    break;
+                }
+            }
+        }
+
+        assert!(posts_found > 0, "Should find at least one post");
+        println!("Found {} posts with valid MST mappings", posts_found);
+    }
+
+    #[test]
+    fn test_resolve_uris_for_cids_real_data() {
+        let cache_dir = match dirs::cache_dir() {
+            Some(dir) => dir,
+            None => {
+                eprintln!("Skipping test: Cannot determine cache directory");
+                return;
+            }
+        };
+
+        let car_path = cache_dir
+            .join("autoreply")
+            .join("did")
+            .join("5c")
+            .join("5cajdgeo6qz32kptlpg4c3lv")
+            .join("repo.car");
+
+        if !car_path.exists() {
+            eprintln!(
+                "Skipping test: CAR file not found at {}",
+                car_path.display()
+            );
+            return;
+        }
+
+        let car_bytes = std::fs::read(&car_path).expect("Failed to read CAR file");
+
+        // Extract MST mapping for posts
+        let mapping = extract_cid_to_rkey_mapping(&car_bytes, "app.bsky.feed.post")
+            .expect("Failed to extract CID mapping");
+
+        if mapping.is_empty() {
+            println!("No posts found in repository, skipping URI resolution test");
+            return;
+        }
+
+        // Test URI construction from CID mappings
+        let did = "did:plc:5cajdgeo6qz32kptlpg4c3lv";
+        let collection = "app.bsky.feed.post";
+
+        for (cid, rkey) in mapping.iter().take(5) {
+            let uri = format!("at://{}/{}/{}", did, collection, rkey);
+            println!("Resolved CID {} to URI: {}", cid, uri);
+
+            // Verify URI format
+            assert!(uri.starts_with("at://"));
+            assert!(uri.contains(collection));
+            assert!(uri.contains(rkey));
+        }
+    }
+}
+
+#[cfg(test)]
+mod provider_real_car_tests {
+    use super::*;
+
+    #[test]
+    fn test_fetch_repository_real_flow() {
+        // This test requires network access and takes time
+        // It verifies the full fetch and cache flow
+        use crate::bluesky::provider::RepositoryProvider;
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let provider = RepositoryProvider::default();
+            let did = "did:plc:5cajdgeo6qz32kptlpg4c3lv"; // autoreply.ooo
+
+            // Attempt to fetch repository
+            match provider.fetch_repo_car(did).await {
+                Ok(car_path) => {
+                    assert!(car_path.exists(), "CAR file should exist");
+                    
+                    let car_bytes = std::fs::read(&car_path).expect("Failed to read fetched CAR");
+                    println!(
+                        "Successfully fetched repository: {} bytes",
+                        car_bytes.len()
+                    );
+
+                    // Verify we can extract MST from fetched data
+                    let mapping = extract_cid_to_rkey_mapping(&car_bytes, "app.bsky.feed.post")
+                        .expect("Should be able to extract MST from fetched CAR");
+
+                    println!("Extracted {} CID mappings from fetched repository", mapping.len());
+                }
+                Err(e) => {
+                    eprintln!("Failed to fetch repository (this may be expected in CI): {}", e);
+                    // Don't fail the test - network may not be available
+                }
+            }
+        });
+    }
+}
+

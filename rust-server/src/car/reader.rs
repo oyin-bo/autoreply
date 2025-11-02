@@ -183,10 +183,13 @@ fn read_header(reader: &mut SyncByteReader) -> Result<CarHeader, CarError> {
         // Parse root CID directly (no varint prefix in CAR header CIDs)
         let mut root_reader = SyncByteReader::new(root_bytes);
 
-        let version = root_reader.exactly(1, true)?[0];
-        let codec = root_reader.exactly(1, true)?[0];
-        let digest_type = root_reader.exactly(1, true)?[0];
-        let digest_size = root_reader.exactly(1, true)?[0] as usize;
+        // According to DAG-CBOR CID representation, the first byte is 0x00 CID tag prefix
+        // followed by CID bytes (varint-encoded version, codec, multihash code, size, digest)
+        let first = root_reader.exactly(1, true)?[0];
+        let version = if first == 0 { read_varint(&mut root_reader, 10)? as u8 } else { first };
+        let codec = read_varint(&mut root_reader, 10)? as u8;
+        let digest_type = read_varint(&mut root_reader, 10)? as u8;
+        let digest_size = read_varint(&mut root_reader, 10)? as usize;
         let digest = root_reader.exactly(digest_size, true)?.to_vec();
 
         roots.push(Cid {
@@ -214,6 +217,11 @@ impl<'a> SyncCarReader<'a> {
             reader,
             _header: header,
         })
+    }
+
+    /// Get the CAR file header
+    pub fn header(&self) -> &CarHeader {
+        &self._header
     }
 }
 
