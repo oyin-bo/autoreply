@@ -145,3 +145,195 @@ func TestCleanupCache(t *testing.T) {
 		t.Error("Cache entry should be removed after cleanup")
 	}
 }
+
+func TestParseAccountReference(t *testing.T) {
+	tests := []struct {
+		name        string
+		reference   string
+		expectedDID string
+	}{
+		{
+			name:        "Valid DID",
+			reference:   "did:plc:abc123defghi456jklmno789",
+			expectedDID: "did:plc:abc123defghi456jklmno789",
+		},
+		{
+			name:        "Handle without @",
+			reference:   "user.bsky.social",
+			expectedDID: "user.bsky.social",
+		},
+		{
+			name:        "Handle with @",
+			reference:   "@user.bsky.social",
+			expectedDID: "user.bsky.social",
+		},
+		{
+			name:        "Empty string",
+			reference:   "",
+			expectedDID: "",
+		},
+		{
+			name:        "Multiple @ symbols",
+			reference:   "@@user.bsky.social",
+			expectedDID: "@user.bsky.social",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseAccountReference(tt.reference)
+			if result != tt.expectedDID {
+				t.Errorf("ParseAccountReference(%q) = %q, want %q", tt.reference, result, tt.expectedDID)
+			}
+		})
+	}
+}
+
+func TestResolveHandle_ErrorCases(t *testing.T) {
+	resolver := NewDIDResolver()
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		account string
+	}{
+		{
+			name:    "Empty string",
+			account: "",
+		},
+		{
+			name:    "Nonexistent handle",
+			account: "nonexistent.handle.test.invalid",
+		},
+		{
+			name:    "Invalid characters in handle",
+			account: "test@invalid!handle",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := resolver.ResolveHandle(ctx, tt.account)
+			if err == nil {
+				t.Error("Expected error for invalid handle, got nil")
+			}
+		})
+	}
+}
+
+func TestResolvePDSEndpoint_Variations(t *testing.T) {
+	resolver := NewDIDResolver()
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		did         string
+		expectError bool
+	}{
+		{
+			name:        "Valid PLC DID",
+			did:         "did:plc:abc123defghi456jklmno789",
+			expectError: true, // Will fail without actual PLC server
+		},
+		{
+			name:        "Valid Web DID",
+			did:         "did:web:example.com",
+			expectError: true, // Will fail without actual server
+		},
+		{
+			name:        "Invalid DID",
+			did:         "not-a-did",
+			expectError: true,
+		},
+		{
+			name:        "Empty DID",
+			did:         "",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			endpoint, err := resolver.ResolvePDSEndpoint(ctx, tt.did)
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if endpoint == "" {
+					t.Error("Expected non-empty endpoint")
+				}
+			}
+		})
+	}
+}
+
+func TestDIDResolver_CacheEviction(t *testing.T) {
+	resolver := NewDIDResolver()
+
+	// Set a very short TTL
+	resolver.cacheTTL = time.Microsecond
+
+	// Add multiple cache entries
+	testEntries := map[string]string{
+		"user1.bsky.social": "did:plc:user1abc123defghi456jkl",
+		"user2.bsky.social": "did:plc:user2abc123defghi456jkl",
+		"user3.bsky.social": "did:plc:user3abc123defghi456jkl",
+	}
+
+	for handle, did := range testEntries {
+		resolver.cache.Store(handle, CacheEntry{
+			DID:       did,
+			ExpiresAt: time.Now().Add(-time.Hour), // Already expired
+		})
+	}
+
+	// Verify entries exist
+	count := 0
+	resolver.cache.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+
+	if count != 3 {
+		t.Errorf("Expected 3 cache entries, got %d", count)
+	}
+
+	// Run cleanup
+	resolver.CleanupCache()
+
+	// Verify all expired entries are gone
+	count = 0
+	resolver.cache.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+
+	if count != 0 {
+		t.Errorf("Expected 0 cache entries after cleanup, got %d", count)
+	}
+}
+
+func TestDIDResolver_NonExpiredCache(t *testing.T) {
+	resolver := NewDIDResolver()
+
+	// Add a non-expired entry
+	testHandle := "fresh.bsky.social"
+	testDID := "did:plc:freshabc123defghi456jkl"
+
+	resolver.cache.Store(testHandle, CacheEntry{
+		DID:       testDID,
+		ExpiresAt: time.Now().Add(time.Hour), // Not expired
+	})
+
+	// Run cleanup
+	resolver.CleanupCache()
+
+	// Verify non-expired entry still exists
+	if _, ok := resolver.cache.Load(testHandle); !ok {
+		t.Error("Non-expired cache entry should not be removed")
+	}
+}

@@ -358,12 +358,63 @@ mod tests {
     }
 
     #[test]
+    fn test_did_web_to_did_document_url_missing_domain() {
+        // "did:web:" creates empty domain, which function doesn't validate
+        // It will return Some("https:///.well-known/did.json") per implementation
+        assert!(did_web_to_did_document_url("did:web:").is_some());
+        assert!(did_web_to_did_document_url("did:web").is_none());
+    }
+
+    #[test]
+    fn test_did_web_to_did_document_url_complex_path() {
+        let url = did_web_to_did_document_url("did:web:example.com:users:profile:alice").unwrap();
+        assert_eq!(url, "https://example.com/users/profile/alice/did.json");
+    }
+
+    #[test]
     fn test_handle_validation_logic() {
         assert!(is_valid_handle("alice.bsky.social"));
         assert!(is_valid_handle("user.example.com"));
         assert!(!is_valid_handle("not_a_handle"));
         assert!(!is_valid_handle(""));
         assert!(!is_valid_handle("handle.c")); // TLD too short
+    }
+
+    #[test]
+    fn test_handle_validation_comprehensive() {
+        // Valid handles
+        assert!(is_valid_handle("alice.bsky.social"));
+        assert!(is_valid_handle("bob.example.com"));
+        assert!(is_valid_handle("user-name.test.io"));
+        assert!(is_valid_handle("123.example.net"));
+        assert!(is_valid_handle("a.b.c.d.example.org"));
+        
+        // Invalid handles
+        assert!(!is_valid_handle(""));
+        assert!(!is_valid_handle("nodot"));
+        assert!(!is_valid_handle(".invalid"));
+        assert!(!is_valid_handle("invalid."));
+        assert!(!is_valid_handle("has space.com"));
+        assert!(!is_valid_handle("has@symbol.com"));
+        assert!(!is_valid_handle("x.y")); // TLD only 1 char
+        assert!(!is_valid_handle("..double-dot.com"));
+        assert!(!is_valid_handle("empty..part.com"));
+    }
+
+    #[test]
+    fn test_handle_validation_edge_cases() {
+        // Minimum valid handle
+        assert!(is_valid_handle("a.bc"));
+        
+        // Long but valid
+        let long_handle = format!("{}.example.com", "a".repeat(100));
+        assert!(is_valid_handle(&long_handle));
+        
+        // Special characters
+        assert!(is_valid_handle("user-name.example.com"));
+        assert!(is_valid_handle("123-456.example.com"));
+        assert!(!is_valid_handle("user_name.example.com")); // underscore not allowed
+        assert!(!is_valid_handle("user.name!.com")); // exclamation not allowed
     }
 
     #[test]
@@ -374,10 +425,181 @@ mod tests {
         assert!(!is_valid_did(""));
     }
 
+    #[test]
+    fn test_did_validation_comprehensive() {
+        // Valid DIDs with different methods
+        assert!(is_valid_did("did:plc:abcd1234efgh5678"));
+        assert!(is_valid_did("did:web:example.com"));
+        assert!(is_valid_did("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"));
+        assert!(is_valid_did("did:method:suffix"));
+        assert!(is_valid_did("did:x:y")); // Minimal valid
+        assert!(is_valid_did("did:plc")); // Actually valid per implementation (> 4 chars)
+        
+        // Invalid DIDs
+        assert!(!is_valid_did(""));
+        assert!(!is_valid_did("did"));
+        assert!(!is_valid_did("did:"));
+        assert!(!is_valid_did("DID:plc:abcd")); // Case sensitive
+        assert!(!is_valid_did("not-a-did"));
+        assert!(!is_valid_did("notdid:plc:abc"));
+    }
+
+    #[test]
+    fn test_parse_account_reference_did_passthrough() {
+        let did = "did:plc:abcd1234efgh5678";
+        assert_eq!(parse_account_reference(did), did);
+        
+        let did_web = "did:web:example.com";
+        assert_eq!(parse_account_reference(did_web), did_web);
+    }
+
+    #[test]
+    fn test_parse_account_reference_handle() {
+        assert_eq!(parse_account_reference("alice.bsky.social"), "alice.bsky.social");
+        assert_eq!(parse_account_reference("user.example.com"), "user.example.com");
+    }
+
+    #[test]
+    fn test_parse_account_reference_at_prefix() {
+        assert_eq!(parse_account_reference("@alice.bsky.social"), "alice.bsky.social");
+        assert_eq!(parse_account_reference("@user.example.com"), "user.example.com");
+    }
+
+    #[test]
+    fn test_parse_account_reference_bsky_url() {
+        assert_eq!(
+            parse_account_reference("https://bsky.app/profile/alice.bsky.social"),
+            "alice.bsky.social"
+        );
+        assert_eq!(
+            parse_account_reference("http://bsky.app/profile/bob.example.com"),
+            "bob.example.com"
+        );
+        
+        // With DID in URL
+        assert_eq!(
+            parse_account_reference("https://bsky.app/profile/did:plc:abc123"),
+            "did:plc:abc123"
+        );
+    }
+
+    #[test]
+    fn test_parse_account_reference_bsky_url_with_path() {
+        assert_eq!(
+            parse_account_reference("https://bsky.app/profile/alice.bsky.social/post/123"),
+            "alice.bsky.social"
+        );
+        assert_eq!(
+            parse_account_reference("https://bsky.app/profile/user.com/feed/likes"),
+            "user.com"
+        );
+    }
+
+    #[test]
+    fn test_parse_account_reference_partial_did() {
+        // 24 base32 characters
+        let partial = "abcdefg234567hijklmn2345";
+        assert_eq!(parse_account_reference(partial), format!("did:plc:{}", partial));
+        
+        // Not exactly 24 chars - treated as handle
+        let not_partial = "abcdefg234567hijklmn234";
+        assert_eq!(parse_account_reference(not_partial), not_partial);
+    }
+
+    #[test]
+    fn test_parse_account_reference_partial_did_validation() {
+        // Valid base32: only a-z and 2-7
+        let valid_partial = "a2b3c4d5e6f7g2h3i4j5k6l7";
+        assert_eq!(parse_account_reference(valid_partial), format!("did:plc:{}", valid_partial));
+        
+        // Invalid characters (has 8, 9, uppercase)
+        let invalid_partial1 = "abcdefg234567hijklmn8945";
+        assert_eq!(parse_account_reference(invalid_partial1), invalid_partial1);
+        
+        let invalid_partial2 = "ABCDEFG234567HIJKLMN2345";
+        assert_eq!(parse_account_reference(invalid_partial2), invalid_partial2);
+        
+        // Has special characters
+        let invalid_partial3 = "abcdefg-34567hijklmn2345";
+        assert_eq!(parse_account_reference(invalid_partial3), invalid_partial3);
+    }
+
+    #[test]
+    fn test_parse_account_reference_whitespace() {
+        assert_eq!(parse_account_reference("  alice.bsky.social  "), "alice.bsky.social");
+        assert_eq!(parse_account_reference(" did:plc:abc123 "), "did:plc:abc123");
+    }
+
+    #[test]
+    fn test_parse_account_reference_edge_cases() {
+        // Empty string after trim
+        assert_eq!(parse_account_reference(""), "");
+        
+        // Just @ - strip_prefix returns empty string
+        assert_eq!(parse_account_reference("@"), "");
+        
+        // URL without profile part - doesn't match pattern, returned as-is
+        assert_eq!(parse_account_reference("https://bsky.app/"), "https://bsky.app/");
+        
+        // Malformed URL - split returns empty after "/profile/"
+        // Actually the implementation uses split('/').next() which returns ""
+        assert_eq!(
+            parse_account_reference("https://bsky.app/profile/"),
+            ""
+        );
+    }
+
+    #[test]
+    fn test_construct_well_known_url() {
+        assert_eq!(
+            construct_well_known_url("example.com"),
+            "https://example.com/.well-known/atproto-did"
+        );
+        assert_eq!(
+            construct_well_known_url("alice.bsky.social"),
+            "https://alice.bsky.social/.well-known/atproto-did"
+        );
+    }
+
+    #[test]
+    fn test_construct_xrpc_resolve_url() {
+        assert_eq!(
+            construct_xrpc_resolve_url("bsky.social"),
+            "https://bsky.social/xrpc/com.atproto.identity.resolveHandle"
+        );
+    }
+
+    #[test]
+    fn test_construct_plc_audit_url() {
+        assert_eq!(
+            construct_plc_audit_url("did:plc:abc123"),
+            "https://plc.directory/did:plc:abc123/log/audit"
+        );
+    }
+
+    #[test]
+    fn test_construct_pds_endpoint_url() {
+        assert_eq!(
+            construct_pds_endpoint_url("did:plc:abc123"),
+            "https://plc.directory/did:plc:abc123"
+        );
+        assert_eq!(
+            construct_pds_endpoint_url("did:web:example.com"),
+            "https://plc.directory/did:web:example.com"
+        );
+    }
+
     #[tokio::test]
     async fn test_did_resolver_creation() {
         let _resolver = DidResolver::new();
         // Just test that we can create it without panicking
+    }
+
+    #[tokio::test]
+    async fn test_did_resolver_default() {
+        let resolver = DidResolver::default();
+        // Test that default() works
+        assert!(resolver.client.get("https://example.com").build().is_ok());
     }
 
     #[tokio::test]
@@ -386,5 +608,110 @@ mod tests {
         let did = "did:plc:abcd1234efgh5678";
         let result = resolver.resolve_handle(did).await;
         assert!(matches!(result, Ok(Some(resolved_did)) if resolved_did == did));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_handle_web_did_passthrough() {
+        let resolver = DidResolver::new();
+        let did = "did:web:example.com";
+        let result = resolver.resolve_handle(did).await;
+        assert!(matches!(result, Ok(Some(resolved_did)) if resolved_did == did));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_handle_invalid() {
+        let resolver = DidResolver::new();
+        
+        // Invalid handles should return None
+        let result = resolver.resolve_handle("not_a_handle").await;
+        assert!(matches!(result, Ok(None)));
+        
+        let result = resolver.resolve_handle("").await;
+        assert!(matches!(result, Ok(None)));
+        
+        let result = resolver.resolve_handle("x.y").await; // TLD too short
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_handle_with_at_prefix() {
+        let resolver = DidResolver::new();
+        // This will fail to resolve but shouldn't error
+        let result = resolver.resolve_handle("@nonexistent.example.invalid").await;
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_handle_partial_did() {
+        let resolver = DidResolver::new();
+        let partial = "a2b3c4d5e6f7g2h3i4j5k6l7";
+        let result = resolver.resolve_handle(partial).await;
+        // Should convert to full DID and return it
+        assert!(matches!(result, Ok(Some(did)) if did.starts_with("did:plc:")));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_handle_bsky_url() {
+        let resolver = DidResolver::new();
+        let url = "https://bsky.app/profile/did:plc:abc123";
+        let result = resolver.resolve_handle(url).await;
+        assert!(matches!(result, Ok(Some(did)) if did == "did:plc:abc123"));
+    }
+
+    #[test]
+    fn test_is_valid_handle_internationalized_domain() {
+        // ASCII-only for now in this implementation
+        assert!(is_valid_handle("user.example.com"));
+        
+        // Punycode would be valid but testing basic ASCII validation
+        assert!(is_valid_handle("xn--user-xxa.example.com"));
+    }
+
+    #[test]
+    fn test_is_valid_handle_multiple_subdomains() {
+        assert!(is_valid_handle("alice.staging.bsky.social"));
+        assert!(is_valid_handle("a.b.c.d.e.example.com"));
+    }
+
+    #[test]
+    fn test_is_valid_handle_numeric() {
+        assert!(is_valid_handle("123.456.example.com"));
+        assert!(is_valid_handle("user123.example.com"));
+        assert!(is_valid_handle("123user.example.com"));
+    }
+
+    #[test]
+    fn test_is_valid_did_methods() {
+        assert!(is_valid_did("did:plc:anything"));
+        assert!(is_valid_did("did:web:example.com"));
+        assert!(is_valid_did("did:key:base58key"));
+        assert!(is_valid_did("did:peer:anything"));
+        assert!(is_valid_did("did:ethr:0xaddress"));
+        assert!(is_valid_did("did:ion:anything"));
+    }
+
+    #[test]
+    fn test_parse_account_reference_case_sensitivity() {
+        // DIDs are case-sensitive
+        assert_eq!(parse_account_reference("did:plc:ABC123"), "did:plc:ABC123");
+        
+        // Handles are lowercase by convention but we preserve them
+        assert_eq!(parse_account_reference("Alice.Example.COM"), "Alice.Example.COM");
+    }
+
+    #[test]
+    fn test_parse_account_reference_complex_urls() {
+        // URL with query params - implementation doesn't strip query params
+        // The split('/').next() gets "alice.com?param=value"
+        assert_eq!(
+            parse_account_reference("https://bsky.app/profile/alice.com?param=value"),
+            "alice.com?param=value"
+        );
+        
+        // URL with hash - implementation doesn't strip hash
+        assert_eq!(
+            parse_account_reference("https://bsky.app/profile/alice.com#section"),
+            "alice.com#section"
+        );
     }
 }

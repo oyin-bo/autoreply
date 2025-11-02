@@ -29,6 +29,48 @@ fn get_cbor_string_field(
     None
 }
 
+/// Helper function to extract blob field from CBOR map
+fn get_cbor_blob_field(
+    map: &std::collections::BTreeMap<serde_cbor::Value, serde_cbor::Value>,
+    key: &str,
+) -> Option<crate::bluesky::records::BlobRef> {
+    use crate::bluesky::records::BlobRef;
+    
+    for (k, v) in map.iter() {
+        if let serde_cbor::Value::Text(text_key) = k {
+            if text_key == key {
+                // Blob is a map with $type, ref, mimeType, size
+                if let serde_cbor::Value::Map(blob_map) = v {
+                    let type_ = get_cbor_string_field(blob_map, "$type").unwrap_or_default();
+                    let ref_ = get_cbor_string_field(blob_map, "ref").unwrap_or_default();
+                    let mime_type = get_cbor_string_field(blob_map, "mimeType").unwrap_or_default();
+                    let size = blob_map
+                        .iter()
+                        .find_map(|(k, v)| {
+                            if let serde_cbor::Value::Text(key) = k {
+                                if key == "size" {
+                                    if let serde_cbor::Value::Integer(i) = v {
+                                        return Some(*i as u64);
+                                    }
+                                }
+                            }
+                            None
+                        })
+                        .unwrap_or(0);
+                    
+                    return Some(BlobRef {
+                        type_,
+                        ref_,
+                        mime_type,
+                        size,
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Handle profile tool call
 pub async fn handle_profile(id: Option<Value>, args: Value) -> McpResponse {
     // Set total timeout to 120 seconds as specified
@@ -103,8 +145,8 @@ pub async fn execute_profile(profile_args: ProfileArgs) -> Result<ToolResult, Ap
                 // Use helper function to avoid string allocations
                 let display_name = get_cbor_string_field(&profile_map, "displayName");
                 let description = get_cbor_string_field(&profile_map, "description");
-                let avatar = get_cbor_string_field(&profile_map, "avatar");
-                let banner = get_cbor_string_field(&profile_map, "banner");
+                let avatar = get_cbor_blob_field(&profile_map, "avatar");
+                let banner = get_cbor_blob_field(&profile_map, "banner");
                 let created_at = get_cbor_string_field(&profile_map, "createdAt")
                     .unwrap_or_else(|| "unknown".to_string());
 

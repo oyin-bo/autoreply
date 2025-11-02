@@ -44,7 +44,7 @@ These should be supported everywhere where posts are referenced.
 
 Service should not be surfaced in the API in any way. Autoreply will always resolve and handle that aspect, and there is no option nor any need to provide it.
 
-## Search functionality
+# Search functionality
 
 Search should improve substantially to mix other aspects into searching of the posts. We also want to introduce fuzzy search and eventually synonym search for local CARs.
 
