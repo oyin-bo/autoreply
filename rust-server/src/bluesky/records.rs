@@ -51,6 +51,37 @@ pub enum Embed {
     },
 }
 
+impl Embed {
+    /// Get searchable text from an embed
+    pub fn get_searchable_text(&self) -> Vec<String> {
+        let mut texts = Vec::new();
+        match self {
+            Embed::Images { images } => {
+                for img in images {
+                    if let Some(alt) = &img.alt {
+                        if !alt.is_empty() {
+                            texts.push(alt.clone());
+                        }
+                    }
+                }
+            }
+            Embed::External { external } => {
+                texts.push(external.title.clone());
+                texts.push(external.description.clone());
+            }
+            Embed::RecordWithMedia { media, .. } => {
+                // Recursively get text from the media part of the embed
+                texts.extend(media.get_searchable_text());
+            }
+            Embed::Record { .. } => {
+                // A simple record embed (quote post) doesn't contain the text of the
+                // quoted post itself, so there's no text to add here.
+            }
+        }
+        texts
+    }
+}
+
 /// Image embed
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageEmbed {
@@ -185,23 +216,10 @@ impl PostRecord {
     pub fn get_searchable_text(&self) -> Vec<String> {
         let mut texts = vec![self.text.clone()];
 
-        // Add embed text
+        // Add embed text by calling the new helper on each embed
         if let Some(embeds) = &self.embeds {
             for embed in embeds {
-                match embed {
-                    Embed::Images { images } => {
-                        for img in images {
-                            if let Some(alt) = &img.alt {
-                                texts.push(alt.clone());
-                            }
-                        }
-                    }
-                    Embed::External { external } => {
-                        texts.push(external.title.clone());
-                        texts.push(external.description.clone());
-                    }
-                    _ => {}
-                }
+                texts.extend(embed.get_searchable_text());
             }
         }
 
@@ -1045,8 +1063,12 @@ mod tests {
         };
 
         let searchable = post.get_searchable_text();
-// ...existing code...
-// ...existing code...
+
+        assert_eq!(searchable.len(), 1);
+        assert_eq!(searchable[0], "Simple post with no embeds");
+    }
+
+    #[test]
     fn test_post_searchable_text_with_record_embed() {
         let post = PostRecord {
             uri: "at://test/post/4".to_string(),
