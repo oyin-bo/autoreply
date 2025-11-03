@@ -2,6 +2,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -68,36 +69,84 @@ func ApplyFacetsToText(text string, facets []bluesky.Facet) string {
 	return result.String()
 }
 
+// FormatEmbed formats a single embed into a Markdown string.
+// `did` is required to construct full image URLs.
+func FormatEmbed(embed *bluesky.Embed, did string) string {
+	if embed == nil {
+		return ""
+	}
+
+	switch embed.Type {
+	case bluesky.EmbedImages:
+		var parts []string
+		for _, img := range embed.Images {
+			// URL format: https://cdn.bsky.app/img/feed_fullsize/plain/{did}/{cid}@jpeg
+			url := fmt.Sprintf("https://cdn.bsky.app/img/feed_fullsize/plain/%s/%s@jpeg", did, img.Image.Ref)
+			parts = append(parts, fmt.Sprintf("![%s](%s)", img.Alt, url))
+		}
+		return strings.Join(parts, "\n")
+
+	case bluesky.EmbedExternal:
+		var parts []string
+		if embed.External != nil {
+			parts = append(parts, fmt.Sprintf("[%s](%s)", embed.External.Title, embed.External.URI))
+			if embed.External.Description != "" {
+				parts = append(parts, BlockquoteContent(embed.External.Description))
+			}
+			if embed.External.Thumb != nil {
+				url := fmt.Sprintf("https://cdn.bsky.app/img/feed_thumbnail/plain/%s/%s@jpeg", did, embed.External.Thumb.Ref)
+				parts = append(parts, fmt.Sprintf("![thumb](%s)", url))
+			}
+		}
+		return strings.Join(parts, "\n")
+
+	case bluesky.EmbedRecord:
+		if embed.Record != nil {
+			return BlockquoteContent(fmt.Sprintf("Quoted post: %s", embed.Record.URI))
+		}
+
+	case bluesky.EmbedRecordWithMedia:
+		var recordMd, mediaMd string
+		if embed.Record != nil {
+			recordMd = FormatEmbed(&bluesky.Embed{Type: bluesky.EmbedRecord, Record: embed.Record}, did)
+		}
+
+		if embed.Media != nil {
+			var mediaEmbed bluesky.Embed
+			if err := json.Unmarshal(*embed.Media, &mediaEmbed); err == nil {
+				// The `did` for the media's blob should be the same as the post's author
+				mediaMd = FormatEmbed(&mediaEmbed, did)
+			}
+		}
+		return fmt.Sprintf("%s\n%s", recordMd, mediaMd)
+	}
+
+	return ""
+}
+
 // formatFacetFeature formats a facet feature (mention, link, or tag) as Markdown
-func formatFacetFeature(text string, features []interface{}) string {
+func formatFacetFeature(text string, features []bluesky.FacetFeature) string {
 	if len(features) == 0 {
 		return text
 	}
 
 	// Use the first feature if multiple are present
 	feature := features[0]
-	if featureMap, ok := feature.(map[string]interface{}); ok {
-		facetType, _ := featureMap["$type"].(string)
 
-		switch facetType {
-		case "app.bsky.richtext.facet#mention":
-			// The text already contains the @ symbol and handle
-			// Extract handle without the @ prefix for the URL
-			handle := strings.TrimPrefix(text, "@")
-			return fmt.Sprintf("[%s](https://bsky.app/profile/%s)", text, handle)
+	switch feature.Type {
+	case "app.bsky.richtext.facet#mention":
+		// The text already contains the @ symbol and handle
+		// Extract handle without the @ prefix for the URL
+		handle := strings.TrimPrefix(text, "@")
+		return fmt.Sprintf("[%s](https://bsky.app/profile/%s)", text, handle)
 
-		case "app.bsky.richtext.facet#link":
-			// Create a markdown link
-			if uri, ok := featureMap["uri"].(string); ok {
-				return fmt.Sprintf("[%s](%s)", text, uri)
-			}
+	case "app.bsky.richtext.facet#link":
+		// Create a markdown link
+		return fmt.Sprintf("[%s](%s)", text, feature.URI)
 
-		case "app.bsky.richtext.facet#tag":
-			// Link to hashtag search
-			if tag, ok := featureMap["tag"].(string); ok {
-				return fmt.Sprintf("[#%s](https://bsky.app/hashtag/%s)", tag, tag)
-			}
-		}
+	case "app.bsky.richtext.facet#tag":
+		// Link to hashtag search
+		return fmt.Sprintf("[#%s](https://bsky.app/hashtag/%s)", feature.Tag, feature.Tag)
 	}
 
 	// No recognized feature, return text as-is

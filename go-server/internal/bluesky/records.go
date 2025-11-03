@@ -1,7 +1,10 @@
 // Package bluesky provides AT Protocol record type definitions
 package bluesky
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ProfileRecord represents an app.bsky.actor.profile record
 type ProfileRecord struct {
@@ -18,48 +21,60 @@ type PostRecord struct {
 	CID       string  `json:"cid"`
 	Text      string  `json:"text"`
 	CreatedAt string  `json:"createdAt"`
-	Embeds    []Embed `json:"embeds,omitempty"`
+	Embed     *Embed  `json:"embed,omitempty"`
 	Facets    []Facet `json:"facets,omitempty"`
 	Reply     *Reply  `json:"reply,omitempty"`
 }
 
-// Embed represents embedded content in a post
+// Embed represents the top-level embed structure in a post.
+// It uses json.RawMessage to delay parsing of media and record fields,
+// allowing us to handle different embed types like images, external links,
+// records, and records with media.
 type Embed struct {
-	Type     string    `json:"$type"`
-	External *External `json:"external,omitempty"`
-	Images   []Image   `json:"images,omitempty"`
-	Record   *Record   `json:"record,omitempty"`
+	Type     string           `json:"$type"`
+	External *ExternalEmbed   `json:"external,omitempty"`
+	Images   []*ImageEmbed    `json:"images,omitempty"`
+	Record   *RecordEmbed     `json:"record,omitempty"`
+	Media    *json.RawMessage `json:"media,omitempty"` // For recordWithMedia
 }
 
-// External represents an external link embed
-type External struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	URI         string `json:"uri"`
+// ExternalEmbed represents an external link card.
+type ExternalEmbed struct {
+	URI         string   `json:"uri"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Thumb       *BlobRef `json:"thumb,omitempty"`
 }
 
-// Image represents an image embed
-type Image struct {
-	Alt   string `json:"alt"`
-	Image struct {
-		Ref string `json:"$link"`
-	} `json:"image"`
+// ImageEmbed represents a single image within an embed.
+type ImageEmbed struct {
+	Alt   string   `json:"alt"`
+	Image *BlobRef `json:"image"`
 }
 
-// Record represents a record embed (quote post)
-type Record struct {
-	URI    string `json:"uri"`
-	CID    string `json:"cid"`
-	Record struct {
-		Text      string `json:"text,omitempty"`
-		CreatedAt string `json:"createdAt,omitempty"`
-	} `json:"record,omitempty"`
+// BlobRef represents a reference to a blob (like an image).
+type BlobRef struct {
+	Ref string `json:"$link"`
+}
+
+// RecordEmbed represents a quote post embed.
+type RecordEmbed struct {
+	URI string `json:"uri"`
+	CID string `json:"cid"`
 }
 
 // Facet represents text formatting/linking information
 type Facet struct {
-	Index    IndexRange    `json:"index"`
-	Features []interface{} `json:"features"`
+	Index    IndexRange     `json:"index"`
+	Features []FacetFeature `json:"features"`
+}
+
+// FacetFeature is a union type for different kinds of features.
+type FacetFeature struct {
+	Type string `json:"$type"`
+	DID  string `json:"did,omitempty"`
+	URI  string `json:"uri,omitempty"`
+	Tag  string `json:"tag,omitempty"`
 }
 
 // IndexRange represents character indices for facets
@@ -101,6 +116,10 @@ type ParsedPost struct {
 
 // Collection type constants
 const (
-	ProfileCollection = "app.bsky.actor.profile"
-	PostCollection    = "app.bsky.feed.post"
+	ProfileCollection    = "app.bsky.actor.profile"
+	PostCollection       = "app.bsky.feed.post"
+	EmbedImages          = "app.bsky.embed.images"
+	EmbedExternal        = "app.bsky.embed.external"
+	EmbedRecord          = "app.bsky.embed.record"
+	EmbedRecordWithMedia = "app.bsky.embed.recordWithMedia"
 )

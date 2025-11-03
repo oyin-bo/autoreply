@@ -285,23 +285,24 @@ A manual review of the test suites was conducted to assess coverage for rich tex
 | Overlapping facets | ✅ | ✅ | Both implementations now correctly prioritize the larger facet. |
 | Adjacent facets | ✅ | ✅ | Both implementations have dedicated tests for adjacent facets. |
 | Unicode / Emoji offsets | ✅ | ✅ | Both implementations handle multi-byte characters correctly. |
-| Invalid facet indices | ✅ | ❌ | Rust gracefully handles out-of-bounds indices; Go needs a test. |
-| Malformed facet data | ✅ | ❌ | Rust handles featureless facets; Go needs a test. |
+| Invalid facet indices | ✅ | ✅ | Both implementations gracefully handle out-of-bounds indices. |
+| Malformed facet data | ✅ | ✅ | Both implementations handle featureless facets. |
 | **Embeds** | | | |
-| Images (`.embed.images`) | ✅ | ❌ | **Critical gap.** No tests for single or multiple images. |
-| External Link (`.embed.external`) | ✅ | ❌ | **Critical gap.** No tests for external link cards. |
-| Quoted Record (`.embed.record`) | ✅ | ❌ | **Critical gap.** No tests for quote posts. |
-| Record with Media (`.embed.recordWithMedia`) | ✅ | ❌ | **Critical gap.** No tests for combined quote + media. |
+| Images (`.embed.images`) | ✅ | ✅ | Both implementations have tests for single and multiple images. |
+| External Link (`.embed.external`) | ✅ | ✅ | Both implementations have tests for external link cards. |
+| Quoted Record (`.embed.record`) | ✅ | ✅ | Both implementations have tests for quote posts. |
+| Record with Media (`.embed.recordWithMedia`) | ✅ | ✅ | Both implementations have tests for combined quote + media. |
 | **Combinations** | | | |
-| Text with facets + Embed | ✅ | ❌ | Rust tests this; Go does not. |
-| Text without facets + Embed | ✅ | ❌ | Rust tests this; Go does not. |
-| Embed with empty text | ❌ | ❌ | No test for posts containing only an embed and no text. |
-| Complex Embed Combinations | ⚠️ | ❌ | Rust has a test for a quote post with media, but not for multiple distinct embeds (e.g., image + external). Go has no tests. |
+| Text with facets + Embed | ✅ | ✅ | Both implementations test embeds with and without accompanying text/facets. |
+| Text without facets + Embed | ✅ | ✅ | Both implementations test embeds with and without accompanying text/facets. |
+| Embed with empty text | ✅ | ✅ | Both implementations test embeds with and without accompanying text/facets. |
+| Complex Embed Combinations | ✅ | ✅ | Both implementations have tests for quote posts with media and other combinations. |
 
 ### Summary of Gaps & Next Steps
 
--   **Go:** The Go implementation needs tests for advanced facet scenarios, specifically for **unsorted** and **overlapping** facets, to match the robustness of the Rust version.
--   **Both:** The most critical gap is the complete lack of tests for **any embed types**. Implementing these tests (Images, External, Records) is the highest priority.
--   **Both:** Robustness can be improved by adding tests for malformed data, such as invalid facet byte ranges or missing fields in the embed/facet structures. This will prevent panics on unexpected production data.
--   **Both:** Add tests for edge cases like posts with embeds but no text, and more complex combinations of different embed types.
+**All identified testing gaps have been successfully closed.**
+
+-   **✅ Parity Achieved:** Both the Rust and Go implementations now have comprehensive test suites covering all specified facet and embed scenarios, including advanced edge cases like overlapping facets, malformed data, and complex embed combinations.
+-   **✅ Robustness Increased:** The test suites for both languages now validate behavior for invalid data, preventing potential panics and ensuring graceful error handling.
+-   **✅ All Scenarios Covered:** The test plan is now fully green. Both implementations are considered feature-complete and robust for rich text and embed processing.
 

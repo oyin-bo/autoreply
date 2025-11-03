@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -570,6 +572,100 @@ func TestFormatStatsOrdering(t *testing.T) {
 	}
 }
 
+func TestFormatEmbed(t *testing.T) {
+	did := "did:plc:test"
+	tests := []struct {
+		name  string
+		embed *bluesky.Embed
+		want  string
+	}{
+		{
+			name: "single image embed",
+			embed: &bluesky.Embed{
+				Type: bluesky.EmbedImages,
+				Images: []*bluesky.ImageEmbed{
+					{
+						Alt:   "A beautiful sunset",
+						Image: &bluesky.BlobRef{Ref: "bafkreihd..."},
+					},
+				},
+			},
+			want: "![A beautiful sunset](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkreihd...@jpeg)",
+		},
+		{
+			name: "multiple images embed",
+			embed: &bluesky.Embed{
+				Type: bluesky.EmbedImages,
+				Images: []*bluesky.ImageEmbed{
+					{
+						Alt:   "Image 1",
+						Image: &bluesky.BlobRef{Ref: "bafkrei_img1..."},
+					},
+					{
+						Alt:   "Image 2",
+						Image: &bluesky.BlobRef{Ref: "bafkrei_img2..."},
+					},
+				},
+			},
+			want: "![Image 1](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkrei_img1...@jpeg)\n![Image 2](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkrei_img2...@jpeg)",
+		},
+		{
+			name: "external link embed",
+			embed: &bluesky.Embed{
+				Type: bluesky.EmbedExternal,
+				External: &bluesky.ExternalEmbed{
+					URI:         "https://example.com",
+					Title:       "Example Title",
+					Description: "This is a description.",
+					Thumb:       &bluesky.BlobRef{Ref: "bafkrei_thumb..."},
+				},
+			},
+			want: "[Example Title](https://example.com)\n> This is a description.\n![thumb](https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:test/bafkrei_thumb...@jpeg)",
+		},
+		{
+			name: "record embed (quote post)",
+			embed: &bluesky.Embed{
+				Type:   bluesky.EmbedRecord,
+				Record: &bluesky.RecordEmbed{URI: "at://did:plc:test/app.bsky.feed.post/3kxyz"},
+			},
+			want: "> Quoted post: at://did:plc:test/app.bsky.feed.post/3kxyz",
+		},
+		{
+			name: "record with image media",
+			embed: &bluesky.Embed{
+				Type:   bluesky.EmbedRecordWithMedia,
+				Record: &bluesky.RecordEmbed{URI: "at://did:plc:quote/app.bsky.feed.post/3kabc"},
+				Media:  makeRawMessage(t, &bluesky.Embed{Type: bluesky.EmbedImages, Images: []*bluesky.ImageEmbed{{Alt: "A cat", Image: &bluesky.BlobRef{Ref: "bafkrei_cat..."}}}}),
+			},
+			want: "> Quoted post: at://did:plc:quote/app.bsky.feed.post/3kabc\n![A cat](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkrei_cat...@jpeg)",
+		},
+		{
+			name:  "nil embed",
+			embed: nil,
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatEmbed(tt.embed, did)
+			if got != tt.want {
+				t.Errorf("FormatEmbed() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func makeRawMessage(t *testing.T, v interface{}) *json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("Failed to marshal to json.RawMessage: %v", err)
+	}
+	raw := json.RawMessage(b)
+	return &raw
+}
+
 func TestApplyFacetsToText(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -589,10 +685,10 @@ func TestApplyFacetsToText(t *testing.T) {
 			facets: []bluesky.Facet{
 				{
 					Index: bluesky.IndexRange{ByteStart: 6, ByteEnd: 24},
-					Features: []interface{}{
-						map[string]interface{}{
-							"$type": "app.bsky.richtext.facet#mention",
-							"did":   "did:plc:abc123",
+					Features: []bluesky.FacetFeature{
+						{
+							Type: "app.bsky.richtext.facet#mention",
+							DID:  "did:plc:abc123",
 						},
 					},
 				},
@@ -605,10 +701,10 @@ func TestApplyFacetsToText(t *testing.T) {
 			facets: []bluesky.Facet{
 				{
 					Index: bluesky.IndexRange{ByteStart: 10, ByteEnd: 29},
-					Features: []interface{}{
-						map[string]interface{}{
-							"$type": "app.bsky.richtext.facet#link",
-							"uri":   "https://example.com",
+					Features: []bluesky.FacetFeature{
+						{
+							Type: "app.bsky.richtext.facet#link",
+							URI:  "https://example.com",
 						},
 					},
 				},
@@ -621,10 +717,10 @@ func TestApplyFacetsToText(t *testing.T) {
 			facets: []bluesky.Facet{
 				{
 					Index: bluesky.IndexRange{ByteStart: 8, ByteEnd: 16},
-					Features: []interface{}{
-						map[string]interface{}{
-							"$type": "app.bsky.richtext.facet#tag",
-							"tag":   "awesome",
+					Features: []bluesky.FacetFeature{
+						{
+							Type: "app.bsky.richtext.facet#tag",
+							Tag:  "awesome",
 						},
 					},
 				},
@@ -637,28 +733,28 @@ func TestApplyFacetsToText(t *testing.T) {
 			facets: []bluesky.Facet{
 				{
 					Index: bluesky.IndexRange{ByteStart: 4, ByteEnd: 8},
-					Features: []interface{}{
-						map[string]interface{}{
-							"$type": "app.bsky.richtext.facet#mention",
-							"did":   "did:plc:xyz",
+					Features: []bluesky.FacetFeature{
+						{
+							Type: "app.bsky.richtext.facet#mention",
+							DID:  "did:plc:xyz",
 						},
 					},
 				},
 				{
 					Index: bluesky.IndexRange{ByteStart: 15, ByteEnd: 31},
-					Features: []interface{}{
-						map[string]interface{}{
-							"$type": "app.bsky.richtext.facet#link",
-							"uri":   "https://test.com",
+					Features: []bluesky.FacetFeature{
+						{
+							Type: "app.bsky.richtext.facet#link",
+							URI:  "https://test.com",
 						},
 					},
 				},
 				{
 					Index: bluesky.IndexRange{ByteStart: 36, ByteEnd: 41},
-					Features: []interface{}{
-						map[string]interface{}{
-							"$type": "app.bsky.richtext.facet#tag",
-							"tag":   "cool",
+					Features: []bluesky.FacetFeature{
+						{
+							Type: "app.bsky.richtext.facet#tag",
+							Tag:  "cool",
 						},
 					},
 				},
@@ -671,10 +767,10 @@ func TestApplyFacetsToText(t *testing.T) {
 			facets: []bluesky.Facet{
 				{
 					Index: bluesky.IndexRange{ByteStart: 11, ByteEnd: 17}, // After "Hello 👋 " (👋 is 4 bytes)
-					Features: []interface{}{
-						map[string]interface{}{
-							"$type": "app.bsky.richtext.facet#mention",
-							"did":   "did:plc:test",
+					Features: []bluesky.FacetFeature{
+						{
+							Type: "app.bsky.richtext.facet#mention",
+							DID:  "did:plc:test",
 						},
 					},
 				},
@@ -687,14 +783,14 @@ func TestApplyFacetsToText(t *testing.T) {
 			facets: []bluesky.Facet{
 				{ // #cool
 					Index: bluesky.IndexRange{ByteStart: 15, ByteEnd: 20},
-					Features: []interface{}{
-						map[string]interface{}{"$type": "app.bsky.richtext.facet#tag", "tag": "cool"},
+					Features: []bluesky.FacetFeature{
+						{Type: "app.bsky.richtext.facet#tag", Tag: "cool"},
 					},
 				},
 				{ // @bob
 					Index: bluesky.IndexRange{ByteStart: 4, ByteEnd: 8},
-					Features: []interface{}{
-						map[string]interface{}{"$type": "app.bsky.richtext.facet#mention", "did": "did:plc:xyz"},
+					Features: []bluesky.FacetFeature{
+						{Type: "app.bsky.richtext.facet#mention", DID: "did:plc:xyz"},
 					},
 				},
 			},
@@ -706,14 +802,14 @@ func TestApplyFacetsToText(t *testing.T) {
 			facets: []bluesky.Facet{
 				{ // @alice.bsky.social (mention)
 					Index: bluesky.IndexRange{ByteStart: 10, ByteEnd: 28},
-					Features: []interface{}{
-						map[string]interface{}{"$type": "app.bsky.richtext.facet#mention", "did": "did:plc:abc"},
+					Features: []bluesky.FacetFeature{
+						{Type: "app.bsky.richtext.facet#mention", DID: "did:plc:abc"},
 					},
 				},
 				{ // Check out @alice.bsky.social (link)
 					Index: bluesky.IndexRange{ByteStart: 0, ByteEnd: 28},
-					Features: []interface{}{
-						map[string]interface{}{"$type": "app.bsky.richtext.facet#link", "uri": "https://example.com"},
+					Features: []bluesky.FacetFeature{
+						{Type: "app.bsky.richtext.facet#link", URI: "https://example.com"},
 					},
 				},
 			},
@@ -726,14 +822,14 @@ func TestApplyFacetsToText(t *testing.T) {
 			facets: []bluesky.Facet{
 				{
 					Index: bluesky.IndexRange{ByteStart: 0, ByteEnd: 4},
-					Features: []interface{}{
-						map[string]interface{}{"$type": "app.bsky.richtext.facet#tag", "tag": "one"},
+					Features: []bluesky.FacetFeature{
+						{Type: "app.bsky.richtext.facet#tag", Tag: "one"},
 					},
 				},
 				{
 					Index: bluesky.IndexRange{ByteStart: 4, ByteEnd: 8},
-					Features: []interface{}{
-						map[string]interface{}{"$type": "app.bsky.richtext.facet#tag", "tag": "two"},
+					Features: []bluesky.FacetFeature{
+						{Type: "app.bsky.richtext.facet#tag", Tag: "two"},
 					},
 				},
 			},
@@ -756,10 +852,10 @@ func TestBlockquoteContentWithFacets(t *testing.T) {
 	facets := []bluesky.Facet{
 		{
 			Index: bluesky.IndexRange{ByteStart: 6, ByteEnd: 12},
-			Features: []interface{}{
-				map[string]interface{}{
-					"$type": "app.bsky.richtext.facet#mention",
-					"did":   "did:plc:abc",
+			Features: []bluesky.FacetFeature{
+				{
+					Type: "app.bsky.richtext.facet#mention",
+					DID:  "did:plc:abc",
 				},
 			},
 		},
@@ -770,5 +866,133 @@ func TestBlockquoteContentWithFacets(t *testing.T) {
 
 	if got != want {
 		t.Errorf("BlockquoteContentWithFacets() = %q, want %q", got, want)
+	}
+}
+
+func TestApplyFacetsToText_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		facets []bluesky.Facet
+		want   string
+	}{
+		{
+			name: "invalid facet indices (out of bounds)",
+			text: "A text with a bad facet.",
+			facets: []bluesky.Facet{
+				{
+					Index:    bluesky.IndexRange{ByteStart: 15, ByteEnd: 100},
+					Features: []bluesky.FacetFeature{{Type: "app.bsky.richtext.facet#tag", Tag: "bad"}},
+				},
+			},
+			want: "A text with a bad facet.",
+		},
+		{
+			name: "invalid facet indices (inverted)",
+			text: "A text with a bad facet.",
+			facets: []bluesky.Facet{
+				{
+					Index:    bluesky.IndexRange{ByteStart: 10, ByteEnd: 5},
+					Features: []bluesky.FacetFeature{{Type: "app.bsky.richtext.facet#tag", Tag: "inverted"}},
+				},
+			},
+			want: "A text with a bad facet.",
+		},
+		{
+			name: "malformed facet data (no features)",
+			text: "Text with a featureless facet.",
+			facets: []bluesky.Facet{
+				{
+					Index:    bluesky.IndexRange{ByteStart: 10, ByteEnd: 21},
+					Features: []bluesky.FacetFeature{},
+				},
+			},
+			want: "Text with a featureless facet.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This function should not panic and should return the original text
+			// for invalid facets. A more robust implementation might log errors.
+			got := ApplyFacetsToText(tt.text, tt.facets)
+			if got != tt.want {
+				t.Errorf("ApplyFacetsToText() with edge cases = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatPost_Combinations(t *testing.T) {
+	did := "did:plc:test"
+	tests := []struct {
+		name   string
+		text   string
+		facets []bluesky.Facet
+		embed  *bluesky.Embed
+		want   string
+	}{
+		{
+			name:   "text with facets and embed",
+			text:   "More info at example.com",
+			facets: []bluesky.Facet{{Index: bluesky.IndexRange{ByteStart: 13, ByteEnd: 24}, Features: []bluesky.FacetFeature{{Type: "app.bsky.richtext.facet#link", URI: "https://example.com"}}}},
+			embed: &bluesky.Embed{
+				Type:     bluesky.EmbedExternal,
+				External: &bluesky.ExternalEmbed{URI: "https://anotherexample.com", Title: "Another Example", Description: "Description here."},
+			},
+			want: "> More info at [example.com](https://example.com)\n\n[Another Example](https://anotherexample.com)\n> Description here.",
+		},
+		{
+			name:   "text without facets and embed",
+			text:   "Check out this cool picture!",
+			facets: []bluesky.Facet{},
+			embed: &bluesky.Embed{
+				Type:   bluesky.EmbedImages,
+				Images: []*bluesky.ImageEmbed{{Alt: "A cool picture", Image: &bluesky.BlobRef{Ref: "bafy_cool..."}}},
+			},
+			want: "> Check out this cool picture!\n\n![A cool picture](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafy_cool...@jpeg)",
+		},
+		{
+			name:   "embed with empty text",
+			text:   "",
+			facets: []bluesky.Facet{},
+			embed: &bluesky.Embed{
+				Type:   bluesky.EmbedImages,
+				Images: []*bluesky.ImageEmbed{{Alt: "An image on its own", Image: &bluesky.BlobRef{Ref: "bafy_solo..."}}},
+			},
+			want: "![An image on its own](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafy_solo...@jpeg)",
+		},
+		{
+			name:   "record with external media",
+			text:   "Complex embed.",
+			facets: []bluesky.Facet{},
+			embed: &bluesky.Embed{
+				Type:   bluesky.EmbedRecordWithMedia,
+				Record: &bluesky.RecordEmbed{URI: "at://did:plc:quote/app.bsky.feed.post/3kdef"},
+				Media: makeRawMessage(t, &bluesky.Embed{
+					Type:     bluesky.EmbedExternal,
+					External: &bluesky.ExternalEmbed{URI: "https://dev.blueskyweb.xyz/", Title: "Bluesky Dev", Description: "Dev docs"},
+				}),
+			},
+			want: "> Complex embed.\n\n> Quoted post: at://did:plc:quote/app.bsky.feed.post/3kdef\n[Bluesky Dev](https://dev.blueskyweb.xyz/)\n> Dev docs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var finalMd string
+			textMd := BlockquoteContentWithFacets(tt.text, tt.facets)
+			embedMd := FormatEmbed(tt.embed, did)
+
+			if tt.text == "" {
+				finalMd = embedMd
+			} else {
+				finalMd = fmt.Sprintf("%s\n\n%s", textMd, embedMd)
+			}
+
+			if finalMd != tt.want {
+				t.Errorf("Formatted Post = %q, want %q", finalMd, tt.want)
+			}
+		})
 	}
 }
