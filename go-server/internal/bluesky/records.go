@@ -123,3 +123,57 @@ const (
 	EmbedRecord          = "app.bsky.embed.record"
 	EmbedRecordWithMedia = "app.bsky.embed.recordWithMedia"
 )
+
+// GetSearchableText extracts all text content from an embed for indexing.
+func (e *Embed) GetSearchableText() []string {
+	var texts []string
+	if e == nil {
+		return texts
+	}
+
+	switch e.Type {
+	case EmbedImages:
+		for _, img := range e.Images {
+			if img.Alt != "" {
+				texts = append(texts, img.Alt)
+			}
+		}
+	case EmbedExternal:
+		if e.External != nil {
+			texts = append(texts, e.External.Title)
+			texts = append(texts, e.External.Description)
+		}
+	case EmbedRecordWithMedia:
+		if e.Media != nil {
+			// The 'media' field contains another embed. We need to unmarshal it
+			// to determine its type and extract its text.
+			var nestedEmbed Embed
+			if err := json.Unmarshal(*e.Media, &nestedEmbed); err == nil {
+				texts = append(texts, nestedEmbed.GetSearchableText()...)
+			}
+		}
+	case EmbedRecord:
+		// Simple record embeds (quote posts) do not contain the text of the
+		// quoted post directly in the embed, so there's no text to add.
+	}
+	return texts
+}
+
+// GetSearchableText extracts all text from a post, including its embeds.
+func (p *PostRecord) GetSearchableText() []string {
+	texts := []string{p.Text}
+
+	if p.Embed != nil {
+		texts = append(texts, p.Embed.GetSearchableText()...)
+	}
+
+	for _, facet := range p.Facets {
+		for _, feature := range facet.Features {
+			if feature.Type == "app.bsky.richtext.facet#link" {
+				texts = append(texts, feature.URI)
+			}
+		}
+	}
+
+	return texts
+}

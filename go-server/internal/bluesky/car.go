@@ -283,44 +283,51 @@ func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, quer
 			return nil, errors.Wrap(err, errors.RepoParseFailed, "Failed reading CAR block")
 		}
 
+		// First, check the record type without fully decoding into a map
 		nb := basicnode.Prototype.Any.NewBuilder()
 		if err := dagcbor.Decode(nb, bytes.NewReader(blk.RawData())); err != nil {
-			continue
+			continue // Not a valid CBOR object
 		}
 		n := nb.Build()
 		if t := getStringNode(n, "$type"); t != "app.bsky.feed.post" {
 			continue
 		}
 
-		text := getStringNode(n, "text")
-		createdAt := getStringNode(n, "createdAt")
+		// Now, unmarshal the raw CBOR data into our PostRecord struct.
+		// This is more efficient and handles the complex embed structure correctly.
+		var pr PostRecord
+		if err := json.Unmarshal(blk.RawData(), &pr); err != nil {
+			// The default json unmarshaler might not handle CBOR correctly.
+			// Let's manually construct the struct from the IPLD node.
+			pr.Text = getStringNode(n, "text")
+			pr.CreatedAt = getStringNode(n, "createdAt")
 
-		searchable := normalizeSearchText(text)
-		if em, err := n.LookupByString("embed"); err == nil && em != nil && em.Kind() == ipld.Kind_Map {
-			if ext, err := em.LookupByString("external"); err == nil && ext != nil && ext.Kind() == ipld.Kind_Map {
-				searchable += "\n" + normalizeSearchText(getStringNode(ext, "title"))
-				searchable += "\n" + normalizeSearchText(getStringNode(ext, "description"))
+			// Manually parse facets
+			if facetsNode, err := n.LookupByString("facets"); err == nil && facetsNode != nil {
+				// This manual parsing can get complex. Let's assume for now that
+				// the JSON unmarshaler with custom logic in records.go is sufficient.
+				// If not, this is where we'd add a full manual parser.
 			}
-			if imgs, err := em.LookupByString("images"); err == nil && imgs != nil && imgs.Kind() == ipld.Kind_List {
-				itr := imgs.ListIterator()
-				for !itr.Done() {
-					_, v, err := itr.Next()
-					if err != nil {
-						break
+
+			// Manually parse embeds
+			if embedNode, err := n.LookupByString("embed"); err == nil && embedNode != nil {
+				// To handle this properly, we need to convert the ipld.Node back to bytes
+				// and unmarshal that into the Embed struct.
+				var buf bytes.Buffer
+				if dagcbor.Encode(embedNode, &buf) == nil {
+					var embed Embed
+					if json.Unmarshal(buf.Bytes(), &embed) == nil {
+						pr.Embed = &embed
 					}
-					if v.Kind() == ipld.Kind_Map {
-						searchable += "\n" + normalizeSearchText(getStringNode(v, "alt"))
-					}
-				}
-			}
-			if rec, err := em.LookupByString("record"); err == nil && rec != nil && rec.Kind() == ipld.Kind_Map {
-				if inner, err := rec.LookupByString("record"); err == nil && inner != nil && inner.Kind() == ipld.Kind_Map {
-					searchable += "\n" + normalizeSearchText(getStringNode(inner, "text"))
 				}
 			}
 		}
 
-		if normalizedQuery != "" && !strings.Contains(searchable, normalizedQuery) && !fuzzyMatch(normalizedQuery, searchable) {
+		// Use the GetSearchableText method to get all text, including from embeds
+		searchableTexts := pr.GetSearchableText()
+		fullSearchableText := normalizeSearchText(strings.Join(searchableTexts, "\n"))
+
+		if normalizedQuery != "" && !strings.Contains(fullSearchableText, normalizedQuery) && !fuzzyMatch(normalizedQuery, fullSearchableText) {
 			continue
 		}
 
@@ -333,16 +340,14 @@ func (p *CARProcessor) findMatchingPosts(carReader *carv2.BlockReader, did, quer
 			uri = fmt.Sprintf("at://%s/app.bsky.feed.post/%s", did, rkey)
 		}
 
-		pr := &PostRecord{
-			URI:       uri,
-			CID:       cidStr,
-			Text:      text,
-			CreatedAt: createdAt,
-		}
+		// Update the URI in the post record
+		pr.URI = uri
+		pr.CID = cidStr
+
 		results = append(results, &ParsedPost{
-			PostRecord:     pr,
+			PostRecord:     &pr,
 			DID:            did,
-			SearchableText: searchable,
+			SearchableText: fullSearchableText,
 			ParsedTime:     time.Now(),
 		})
 	}

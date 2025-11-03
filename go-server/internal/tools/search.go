@@ -215,14 +215,34 @@ func (t *SearchTool) formatSearchResults(handle, query string, posts []*bluesky.
 		sb.WriteString(fmt.Sprintf("%s\n", authorID))
 		seenPosts[fullID] = true
 
-		// Blockquote content (with highlighting preserved inside quote)
-		// First apply facets, then highlight
+		// Blockquote content.
+		// First, get the text with facets applied.
 		textWithFacets := post.Text
 		if len(post.Facets) > 0 {
 			textWithFacets = ApplyFacetsToText(post.Text, post.Facets)
 		}
-		highlightedText := HighlightQuery(textWithFacets, query)
-		sb.WriteString(BlockquoteContent(highlightedText))
+
+		// Next, format the embeds into their Markdown representation.
+		var embedMarkdown string
+		if post.Embed != nil {
+			// The DID is needed to construct full image URLs.
+			did := post.DID
+			embedMarkdown = FormatEmbed(post.Embed, did)
+		}
+
+		// Combine text and embed markdown.
+		var combinedContent string
+		if strings.TrimSpace(textWithFacets) == "" {
+			combinedContent = embedMarkdown
+		} else if embedMarkdown == "" {
+			combinedContent = textWithFacets
+		} else {
+			combinedContent = fmt.Sprintf("%s\n\n%s", textWithFacets, embedMarkdown)
+		}
+
+		// Now, highlight the entire combined content.
+		highlightedContent := HighlightQuery(combinedContent, query)
+		sb.WriteString(BlockquoteContent(highlightedContent))
 		sb.WriteString("\n")
 
 		// Stats and timestamp (search results from CAR don't have engagement stats)

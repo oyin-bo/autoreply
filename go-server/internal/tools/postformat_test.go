@@ -996,3 +996,70 @@ func TestFormatPost_Combinations(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchAndHighlightInEmbeds(t *testing.T) {
+	// 1. Setup: Create a post with rich embeds
+	post := &bluesky.ParsedPost{
+		PostRecord: &bluesky.PostRecord{
+			URI:       "at://did:plc:test/app.bsky.feed.post/embed_search",
+			CID:       "cid_embed_search",
+			Text:      "This post has an image and a link.",
+			CreatedAt: "2024-01-01T00:00:00Z",
+			Embed: &bluesky.Embed{
+				Type: bluesky.EmbedRecordWithMedia,
+				Record: &bluesky.RecordEmbed{
+					URI: "at://did:plc:quoted/app.bsky.feed.post/quoted_post",
+					CID: "cid_quoted",
+				},
+				Media: makeRawMessage(t, &bluesky.Embed{
+					Type: bluesky.EmbedImages,
+					Images: []*bluesky.ImageEmbed{
+						{
+							Alt:   "A detailed photo of a fuzzy brown cat",
+							Image: &bluesky.BlobRef{Ref: "bafkrei_cat_fuzzy..."},
+						},
+					},
+				}),
+			},
+		},
+		DID: "did:plc:test",
+	}
+
+	// 2. Test Searchable Text Extraction
+	searchable := post.GetSearchableText()
+	expectedSearchable := []string{
+		"This post has an image and a link.",
+		"A detailed photo of a fuzzy brown cat",
+	}
+	if len(searchable) != len(expectedSearchable) {
+		t.Fatalf("GetSearchableText() returned %d items, want %d", len(searchable), len(expectedSearchable))
+	}
+	for i, s := range searchable {
+		if s != expectedSearchable[i] {
+			t.Errorf("Searchable text item %d = %q, want %q", i, s, expectedSearchable[i])
+		}
+	}
+
+	// 3. Test Highlighting in Formatted Output
+	searchTool := NewSearchTool()
+	query := "fuzzy cat"
+	markdown := searchTool.formatSearchResults("test.bsky.social", query, []*bluesky.ParsedPost{post})
+
+	// The blockquoted content should contain the main text and the formatted, highlighted embed.
+	expectedHighlightInAlt := "![A detailed photo of a **fuzzy** brown **cat**](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkrei_cat_fuzzy...@jpeg)"
+	expectedQuotedPost := "> Quoted post: at://did:plc:quoted/app.bsky.feed.post/quoted_post"
+
+	// Check that the final markdown contains the highlighted part within the blockquote.
+	// We need to check for the blockquoted version of the highlight.
+	if !strings.Contains(markdown, expectedQuotedPost) {
+		t.Errorf("Formatted markdown does not contain the quoted post line.\nGot:\n%s", markdown)
+	}
+	if !strings.Contains(markdown, expectedHighlightInAlt) {
+		t.Errorf("Formatted markdown does not contain the highlighted image alt text.\nGot:\n%s", markdown)
+	}
+
+	// Also check the main text is present and blockquoted
+	if !strings.Contains(markdown, "> This post has an image and a link.") {
+		t.Errorf("Formatted markdown does not contain the blockquoted main text.\nGot:\n%s", markdown)
+	}
+}
