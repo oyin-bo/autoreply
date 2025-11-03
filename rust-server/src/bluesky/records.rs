@@ -29,7 +29,7 @@ pub struct PostRecord {
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(default)]
-    pub embeds: Vec<Embed>,
+    pub embeds: Option<Vec<Embed>>,
     #[serde(default)]
     pub facets: Vec<Facet>,
 }
@@ -186,20 +186,22 @@ impl PostRecord {
         let mut texts = vec![self.text.clone()];
 
         // Add embed text
-        for embed in &self.embeds {
-            match embed {
-                Embed::Images { images } => {
-                    for img in images {
-                        if let Some(alt) = &img.alt {
-                            texts.push(alt.clone());
+        if let Some(embeds) = &self.embeds {
+            for embed in embeds {
+                match embed {
+                    Embed::Images { images } => {
+                        for img in images {
+                            if let Some(alt) = &img.alt {
+                                texts.push(alt.clone());
+                            }
                         }
                     }
+                    Embed::External { external } => {
+                        texts.push(external.title.clone());
+                        texts.push(external.description.clone());
+                    }
+                    _ => {}
                 }
-                Embed::External { external } => {
-                    texts.push(external.title.clone());
-                    texts.push(external.description.clone());
-                }
-                _ => {}
             }
         }
 
@@ -239,9 +241,11 @@ impl PostRecord {
 
         // Collect links from external embeds and facet link features
         let mut link_lines: Vec<String> = Vec::new();
-        for embed in &self.embeds {
-            if let Embed::External { external } = embed {
-                link_lines.push(format!("- [{}]({})\n", external.title, external.uri));
+        if let Some(embeds) = &self.embeds {
+            for embed in embeds {
+                if let Embed::External { external } = embed {
+                    link_lines.push(format!("- [{}]({})\n", external.title, external.uri));
+                }
             }
         }
         for facet in &self.facets {
@@ -260,16 +264,18 @@ impl PostRecord {
         }
 
         // Add images alt text (no URLs in scope)
-        if !self.embeds.is_empty() {
-            for embed in &self.embeds {
-                if let Embed::Images { images } = embed {
-                    markdown.push_str("**Images:**\n");
-                    for (i, img) in images.iter().enumerate() {
-                        let default_alt = format!("Image {}", i + 1);
-                        let alt_text = img.alt.as_deref().unwrap_or(&default_alt);
-                        markdown.push_str(&format!("- {}\n", alt_text));
+        if let Some(embeds) = &self.embeds {
+            if !embeds.is_empty() {
+                for embed in embeds {
+                    if let Embed::Images { images } = embed {
+                        markdown.push_str("**Images:**\n");
+                        for (i, img) in images.iter().enumerate() {
+                            let default_alt = format!("Image {}", i + 1);
+                            let alt_text = img.alt.as_deref().unwrap_or(&default_alt);
+                            markdown.push_str(&format!("- {}\n", alt_text));
+                        }
+                        markdown.push('\n');
                     }
-                    markdown.push('\n');
                 }
             }
         }
@@ -343,7 +349,7 @@ mod tests {
             cid: "bafy123test".to_string(),
             text: "Hello world! Check out this link: https://example.com".to_string(),
             created_at: "2024-01-01T12:00:00Z".to_string(),
-            embeds: vec![],
+            embeds: None,
             facets: vec![],
         }
     }
@@ -400,38 +406,40 @@ mod tests {
         let mut post = create_test_post();
 
         // Add external embed
-        post.embeds.push(Embed::External {
+        post.embeds = Some(vec![Embed::External {
             external: ExternalEmbed {
                 uri: "https://example.com/article".to_string(),
                 title: "Amazing Article".to_string(),
                 description: "This is a great article about Rust".to_string(),
                 thumb: None,
             },
-        });
+        }]);
 
         // Add images embed
-        post.embeds.push(Embed::Images {
-            images: vec![
-                ImageEmbed {
-                    alt: Some("A beautiful sunset".to_string()),
-                    image: BlobRef {
-                        type_: "blob".to_string(),
-                        ref_: "bafy123".to_string(),
-                        mime_type: "image/jpeg".to_string(),
-                        size: 1024,
+        if let Some(embeds) = &mut post.embeds {
+            embeds.push(Embed::Images {
+                images: vec![
+                    ImageEmbed {
+                        alt: Some("A beautiful sunset".to_string()),
+                        image: BlobRef {
+                            type_: "blob".to_string(),
+                            ref_: "bafy123".to_string(),
+                            mime_type: "image/jpeg".to_string(),
+                            size: 1024,
+                        },
                     },
-                },
-                ImageEmbed {
-                    alt: None,
-                    image: BlobRef {
-                        type_: "blob".to_string(),
-                        ref_: "bafy456".to_string(),
-                        mime_type: "image/png".to_string(),
-                        size: 2048,
+                    ImageEmbed {
+                        alt: None,
+                        image: BlobRef {
+                            type_: "blob".to_string(),
+                            ref_: "bafy456".to_string(),
+                            mime_type: "image/png".to_string(),
+                            size: 2048,
+                        },
                     },
-                },
-            ],
-        });
+                ],
+            });
+        }
 
         let searchable = post.get_searchable_text();
 
@@ -486,14 +494,14 @@ mod tests {
         let mut post = create_test_post();
 
         // Add external embed
-        post.embeds.push(Embed::External {
+        post.embeds = Some(vec![Embed::External {
             external: ExternalEmbed {
                 uri: "https://example.com/article".to_string(),
                 title: "Great Article".to_string(),
                 description: "Amazing content".to_string(),
                 thumb: None,
             },
-        });
+        }]);
 
         // Add facet link
         post.facets.push(Facet {
@@ -517,7 +525,7 @@ mod tests {
     fn test_post_record_to_markdown_with_images() {
         let mut post = create_test_post();
 
-        post.embeds.push(Embed::Images {
+        post.embeds = Some(vec![Embed::Images {
             images: vec![
                 ImageEmbed {
                     alt: Some("Sunset photo".to_string()),
@@ -538,7 +546,7 @@ mod tests {
                     },
                 },
             ],
-        });
+        }]);
 
         let markdown = post.to_markdown("alice.bsky.social", "hello");
 
@@ -866,7 +874,17 @@ mod tests {
         let result = ::from_slice::<PostRecord>(&cbor_bytes);
 
         // May fail due to schema differences, but test the CBOR structure is valid
-        assert!(result.is_ok() || result.is_err()); // Just validate CBOR parses
+        assert!(result.is_ok());
+        let post = result.unwrap();
+        assert!(post.embeds.is_some());
+        if let Some(embeds) = post.embeds {
+            assert!(!embeds.is_empty());
+            if let Embed::External { external } = &embeds[0] {
+                assert_eq!(external.title, "Amazing Rust Tutorial");
+            } else {
+                panic!("Expected external embed");
+            }
+        }
     }
 
     #[test]
@@ -927,43 +945,45 @@ mod tests {
             cid: "cid1".to_string(),
             text: "Main post text".to_string(),
             created_at: "2024-03-20T16:00:00Z".to_string(),
-            embeds: vec![],
+            embeds: Some(vec![]),
             facets: vec![],
         };
 
         // Add external embed
-        post.embeds.push(Embed::External {
-            external: ExternalEmbed {
-                uri: "https://example.com".to_string(),
-                title: "External Title".to_string(),
-                description: "External Description".to_string(),
-                thumb: None,
-            },
-        });
+        if let Some(embeds) = &mut post.embeds {
+            embeds.push(Embed::External {
+                external: ExternalEmbed {
+                    uri: "https://example.com".to_string(),
+                    title: "External Title".to_string(),
+                    description: "External Description".to_string(),
+                    thumb: None,
+                },
+            });
 
-        // Add images with alt text
-        post.embeds.push(Embed::Images {
-            images: vec![
-                ImageEmbed {
-                    alt: Some("Image 1 Alt".to_string()),
-                    image: BlobRef {
-                        type_: "blob".to_string(),
-                        ref_: "bafy1".to_string(),
-                        mime_type: "image/jpeg".to_string(),
-                        size: 1024,
+            // Add images with alt text
+            embeds.push(Embed::Images {
+                images: vec![
+                    ImageEmbed {
+                        alt: Some("Image 1 Alt".to_string()),
+                        image: BlobRef {
+                            type_: "blob".to_string(),
+                            ref_: "bafy1".to_string(),
+                            mime_type: "image/jpeg".to_string(),
+                            size: 1024,
+                        },
                     },
-                },
-                ImageEmbed {
-                    alt: Some("Image 2 Alt".to_string()),
-                    image: BlobRef {
-                        type_: "blob".to_string(),
-                        ref_: "bafy2".to_string(),
-                        mime_type: "image/png".to_string(),
-                        size: 2048,
+                    ImageEmbed {
+                        alt: Some("Image 2 Alt".to_string()),
+                        image: BlobRef {
+                            type_: "blob".to_string(),
+                            ref_: "bafy2".to_string(),
+                            mime_type: "image/png".to_string(),
+                            size: 2048,
+                        },
                     },
-                },
-            ],
-        });
+                ],
+            });
+        }
 
         let searchable = post.get_searchable_text();
 
@@ -1020,7 +1040,25 @@ mod tests {
             cid: "cid3".to_string(),
             text: "Simple post with no embeds".to_string(),
             created_at: "2024-03-20T18:00:00Z".to_string(),
-            embeds: vec![],
+            embeds: None,
+            facets: vec![],
+        };
+
+        let searchable = post.get_searchable_text();
+// ...existing code...
+// ...existing code...
+    fn test_post_searchable_text_with_record_embed() {
+        let post = PostRecord {
+            uri: "at://test/post/4".to_string(),
+            cid: "cid4".to_string(),
+            text: "Quoting someone".to_string(),
+            created_at: "2024-03-20T19:00:00Z".to_string(),
+            embeds: Some(vec![Embed::Record {
+                record: RecordEmbed {
+                    uri: "at://other/post/123".to_string(),
+                    cid: "quoted_cid".to_string(),
+                },
+            }]),
             facets: vec![],
         };
 

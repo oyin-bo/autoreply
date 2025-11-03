@@ -681,6 +681,64 @@ func TestApplyFacetsToText(t *testing.T) {
 			},
 			want: "Hello 👋 [@alice](https://bsky.app/profile/alice)",
 		},
+		{
+			name: "unsorted facets",
+			text: "Hey @bob check #cool",
+			facets: []bluesky.Facet{
+				{ // #cool
+					Index: bluesky.IndexRange{ByteStart: 15, ByteEnd: 20},
+					Features: []interface{}{
+						map[string]interface{}{"$type": "app.bsky.richtext.facet#tag", "tag": "cool"},
+					},
+				},
+				{ // @bob
+					Index: bluesky.IndexRange{ByteStart: 4, ByteEnd: 8},
+					Features: []interface{}{
+						map[string]interface{}{"$type": "app.bsky.richtext.facet#mention", "did": "did:plc:xyz"},
+					},
+				},
+			},
+			want: "Hey [@bob](https://bsky.app/profile/bob) check [#cool](https://bsky.app/hashtag/cool)",
+		},
+		{
+			name: "overlapping facets (link over mention)",
+			text: "Check out @alice.bsky.social",
+			facets: []bluesky.Facet{
+				{ // @alice.bsky.social (mention)
+					Index: bluesky.IndexRange{ByteStart: 10, ByteEnd: 28},
+					Features: []interface{}{
+						map[string]interface{}{"$type": "app.bsky.richtext.facet#mention", "did": "did:plc:abc"},
+					},
+				},
+				{ // Check out @alice.bsky.social (link)
+					Index: bluesky.IndexRange{ByteStart: 0, ByteEnd: 28},
+					Features: []interface{}{
+						map[string]interface{}{"$type": "app.bsky.richtext.facet#link", "uri": "https://example.com"},
+					},
+				},
+			},
+			// The larger facet (link) should win
+			want: "[Check out @alice.bsky.social](https://example.com)",
+		},
+		{
+			name: "adjacent facets",
+			text: "#one#two",
+			facets: []bluesky.Facet{
+				{
+					Index: bluesky.IndexRange{ByteStart: 0, ByteEnd: 4},
+					Features: []interface{}{
+						map[string]interface{}{"$type": "app.bsky.richtext.facet#tag", "tag": "one"},
+					},
+				},
+				{
+					Index: bluesky.IndexRange{ByteStart: 4, ByteEnd: 8},
+					Features: []interface{}{
+						map[string]interface{}{"$type": "app.bsky.richtext.facet#tag", "tag": "two"},
+					},
+				},
+			},
+			want: "[#one](https://bsky.app/hashtag/one)[#two](https://bsky.app/hashtag/two)",
+		},
 	}
 
 	for _, tt := range tests {

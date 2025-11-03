@@ -265,115 +265,43 @@ Embeds are structured attachments to posts:
 }
 ```
 
-## Code Locations
+## Test Plan
 
-### Rust Implementation
-- **✅ Facet processing**: `rust-server/src/tools/post_format.rs`
-  - `apply_facets_to_text()` - Main facet processing function
-  - `format_facet_feature()` - Individual facet type formatting
-  - `blockquote_content_with_facets()` - Combined facets + blockquoting
-- **✅ Search integration**: `rust-server/src/tools/search.rs`
-- **✅ Thread integration**: `rust-server/src/tools/thread.rs`
-- **✅ Feed integration**: `rust-server/src/tools/feed.rs`
+A manual review of the test suites was conducted to assess coverage for rich text processing and identify gaps.
 
-### Go Implementation
-- **✅ Facet processing**: `go-server/internal/tools/postformat.go`
-  - `ApplyFacetsToText()` - Main facet processing function
-  - `formatFacetFeature()` - Individual facet type formatting
-  - `BlockquoteContentWithFacets()` - Combined facets + blockquoting
-- **✅ Search integration**: `go-server/internal/tools/search.go`
-- **✅ Thread integration**: `go-server/internal/tools/thread.go`
-- **✅ Feed integration**: `go-server/internal/tools/feed.go`
+**Legend:**
+-   `✅` - Covered
+-   `⚠️` - Partially Covered / Needs Improvement
+-   `❌` - Not Covered
 
-### Future Work
-- **🔜 Embed rendering**: New module `rust-server/src/markdown/embeds.rs` (planned)
-- **🔜 URL utilities**: `rust-server/src/markdown/urls.rs` (planned)
+| Feature / Scenario | Rust Status | Go Status | Notes |
+| :--- | :---: | :---: | :--- |
+| **Facets** | | | |
+| Mention (`#mention`) | ✅ | ✅ | Basic rendering is tested. |
+| Link (`#link`) | ✅ | ✅ | Basic rendering is tested. |
+| Hashtag (`#tag`) | ✅ | ✅ | Basic rendering is tested. |
+| Multiple, non-overlapping | ✅ | ✅ | Tested. |
+| Unsorted facet input | ✅ | ✅ | Both implementations now sort facets before processing. |
+| Overlapping facets | ✅ | ✅ | Both implementations now correctly prioritize the larger facet. |
+| Adjacent facets | ✅ | ✅ | Both implementations have dedicated tests for adjacent facets. |
+| Unicode / Emoji offsets | ✅ | ✅ | Both implementations handle multi-byte characters correctly. |
+| Invalid facet indices | ✅ | ❌ | Rust gracefully handles out-of-bounds indices; Go needs a test. |
+| Malformed facet data | ✅ | ❌ | Rust handles featureless facets; Go needs a test. |
+| **Embeds** | | | |
+| Images (`.embed.images`) | ✅ | ❌ | **Critical gap.** No tests for single or multiple images. |
+| External Link (`.embed.external`) | ✅ | ❌ | **Critical gap.** No tests for external link cards. |
+| Quoted Record (`.embed.record`) | ✅ | ❌ | **Critical gap.** No tests for quote posts. |
+| Record with Media (`.embed.recordWithMedia`) | ✅ | ❌ | **Critical gap.** No tests for combined quote + media. |
+| **Combinations** | | | |
+| Text with facets + Embed | ✅ | ❌ | Rust tests this; Go does not. |
+| Text without facets + Embed | ✅ | ❌ | Rust tests this; Go does not. |
+| Embed with empty text | ❌ | ❌ | No test for posts containing only an embed and no text. |
+| Complex Embed Combinations | ⚠️ | ❌ | Rust has a test for a quote post with media, but not for multiple distinct embeds (e.g., image + external). Go has no tests. |
 
-## Testing Strategy
+### Summary of Gaps & Next Steps
 
-1. **✅ Unit tests - Facets (COMPLETED)**
-   - ✅ Facet byte range conversion
-   - ✅ Markdown link formatting
-   - ✅ UTF-8/emoji handling
-   - ✅ Multiple facets in one post
-   - ✅ Empty facets handling
+-   **Go:** The Go implementation needs tests for advanced facet scenarios, specifically for **unsorted** and **overlapping** facets, to match the robustness of the Rust version.
+-   **Both:** The most critical gap is the complete lack of tests for **any embed types**. Implementing these tests (Images, External, Records) is the highest priority.
+-   **Both:** Robustness can be improved by adding tests for malformed data, such as invalid facet byte ranges or missing fields in the embed/facet structures. This will prevent panics on unexpected production data.
+-   **Both:** Add tests for edge cases like posts with embeds but no text, and more complex combinations of different embed types.
 
-2. **🔜 Unit tests - Embeds (TODO)**
-   - Markdown escaping
-   - URL construction
-
-3. **🔜 Integration tests (TODO)**
-   - Real posts with various embed types
-   - Edge cases: empty embeds, missing fields
-   - Malformed data handling
-
-3. **Test cases**
-   - Post with only text
-   - Post with mentions and links
-   - Post with single image
-   - Post with multiple images
-   - Post with external link preview
-   - Quote post
-   - Quote post with images
-   - Deeply nested quotes
-   - Posts with emoji and multi-byte chars
-
-## Dependencies
-
-- `unicode-segmentation`: Already in Cargo.toml, for proper UTF-8 handling
-- `regex`: Already in Cargo.toml, for text processing
-- Consider: `pulldown-cmark` for Markdown validation (optional)
-
-## Migration Path
-
-1. Keep current simple text rendering as fallback
-2. Add feature flag `rich-markdown` (optional)
-3. Implement incrementally, one embed type at a time
-4. Add opt-in parameter to search tools: `format: "text" | "markdown-rich"`
-5. Make rich Markdown default once stable
-
-## Open Questions
-
-1. How to handle very large images? Link to thumbnail vs fullsize?
-2. Should we fetch and inline external link metadata if missing?
-3. How to represent thread structure in Markdown?
-4. Should we include interaction counts (likes, reposts)?
-5. How to handle deleted/unavailable quoted posts?
-6. Localization of labels like "Quote post:", "Replied to:", etc.?
-
-## Future Enhancements
-
-- Video embed support (when Bluesky adds it)
-- GIF support via external or images
-- Poll results rendering
-- Thread visualization (parent/child posts)
-- List embeds
-- Starter pack embeds
-- Feed generator embeds
-
-## Success Criteria
-
-- Posts with images display image links in Markdown
-- Mentions and links are clickable in Markdown viewers
-- Quote posts are clearly distinguished
-- No loss of information from original post
-- Graceful degradation for unsupported embed types
-- Performance impact < 10ms per post for rendering
-
-## Timeline Estimate
-
-- ✅ Phase 1 (Facets): **COMPLETED** (2-3 days actual)
-- 🔜 Phase 2 (Basic embeds): 2-3 days
-- 🔜 Phase 3 (Advanced embeds): 3-4 days
-- 🔜 Phase 4 (Polish): 2-3 days
-- 🔜 Testing & refinement: 2-3 days
-
-**Completed: Phase 1 (Facets)**  
-**Remaining: ~2 weeks for full embed implementation**
-
-## References
-
-- [AT Protocol Specifications](https://atproto.com/specs/record-key)
-- [Bluesky Lexicons](https://github.com/bluesky-social/atproto/tree/main/lexicons)
-- [app.bsky.richtext.facet](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/richtext/facet.json)
-- [app.bsky.embed.*](https://github.com/bluesky-social/atproto/tree/main/lexicons/app/bsky/embed)

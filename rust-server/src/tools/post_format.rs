@@ -8,7 +8,7 @@
 //! - ISO timestamps without milliseconds
 
 use std::collections::HashMap;
-use crate::bluesky::records::{Facet, FacetFeature};
+use crate::bluesky::records::{Embed, Facet, FacetFeature, ImageEmbed};
 
 /// Apply facets to text, converting mentions/links/tags to Markdown format
 /// Facets use byte indices, so we need to handle UTF-8 properly
@@ -17,9 +17,15 @@ pub fn apply_facets_to_text(text: &str, facets: &[Facet]) -> String {
         return text.to_string();
     }
 
-    // Sort facets by byte_start to process in order
+    // Sort facets by byte_start to process in order.
+    // For overlapping facets, the one that starts first and is longest is prioritized.
     let mut sorted_facets = facets.to_vec();
-    sorted_facets.sort_by_key(|f| f.index.byte_start);
+    sorted_facets.sort_by(|a, b| {
+        a.index
+            .byte_start
+            .cmp(&b.index.byte_start)
+            .then_with(|| b.index.byte_end.cmp(&a.index.byte_end))
+    });
 
     let mut result = String::new();
     let mut last_byte_idx = 0;
@@ -27,6 +33,16 @@ pub fn apply_facets_to_text(text: &str, facets: &[Facet]) -> String {
     for facet in &sorted_facets {
         let start_byte = facet.index.byte_start as usize;
         let end_byte = facet.index.byte_end as usize;
+
+        // Skip if this facet is completely contained within the last one we processed.
+        if start_byte < last_byte_idx {
+            continue;
+        }
+
+        // Basic bounds check to prevent panic on malformed data
+        if start_byte > text.len() || end_byte > text.len() || start_byte > end_byte {
+            continue; // Skip invalid facet
+        }
 
         // Add text before this facet
         if last_byte_idx < start_byte {
@@ -49,6 +65,50 @@ pub fn apply_facets_to_text(text: &str, facets: &[Facet]) -> String {
     }
 
     result
+}
+
+/// Format a single embed into a Markdown string.
+/// `did` is required to construct full image URLs.
+pub fn format_embed(embed: &Embed, did: &str) -> String {
+    match embed {
+        Embed::Images { images } => images
+            .iter()
+            .map(|img| {
+                let alt = img.alt.as_deref().unwrap_or("");
+                // URL format: https://cdn.bsky.app/img/feed_fullsize/plain/{did}/{cid}@jpeg
+                let url = format!(
+                    "https://cdn.bsky.app/img/feed_fullsize/plain/{}@jpeg",
+                    img.image.ref_
+                );
+                format!("![{}]({})", alt, url)
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Embed::External { external } => {
+            let mut parts = vec![format!("[{}]({})", external.title, external.uri)];
+            if !external.description.is_empty() {
+                parts.push(blockquote_content(&external.description));
+            }
+            if let Some(thumb) = &external.thumb {
+                let url = format!(
+                    "https://cdn.bsky.app/img/feed_thumbnail/plain/{}@jpeg",
+                    thumb.ref_
+                );
+                parts.push(format!("![thumb]({})", url));
+            }
+            parts.join("\n")
+        }
+        Embed::Record { record } => {
+            // For now, just show the record URI. A full implementation would
+            // require fetching and rendering the quoted post.
+            blockquote_content(&format!("Quoted post: {}", record.uri))
+        }
+        Embed::RecordWithMedia { record, media } => {
+            let record_md = format_embed(&Embed::Record { record: record.clone() }, did);
+            let media_md = format_embed(media, did);
+            format!("{}\n{}", record_md, media_md)
+        }
+    }
 }
 
 /// Format a facet feature (mention, link, or tag) as Markdown
@@ -195,7 +255,9 @@ pub fn threading_indicator(depth: usize, reply_to_compact: &str, author_id: &str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bluesky::records::{Facet, FacetFeature, FacetIndex};
+    use crate::bluesky::records::{
+        BlobRef, Embed, ExternalEmbed, Facet, FacetFeature, FacetIndex, ImageEmbed, RecordEmbed,
+    };
 
     #[test]
     fn test_apply_facets_mention() {
@@ -464,5 +526,341 @@ mod tests {
             threading_indicator(3, "@c/…c3f5", "@dave/3kq8d4f6"),
             "    └─@c/…c3f5 → @dave/3kq8d4f6"
         );
+    }
+
+    #[test]
+    fn test_apply_facets_overlapping() {
+        // A link facet that contains a mention facet. The outer (link) facet should be applied.
+        let text = "Check out @alice.bsky.social for more.";
+        let facets = vec![
+            Facet {
+                // The inner mention
+                index: FacetIndex {
+                    byte_start: 10,
+                    byte_end: 28,
+                },
+                features: vec![FacetFeature::Mention {
+                    did: "did:plc:alice".to_string(),
+                }],
+            },
+            Facet {
+                // The outer link
+                index: FacetIndex {
+                    byte_start: 0,
+                    byte_end: 38,
+                },
+                features: vec![FacetFeature::Link {
+                    uri: "https://example.com".to_string(),
+                }],
+            },
+        ];
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(
+            result,
+            "[Check out @alice.bsky.social for more.](https://example.com)"
+        );
+    }
+
+    #[test]
+    fn test_apply_facets_adjacent() {
+        let text = "#one#two";
+        let facets = vec![
+            Facet {
+                index: FacetIndex {
+                    byte_start: 0,
+                    byte_end: 4,
+                },
+                features: vec![FacetFeature::Tag {
+                    tag: "one".to_string(),
+                }],
+            },
+            Facet {
+                index: FacetIndex {
+                    byte_start: 4,
+                    byte_end: 8,
+                },
+                features: vec![FacetFeature::Tag {
+                    tag: "two".to_string(),
+                }],
+            },
+        ];
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(
+            result,
+            "[#one](https://bsky.app/hashtag/one)[#two](https://bsky.app/hashtag/two)"
+        );
+    }
+
+    #[test]
+    fn test_apply_facets_invalid_indices() {
+        // This should not panic. It should gracefully ignore the invalid facet.
+        let text = "A text with a bad facet.";
+        let facets = vec![
+            Facet {
+                // byte_end is beyond the text length
+                index: FacetIndex {
+                    byte_start: 15,
+                    byte_end: 100,
+                },
+                features: vec![FacetFeature::Tag {
+                    tag: "bad".to_string(),
+                }],
+            },
+            Facet {
+                // byte_start > byte_end
+                index: FacetIndex {
+                    byte_start: 10,
+                    byte_end: 5,
+                },
+                features: vec![FacetFeature::Tag {
+                    tag: "inverted".to_string(),
+                }],
+            },
+        ];
+        // The function should not panic and should just return the original text
+        // as the invalid ranges will cause slicing errors that are caught.
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(result, "A text with a bad facet.");
+    }
+
+    #[test]
+    fn test_apply_facets_malformed_data() {
+        // A facet with an empty features array should be ignored.
+        let text = "Text with a featureless facet.";
+        let facets = vec![Facet {
+            index: FacetIndex {
+                byte_start: 10,
+                byte_end: 21,
+            },
+            features: vec![], // No features
+        }];
+        let result = apply_facets_to_text(text, &facets);
+        assert_eq!(result, "Text with a featureless facet.");
+    }
+
+    #[test]
+    fn test_format_embed_single_image() {
+        let embed = Embed::Images {
+            images: vec![ImageEmbed {
+                alt: Some("A beautiful sunset".to_string()),
+                image: BlobRef {
+                    type_: "blob".to_string(),
+                    ref_: "did:plc:test/bafkreihd...".to_string(),
+                    mime_type: "image/jpeg".to_string(),
+                    size: 12345,
+                },
+            }],
+        };
+        let result = format_embed(&embed, "did:plc:test");
+        assert_eq!(
+            result,
+            "![A beautiful sunset](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkreihd...@jpeg)"
+        );
+    }
+
+    #[test]
+    fn test_format_embed_multiple_images() {
+        let embed = Embed::Images {
+            images: vec![
+                ImageEmbed {
+                    alt: Some("Image 1".to_string()),
+                    image: BlobRef {
+                        type_: "blob".to_string(),
+                        ref_: "did:plc:test/bafkrei_img1...".to_string(),
+                        mime_type: "image/jpeg".to_string(),
+                        size: 100,
+                    },
+                },
+                ImageEmbed {
+                    alt: Some("Image 2".to_string()),
+                    image: BlobRef {
+                        type_: "blob".to_string(),
+                        ref_: "did:plc:test/bafkrei_img2...".to_string(),
+                        mime_type: "image/jpeg".to_string(),
+                        size: 200,
+                    },
+                },
+            ],
+        };
+        let result = format_embed(&embed, "did:plc:test");
+        assert_eq!(
+            result,
+            "![Image 1](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkrei_img1...@jpeg)\n![Image 2](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkrei_img2...@jpeg)"
+        );
+    }
+
+    #[test]
+    fn test_format_embed_external() {
+        let embed = Embed::External {
+            external: ExternalEmbed {
+                uri: "https://example.com".to_string(),
+                title: "Example Title".to_string(),
+                description: "This is a description.".to_string(),
+                thumb: Some(BlobRef {
+                    type_: "blob".to_string(),
+                    ref_: "did:plc:test/bafkrei_thumb...".to_string(),
+                    mime_type: "image/jpeg".to_string(),
+                    size: 50,
+                }),
+            },
+        };
+        let result = format_embed(&embed, "did:plc:test");
+        let expected = "[Example Title](https://example.com)\n> This is a description.\n![thumb](https://cdn.bsky.app/img/feed_thumbnail/plain/did:plc:test/bafkrei_thumb...@jpeg)";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_format_embed_record() {
+        let embed = Embed::Record {
+            record: RecordEmbed {
+                uri: "at://did:plc:test/app.bsky.feed.post/3kxyz".to_string(),
+                cid: "bafy...".to_string(),
+            },
+        };
+        let result = format_embed(&embed, "did:plc:test");
+        assert_eq!(
+            result,
+            "> Quoted post: at://did:plc:test/app.bsky.feed.post/3kxyz"
+        );
+    }
+
+    #[test]
+    fn test_format_embed_record_with_media() {
+        let embed = Embed::RecordWithMedia {
+            record: RecordEmbed {
+                uri: "at://did:plc:quote/app.bsky.feed.post/3kabc".to_string(),
+                cid: "bafy_quote".to_string(),
+            },
+            media: Box::new(Embed::Images {
+                images: vec![ImageEmbed {
+                    alt: Some("A cat".to_string()),
+                    image: BlobRef {
+                        type_: "blob".to_string(),
+                        ref_: "did:plc:test/bafkrei_cat...".to_string(),
+                        mime_type: "image/jpeg".to_string(),
+                        size: 999,
+                    },
+                }],
+            }),
+        };
+        let result = format_embed(&embed, "did:plc:test");
+        let expected = "> Quoted post: at://did:plc:quote/app.bsky.feed.post/3kabc\n![A cat](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafkrei_cat...@jpeg)";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_format_post_with_text_and_embed() {
+        // A post with both text and an image embed
+        let text = "Check out this cool picture!";
+        let facets = vec![];
+        let embed = Embed::Images {
+            images: vec![ImageEmbed {
+                alt: Some("A cool picture".to_string()),
+                image: BlobRef {
+                    type_: "blob".to_string(),
+                    ref_: "did:plc:test/bafy_cool...".to_string(),
+                    mime_type: "image/jpeg".to_string(),
+                    size: 123,
+                },
+            }],
+        };
+
+        let text_md = blockquote_content_with_facets(text, &facets);
+        let embed_md = format_embed(&embed, "did:plc:test");
+
+        let final_md = format!("{}\n\n{}", text_md, embed_md);
+
+        let expected_text = "> Check out this cool picture!";
+        let expected_embed = "![A cool picture](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafy_cool...@jpeg)";
+        assert!(final_md.contains(expected_text));
+        assert!(final_md.contains(expected_embed));
+    }
+
+    #[test]
+    fn test_format_post_with_facets_and_embed() {
+        // A post with rich text (facets) and an external embed
+        let text = "More info at example.com";
+        let facets = vec![Facet {
+            index: FacetIndex {
+                byte_start: 13,
+                byte_end: 24,
+            },
+            features: vec![FacetFeature::Link {
+                uri: "https://example.com".to_string(),
+            }],
+        }];
+        let embed = Embed::External {
+            external: ExternalEmbed {
+                uri: "https://anotherexample.com".to_string(),
+                title: "Another Example".to_string(),
+                description: "Description here.".to_string(),
+                thumb: None,
+            },
+        };
+
+        let text_md = blockquote_content_with_facets(text, &facets);
+        let embed_md = format_embed(&embed, "did:plc:test");
+
+        let final_md = format!("{}\n\n{}", text_md, embed_md);
+
+        let expected_text = "> More info at [example.com](https://example.com)";
+        let expected_embed = "[Another Example](https://anotherexample.com)\n> Description here.";
+        assert!(final_md.contains(expected_text));
+        assert!(final_md.contains(expected_embed));
+    }
+
+    #[test]
+    fn test_format_post_with_embed_and_empty_text() {
+        // A post with an embed but no text content.
+        let text = "";
+        let facets = vec![];
+        let embed = Embed::Images {
+            images: vec![ImageEmbed {
+                alt: Some("An image on its own".to_string()),
+                image: BlobRef {
+                    type_: "blob".to_string(),
+                    ref_: "did:plc:test/bafy_solo...".to_string(),
+                    mime_type: "image/jpeg".to_string(),
+                    size: 456,
+                },
+            }],
+        };
+
+        let text_md = blockquote_content_with_facets(text, &facets);
+        let embed_md = format_embed(&embed, "did:plc:test");
+
+        // When text is empty, blockquote_content returns "> \n". We might not want that.
+        // Let's define the final output as just the embed.
+        let final_md = if text.is_empty() {
+            embed_md
+        } else {
+            format!("{}\n\n{}", text_md, embed_md)
+        };
+
+        let expected_embed = "![An image on its own](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:test/bafy_solo...@jpeg)";
+        assert_eq!(final_md, expected_embed);
+        assert!(!final_md.contains(">"));
+    }
+
+    #[test]
+    fn test_format_embed_record_with_external_media() {
+        // Test a more complex combination: a quote post that also has an external link card.
+        let embed = Embed::RecordWithMedia {
+            record: RecordEmbed {
+                uri: "at://did:plc:quote/app.bsky.feed.post/3kdef".to_string(),
+                cid: "bafy_quote_ext".to_string(),
+            },
+            media: Box::new(Embed::External {
+                external: ExternalEmbed {
+                    uri: "https://dev.blueskyweb.xyz/".to_string(),
+                    title: "Bluesky Dev".to_string(),
+                    description: "Dev docs".to_string(),
+                    thumb: None,
+                },
+            }),
+        };
+        let result = format_embed(&embed, "did:plc:test");
+        let expected = "> Quoted post: at://did:plc:quote/app.bsky.feed.post/3kdef\n[Bluesky Dev](https://dev.blueskyweb.xyz/)\n> Dev docs";
+        assert_eq!(result, expected);
     }
 }

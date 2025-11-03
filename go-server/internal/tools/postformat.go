@@ -19,13 +19,14 @@ func ApplyFacetsToText(text string, facets []bluesky.Facet) string {
 		return text
 	}
 
-	// Sort facets by ByteStart
+	// Sort facets by ByteStart, and for overlapping facets, prioritize the larger one
 	sortedFacets := make([]bluesky.Facet, len(facets))
 	copy(sortedFacets, facets)
 	// Simple bubble sort for small arrays
 	for i := 0; i < len(sortedFacets); i++ {
 		for j := i + 1; j < len(sortedFacets); j++ {
-			if sortedFacets[j].Index.ByteStart < sortedFacets[i].Index.ByteStart {
+			if sortedFacets[j].Index.ByteStart < sortedFacets[i].Index.ByteStart ||
+				(sortedFacets[j].Index.ByteStart == sortedFacets[i].Index.ByteStart && sortedFacets[j].Index.ByteEnd > sortedFacets[i].Index.ByteEnd) {
 				sortedFacets[i], sortedFacets[j] = sortedFacets[j], sortedFacets[i]
 			}
 		}
@@ -38,6 +39,11 @@ func ApplyFacetsToText(text string, facets []bluesky.Facet) string {
 	for _, facet := range sortedFacets {
 		startByte := facet.Index.ByteStart
 		endByte := facet.Index.ByteEnd
+
+		// Skip facets that are completely contained within the last processed facet
+		if startByte < lastByteIdx {
+			continue
+		}
 
 		// Add text before this facet
 		if lastByteIdx < startByte {
