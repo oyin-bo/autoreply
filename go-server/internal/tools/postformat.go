@@ -41,6 +41,11 @@ func ApplyFacetsToText(text string, facets []bluesky.Facet) string {
 		startByte := facet.Index.ByteStart
 		endByte := facet.Index.ByteEnd
 
+		// Basic validation for the facet range
+		if startByte < 0 || endByte < 0 || startByte > endByte || endByte > len(textBytes) {
+			continue // Skip invalid facets entirely
+		}
+
 		// Skip facets that are completely contained within the last processed facet
 		if startByte < lastByteIdx {
 			continue
@@ -290,79 +295,6 @@ func GetIntField(m map[string]interface{}, key string) int {
 		}
 	}
 	return 0
-}
-
-// HighlightQuery highlights query matches in text with **bold** markdown
-// For short queries or acronyms, only highlights whole-word matches to avoid false positives.
-func HighlightQuery(text, query string) string {
-	if query == "" {
-		return text
-	}
-
-	lowerText := strings.ToLower(text)
-	lowerQuery := strings.ToLower(query)
-
-	// Determine if we should use strict word-boundary matching
-	// Apply for: short queries (≤3 chars) or all-uppercase acronyms
-	strictMode := len(query) <= 3 || (len(query) > 0 && query == strings.ToUpper(query) && strings.IndexFunc(query, func(r rune) bool {
-		return r >= 'A' && r <= 'Z'
-	}) >= 0)
-
-	// Try substring matching first
-	if strings.Contains(lowerText, lowerQuery) {
-		var result strings.Builder
-		remaining := text
-		lowerRemaining := lowerText
-		lowerRunes := []rune(lowerText)
-		queryLen := len([]rune(query))
-
-		pos := 0
-		for {
-			idx := strings.Index(lowerRemaining, lowerQuery)
-			if idx == -1 {
-				result.WriteString(remaining)
-				break
-			}
-
-			absoluteIdx := pos + idx
-
-			// In strict mode, check word boundaries
-			if strictMode {
-				// Check if match is at word boundary
-				atStart := absoluteIdx == 0 || !isWordChar(lowerRunes[absoluteIdx-1])
-				atEnd := (absoluteIdx+queryLen >= len(lowerRunes)) || !isWordChar(lowerRunes[absoluteIdx+queryLen])
-
-				if !atStart || !atEnd {
-					// Not a whole-word match, skip this occurrence
-					result.WriteString(remaining[:idx+len([]rune(lowerQuery))])
-					remaining = remaining[idx+len([]rune(lowerQuery)):]
-					lowerRemaining = lowerRemaining[idx+len(lowerQuery):]
-					pos += idx + queryLen
-					continue
-				}
-			}
-
-			// Valid match - highlight it
-			result.WriteString(remaining[:idx])
-			result.WriteString("**")
-			result.WriteString(remaining[idx : idx+len(query)])
-			result.WriteString("**")
-
-			remaining = remaining[idx+len(query):]
-			lowerRemaining = lowerRemaining[idx+len(query):]
-			pos += idx + queryLen
-		}
-
-		return result.String()
-	}
-
-	// No substring match - don't show scattered fuzzy highlighting as it's confusing
-	return text
-}
-
-// isWordChar returns true if the rune is alphanumeric or underscore
-func isWordChar(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
 }
 
 // ParseTimestamp attempts to parse various timestamp formats

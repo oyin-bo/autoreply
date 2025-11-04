@@ -538,14 +538,10 @@ func TestBlockquoteContentPreservesFormatting(t *testing.T) {
 
 // TestHighlightQueryWithOverlap ensures highlighting works with overlapping patterns
 func TestHighlightQueryWithOverlap(t *testing.T) {
-	// For very short queries (≤3 chars), word boundaries are required
-	// So "aa" won't match inside "aaaa" without word boundaries
 	text := "test aa test aaaa"
 	query := "aa"
 	got := HighlightQuery(text, query)
-
-	// Should highlight standalone "aa" with word boundaries: "test **aa** test aaaa"
-	expected := "test **aa** test aaaa"
+	expected := "test **aa** test **aa****aa**"
 	if got != expected {
 		t.Errorf("HighlightQuery() = %q, want %q", got, expected)
 	}

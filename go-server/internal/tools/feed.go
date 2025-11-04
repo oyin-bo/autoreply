@@ -302,7 +302,28 @@ func (t *FeedTool) formatFeedMarkdown(feedData map[string]interface{}) string {
 							facet.Index.ByteEnd = int(be)
 						}
 					}
-					if features, ok := facetMap["features"].([]interface{}); ok {
+					if featuresRaw, ok := facetMap["features"].([]interface{}); ok {
+						var features []bluesky.FacetFeature
+						for _, fRaw := range featuresRaw {
+							if f, ok := fRaw.(map[string]interface{}); ok {
+								var feature bluesky.FacetFeature
+								if typ, ok := f["$type"].(string); ok {
+									feature.Type = typ
+								} else if typ, ok := f["type"].(string); ok {
+									feature.Type = typ
+								}
+								if uri, ok := f["uri"].(string); ok {
+									feature.URI = uri
+								}
+								if tag, ok := f["tag"].(string); ok {
+									feature.Tag = tag
+								}
+								if did, ok := f["did"].(string); ok {
+									feature.DID = did
+								}
+								features = append(features, feature)
+							}
+						}
 						facet.Features = features
 					}
 					facets = append(facets, facet)

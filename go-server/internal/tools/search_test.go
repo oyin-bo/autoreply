@@ -1,7 +1,10 @@
 package tools
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/oyin-bo/autoreply/go-server/internal/bluesky"
 )
 
 func TestNormalizeText(t *testing.T) {
@@ -83,5 +86,122 @@ func TestValidateInput_OkAndLimit(t *testing.T) {
 	}
 	if lim3 != 1 {
 		t.Fatalf("limit clamp got %d want 1", lim3)
+	}
+}
+
+func TestSearchAndHighlightInExternalEmbed(t *testing.T) {
+	tool := NewSearchTool()
+	post := &bluesky.ParsedPost{
+		PostRecord: &bluesky.PostRecord{
+			Text: "check this out",
+			Embed: &bluesky.Embed{
+				Type: bluesky.EmbedExternal,
+				External: &bluesky.ExternalEmbed{
+					URI:         "https://example.com",
+					Title:       "A Great Website",
+					Description: "This website has some great content.",
+				},
+			},
+			CreatedAt: "2025-11-03T10:00:00Z",
+			URI:       "at://did:plc:xyz/app.bsky.feed.post/3l456",
+		},
+		DID: "did:plc:xyz",
+	}
+
+	query := "great"
+	handle := "test.bsky.social"
+	markdown := tool.formatSearchResults(handle, query, []*bluesky.ParsedPost{post})
+
+	// The final markdown should have "Great" and "great" highlighted.
+	expectedHighlights := []string{
+		"> [A **Great** Website](https://example.com)",
+		"> > This website has some **great** content.",
+	}
+
+	for _, expected := range expectedHighlights {
+		if !strings.Contains(markdown, expected) {
+			t.Errorf("formatSearchResults() output is missing expected highlight.\nWant to contain: %q\nGot:\n%s", expected, markdown)
+		}
+	}
+}
+
+func TestSearchAndHighlightInPostAndEmbed(t *testing.T) {
+	tool := NewSearchTool()
+	post := &bluesky.ParsedPost{
+		PostRecord: &bluesky.PostRecord{
+			Text: "A wonderful picture of a cat.",
+			Embed: &bluesky.Embed{
+				Type: bluesky.EmbedImages,
+				Images: []*bluesky.ImageEmbed{
+					{
+						Alt: "A wonderful black cat sitting on a chair.",
+						Image: &bluesky.BlobRef{
+							Ref: "link-to-image",
+						},
+					},
+				},
+			},
+			CreatedAt: "2025-11-03T11:00:00Z",
+			URI:       "at://did:plc:xyz/app.bsky.feed.post/3l789",
+		},
+		DID: "did:plc:xyz",
+	}
+
+	query := "wonderful"
+	handle := "test.bsky.social"
+	markdown := tool.formatSearchResults(handle, query, []*bluesky.ParsedPost{post})
+
+	expectedHighlights := []string{
+		"> A **wonderful** picture of a cat.",
+		"> ![A **wonderful** black cat sitting on a chair.](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:xyz/link-to-image@jpeg)",
+	}
+
+	for _, expected := range expectedHighlights {
+		if !strings.Contains(markdown, expected) {
+			t.Errorf("formatSearchResults() output is missing expected highlight.\nWant to contain: %q\nGot:\n%s", expected, markdown)
+		}
+	}
+}
+
+func TestFuzzyHighlighting(t *testing.T) {
+	cases := []struct {
+		name     string
+		text     string
+		query    string
+		expected string
+	}{
+		{
+			name:     "Simple fuzzy match",
+			text:     "a black cat",
+			query:    "abc",
+			expected: "**a** **b**la**c**k cat",
+		},
+		{
+			name:     "No match",
+			text:     "hello world",
+			query:    "xyz",
+			expected: "hello world",
+		},
+		{
+			name:     "Case-insensitive fuzzy match",
+			text:     "A Black Cat",
+			query:    "abc",
+			expected: "**A** **B**la**c**k Cat",
+		},
+		{
+			name:     "Substring match should take precedence",
+			text:     "This is a test for abcde.",
+			query:    "abc",
+			expected: "This is a test for **abc**de.",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := HighlightQuery(tc.text, tc.query)
+			if got != tc.expected {
+				t.Errorf("FuzzyHighlightQuery() = %q, want %q", got, tc.expected)
+			}
+		})
 	}
 }
