@@ -5,6 +5,7 @@
 use crate::bluesky::did::DidResolver;
 use crate::bluesky::provider::RepositoryProvider;
 use crate::bluesky::records::{Facet, FacetFeature, FacetIndex, PostRecord};
+use crate::bluesky::records::{Embed, ImageEmbed, ExternalEmbed, RecordEmbed, BlobRef};
 use crate::car::cbor::{decode_cbor, get_array_field, get_int_field, get_map_field, get_text_field, CborValue};
 use crate::cli::SearchArgs;
 use crate::error::{normalize_text, validate_account, validate_query, AppError};
@@ -81,46 +82,42 @@ fn extract_facets(post_map: &[(CborValue, CborValue)]) -> Vec<Facet> {
 
 /// Extract embeds from CBOR map
 fn extract_embeds(post_map: &[(CborValue, CborValue)]) -> Option<Vec<Embed>> {
-    let embed_value = get_map_field(post_map, "embed")?;
-    parse_embed(embed_value)
+    let embed_map = get_map_field(post_map, "embed")?;
+    parse_embed_map(embed_map)
 }
 
-/// Recursively parse an embed CBOR value
-fn parse_embed(embed_value: &CborValue) -> Option<Vec<Embed>> {
-    if let CborValue::Map(embed_map) = embed_value {
-        let type_str = get_text_field(embed_map, "$type")?;
-        match type_str {
-            "app.bsky.embed.images" => {
-                let images_array = get_array_field(embed_map, "images")?;
-                let images = images_array.iter().filter_map(parse_image_embed).collect();
-                Some(vec![Embed::Images { images }])
-            }
-            "app.bsky.embed.external" => {
-                let external_map = get_map_field(embed_map, "external")?;
-                let external = parse_external_embed(external_map)?;
-                Some(vec![Embed::External { external }])
-            }
-            "app.bsky.embed.record" => {
-                let record_map = get_map_field(embed_map, "record")?;
-                let record = parse_record_embed(record_map)?;
-                Some(vec![Embed::Record { record }])
-            }
-            "app.bsky.embed.recordWithMedia" => {
-                let record_map = get_map_field(embed_map, "record")?;
-                let record = parse_record_embed(record_map)?;
-                let media_value = get_map_field(embed_map, "media")?;
-                // The `media` field contains another embed, so we recurse.
-                // It should resolve to a single-element Vec, so we take the first.
-                let media_embed = parse_embed(media_value)?.into_iter().next()?;
-                Some(vec![Embed::RecordWithMedia {
-                    record,
-                    media: Box::new(media_embed),
-                }])
-            }
-            _ => None,
+/// Recursively parse an embed CBOR map (map is represented as slice of pairs)
+fn parse_embed_map(embed_map: &[(CborValue, CborValue)]) -> Option<Vec<Embed>> {
+    let type_str = get_text_field(embed_map, "$type")?;
+    match type_str {
+        "app.bsky.embed.images" => {
+            let images_array = get_array_field(embed_map, "images")?;
+            let images = images_array.iter().filter_map(parse_image_embed).collect();
+            Some(vec![Embed::Images { images }])
         }
-    } else {
-        None
+        "app.bsky.embed.external" => {
+            let external_map = get_map_field(embed_map, "external")?;
+            let external = parse_external_embed(external_map)?;
+            Some(vec![Embed::External { external }])
+        }
+        "app.bsky.embed.record" => {
+            let record_map = get_map_field(embed_map, "record")?;
+            let record = parse_record_embed(record_map)?;
+            Some(vec![Embed::Record { record }])
+        }
+        "app.bsky.embed.recordWithMedia" => {
+            let record_map = get_map_field(embed_map, "record")?;
+            let record = parse_record_embed(record_map)?;
+            let media_value = get_map_field(embed_map, "media")?;
+            // The `media` field contains another embed, so we recurse.
+            // It should resolve to a single-element Vec, so we take the first.
+            let media_embed = parse_embed_map(media_value)?.into_iter().next()?;
+            Some(vec![Embed::RecordWithMedia {
+                record,
+                media: Box::new(media_embed),
+            }])
+        }
+        _ => None,
     }
 }
 
@@ -165,12 +162,12 @@ fn parse_blob_ref(blob_map: &[(CborValue, CborValue)]) -> Option<BlobRef> {
     // The 'ref' can be a map with a '$link' key
     let ref_val = blob_map
         .iter()
-        .find(|(k, _)| k == &CborValue::Text("ref".to_string()))
+        .find(|(k, _)| k == &CborValue::Text("ref"))
         .map(|(_, v)| v);
 
     let ref_ = match ref_val {
         Some(CborValue::Map(ref_map)) => get_text_field(ref_map, "$link").map(|s| s.to_string()),
-        Some(CborValue::Text(s)) => Some(s.clone()),
+        Some(CborValue::Text(s)) => Some(s.to_string()),
         _ => None,
     }?;
 
@@ -210,7 +207,7 @@ mod tests {
                 cid: "cid1".to_string(),
                 text: "Hello world, this is a test post".to_string(),
                 created_at: "2024-01-01T00:00:00Z".to_string(),
-                embeds: vec![],
+                embeds: Some(vec![]),
                 facets: vec![],
             },
             PostRecord {
@@ -218,7 +215,7 @@ mod tests {
                 cid: "cid2".to_string(),
                 text: "This is another post about programming".to_string(),
                 created_at: "2024-01-02T00:00:00Z".to_string(),
-                embeds: vec![],
+                embeds: Some(vec![]),
                 facets: vec![],
             },
             PostRecord {
@@ -226,7 +223,7 @@ mod tests {
                 cid: "cid3".to_string(),
                 text: "Hello everyone, how are you doing?".to_string(),
                 created_at: "2024-01-03T00:00:00Z".to_string(),
-                embeds: vec![],
+                embeds: Some(vec![]),
                 facets: vec![],
             },
         ];
@@ -255,7 +252,7 @@ mod tests {
             cid: "cid1".to_string(),
             text: "Hello world, this is a test".to_string(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
-            embeds: vec![],
+            embeds: Some(vec![]),
             facets: vec![],
         };
 

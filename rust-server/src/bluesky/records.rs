@@ -1020,7 +1020,7 @@ mod tests {
             cid: "cid2".to_string(),
             text: "Check out https://example.com and https://rust-lang.org".to_string(),
             created_at: "2024-03-20T17:00:00Z".to_string(),
-            embeds: vec![],
+            embeds: Some(vec![]),
             facets: vec![
                 Facet {
                     index: FacetIndex {
@@ -1120,7 +1120,7 @@ mod tests {
             cid: "cid5".to_string(),
             text: "Hello 世界! 🌍🚀✨ Здравствуй мир!".to_string(),
             created_at: "2024-03-20T20:00:00Z".to_string(),
-            embeds: vec![],
+            embeds: Some(vec![]),
             facets: vec![],
         };
 
