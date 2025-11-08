@@ -179,6 +179,220 @@ fn parse_blob_ref(blob_map: &[(CborValue, CborValue)]) -> Option<BlobRef> {
     })
 }
 
+/// Format search results into markdown for display (used by tests and CLI)
+pub fn format_search_results(posts: &[&PostRecord], handle: &str, query: &str) -> String {
+    // Simple highlighter: split query into words and highlight each occurrence (case-insensitive)
+    fn highlight(text: &str, query: &str) -> String {
+        if query.is_empty() {
+            return text.to_string();
+        }
+        let mut out = text.to_string();
+        let terms: Vec<&str> = query.split_whitespace().collect();
+        for term in terms {
+            if term.is_empty() {
+                continue;
+            }
+            // Case-insensitive replace occurrences of term with **term** keeping original case
+            let mut res = String::new();
+            let lower = out.to_lowercase();
+            let term_l = term.to_lowercase();
+            let mut idx = 0usize;
+            while let Some(pos) = lower[idx..].find(&term_l) {
+                let abs = idx + pos;
+                res.push_str(&out[idx..abs]);
+                res.push_str("**");
+                res.push_str(&out[abs..abs + term.len()]);
+                res.push_str("**");
+                idx = abs + term.len();
+            }
+            res.push_str(&out[idx..]);
+            out = res;
+        }
+        out
+    }
+
+    let mut md = String::new();
+    md.push_str(&format!("# Search Results · {} posts\n\n", posts.len()));
+
+    for post in posts {
+        // Extract post id
+        let post_id = post.uri.split('/').last().unwrap_or(&post.uri);
+        md.push_str(&format!("@{}/{}\n\n", handle, post_id));
+
+        // Quote highlighted text
+        md.push_str(&format!("> {}\n\n", highlight(&post.text, query)));
+
+        md.push_str(&format!("{}\n\n", post.created_at));
+
+        // Links from external embeds and facets
+        if let Some(embeds) = &post.embeds {
+            for embed in embeds {
+                match embed {
+                    Embed::External { external } => {
+                        md.push_str(&format!("- [{}]({})\n", external.title, external.uri));
+                    }
+                    Embed::Images { images } => {
+                        for img in images {
+                            let alt = img.alt.as_deref().unwrap_or("Image");
+                            let alt_h = highlight(alt, query);
+                            // Build CDN URL from BlobRef. Use mime subtype as extension
+                            let ext = img.image.mime_type.split('/').nth(1).unwrap_or("jpeg");
+                            let url = format!(
+                                "https://cdn.bsky.app/img/feed_fullsize/plain/{}@{}",
+                                img.image.ref_, ext
+                            );
+                            md.push_str(&format!("![{}]({})\n", alt_h, url));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        md.push_str("\n---\n\n");
+    }
+
+    md
+}
+
+/// Handle search tool call (MCP)
+pub async fn handle_search(id: Option<Value>, args: Value) -> McpResponse {
+    match timeout(Duration::from_secs(120), handle_search_impl(args)).await {
+        Ok(result) => match result {
+            Ok(content) => McpResponse::success(id, serde_json::to_value(content).unwrap()),
+            Err(e) => McpResponse::error(id, e.error_code(), &e.message()),
+        },
+        Err(_) => McpResponse::error(id, "timeout", "Search request exceeded 120 second timeout"),
+    }
+}
+
+async fn handle_search_impl(args: Value) -> Result<ToolResult, AppError> {
+    let search_args: SearchArgs = serde_json::from_value(args)
+        .map_err(|e| AppError::InvalidInput(format!("Invalid arguments: {}", e)))?;
+
+    execute_search(search_args).await
+}
+
+/// Shared implementation for search (used by MCP and CLI)
+pub async fn execute_search(search_args: SearchArgs) -> Result<ToolResult, AppError> {
+    // Validate inputs
+    validate_account(&search_args.from)?;
+    validate_query(&search_args.query)?;
+
+    debug!("Search request for account: {}, query: '{}'", search_args.from, search_args.query);
+
+    // Normalize query as specified
+    let normalized_query = normalize_text(&search_args.query);
+    if normalized_query.is_empty() {
+        return Err(AppError::InvalidInput(
+            "Query is empty after normalization".to_string(),
+        ));
+    }
+
+    // Resolve handle to DID
+    let resolver = DidResolver::new();
+    let did = resolver.resolve_handle(&search_args.from).await?;
+
+    // Determine display handle for markdown
+    let display_handle = if search_args.from.starts_with("did:plc:") {
+        // If input was a DID, use it verbatim
+        search_args.from.clone()
+    } else {
+        search_args
+            .from
+            .strip_prefix('@')
+            .unwrap_or(&search_args.from)
+            .to_string()
+    };
+
+    let did_str = did
+        .as_ref()
+        .ok_or_else(|| AppError::DidResolveFailed("DID resolution failed".to_string()))?;
+
+    // Fetch CAR and extract CID->rkey mapping to reconstruct post rkeys
+    let provider = RepositoryProvider::new()?;
+    let car_path = provider.fetch_repo_car(did_str).await?;
+    let car_bytes = tokio::fs::read(&car_path)
+        .await
+        .map_err(|e| AppError::CacheError(format!("Failed to read CAR file: {}", e)))?;
+
+    debug!("Extracting CID->rkey mappings from MST for collection app.bsky.feed.post");
+    let cid_to_rkey = crate::bluesky::mst::extract_cid_to_rkey_mapping(&car_bytes, "app.bsky.feed.post")
+        .map_err(|e| {
+            AppError::RepoParseFailed(format!("Failed to extract MST mappings: {:?}", e))
+        })?;
+
+    debug!("Extracted {} CID->rkey mappings", cid_to_rkey.len());
+
+    // Stream records and collect posts with rkeys
+    let mut records = provider.records(did_str).await?;
+    let mut posts: Vec<PostRecord> = Vec::new();
+
+    for record_result in records {
+        let (record_type, cbor_data, cid_str) = match record_result {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        if record_type != "app.bsky.feed.post" {
+            continue;
+        }
+
+        if let Ok(CborValue::Map(post_map)) = decode_cbor(&cbor_data) {
+            // Extract required fields
+            let text = match get_text_field(&post_map, "text") {
+                Some(t) => t.to_string(),
+                None => continue,
+            };
+            let created_at = match get_text_field(&post_map, "createdAt") {
+                Some(t) => t.to_string(),
+                None => continue,
+            };
+
+            // Extract facets and embeds (embeds may be None)
+            let facets = extract_facets(&post_map);
+            let embeds = extract_embeds(&post_map);
+
+            // Look up rkey from CID->rkey mapping; skip if not present
+            let collection_rkey = match cid_to_rkey.get(&cid_str) {
+                Some(s) => s.clone(),
+                None => continue,
+            };
+
+            posts.push(PostRecord {
+                uri: format!("at://{}/app.bsky.feed.post/{}", did_str, collection_rkey),
+                cid: cid_str,
+                text,
+                created_at,
+                embeds,
+                facets,
+            });
+        }
+    }
+
+    debug!("Extracted {} post records with rkeys", posts.len());
+
+    // Use fuzzy search engine
+    let mut search_engine = SearchEngine::new();
+    let search_results = search_engine.search(&search_args.query, &posts, |post| post.get_searchable_text());
+
+    // Apply limit and collect matching post refs
+    let limit = search_args.limit.unwrap_or(50);
+    let matching_posts: Vec<&PostRecord> = search_results.iter().take(limit).map(|r| &r.item).collect();
+
+    if matching_posts.is_empty() {
+        return Err(AppError::NotFound(format!(
+            "No posts found matching query '{}' for account {}",
+            search_args.query, search_args.from
+        )));
+    }
+
+    // Format results as markdown and return
+    let markdown = format_search_results(&matching_posts, &display_handle, &search_args.query);
+
+    Ok(ToolResult::text(markdown))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
