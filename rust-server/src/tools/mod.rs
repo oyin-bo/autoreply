@@ -9,3 +9,9 @@ pub mod react;
 pub mod search;
 pub mod thread;
 pub mod util;
+
+#[cfg(test)]
+mod cli_integration_tests;
+
+#[cfg(test)]
+mod tools_argument_tests;

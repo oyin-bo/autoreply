@@ -318,4 +318,73 @@ mod tests {
         let score3 = matcher.calculate_proximity_score(&[0]);
         assert_eq!(score3, 0.0);
     }
+
+    #[test]
+    fn test_with_config_constructor() {
+        let config = Config::DEFAULT;
+        let _m = FuzzyMatcher::with_config(config);
+    }
+
+    #[test]
+    fn test_classify_multiword() {
+        let hay = "hello world";
+        let needle = "o w";
+        // positions that start in first word (index 4) and end in second word (index 6)
+        let positions = vec![4u32, 6u32];
+        let mt = FuzzyMatcher::classify_match_type(hay, needle, &positions);
+        assert_eq!(mt, MatchType::MultiWord);
+    }
+
+    #[test]
+    fn test_classify_word_boundaries() {
+        // Full word
+        let hay1 = "hello world";
+        let needle1 = "world";
+        let positions1 = vec![6u32, 7u32, 8u32, 9u32, 10u32];
+        let mt1 = FuzzyMatcher::classify_match_type(hay1, needle1, &positions1);
+        assert_eq!(mt1, MatchType::FullWord);
+
+        // WordStart (match at start but not full word)
+        let hay2 = "helloworld";
+        let needle2 = "hell";
+        let positions2 = vec![0u32, 1u32, 2u32, 3u32];
+        let mt2 = FuzzyMatcher::classify_match_type(hay2, needle2, &positions2);
+        assert_eq!(mt2, MatchType::WordStart);
+
+        // WordEnd (match at end)
+        let hay3 = "ahell";
+        let needle3 = "ell";
+        let positions3 = vec![2u32, 3u32, 4u32];
+        let mt3 = FuzzyMatcher::classify_match_type(hay3, needle3, &positions3);
+        assert_eq!(mt3, MatchType::WordEnd);
+    }
+
+    #[test]
+    fn test_classify_word_middle_explicit() {
+        // Match in the middle of a single word should be classified as WordMiddle
+        let hay = "alphabet";
+        let needle = "pha";
+        let positions = vec![2u32, 3u32, 4u32];
+        let mt = FuzzyMatcher::classify_match_type(hay, needle, &positions);
+        assert_eq!(mt, MatchType::WordMiddle);
+    }
+
+    #[test]
+    fn test_find_match_positions_returns_empty_for_non_substring() {
+        // When needle is not a direct substring, find_match_positions should return empty
+        let hay = "hello world";
+        let needle = "hlo"; // fuzzy match but not substring
+        let positions = FuzzyMatcher::find_match_positions(hay, needle);
+        assert!(positions.is_empty(), "Expected empty positions for non-substring fuzzy match");
+    }
+
+    #[test]
+    fn test_classify_positions_empty_returns_word_middle() {
+        // When positions is empty, classify_match_type should conservatively return WordMiddle
+        let hay = "something";
+        let needle = "xyz";
+        let positions: Vec<u32> = vec![];
+        let mt = FuzzyMatcher::classify_match_type(hay, needle, &positions);
+        assert_eq!(mt, MatchType::WordMiddle);
+    }
 }

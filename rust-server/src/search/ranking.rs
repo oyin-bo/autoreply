@@ -264,6 +264,59 @@ mod tests {
 
         assert!((max - 1.0).abs() < 0.001);
         assert!((min - 0.0).abs() < 0.001);
+
+    }
+
+    #[test]
+    fn test_matchscore_calculate_multiword_and_exact_flags() {
+            use super::super::fuzzy::MatchType;
+
+            let weights = ScoringWeights::default();
+
+            let fuzzy = super::super::fuzzy::FuzzyMatch {
+                score: 100,
+                positions: vec![0, 5, 10],
+                match_type: MatchType::MultiWord,
+            };
+
+            let s1 = MatchScore::calculate(&fuzzy, 0.5, false, false, &weights);
+            let s2 = MatchScore::calculate(&fuzzy, 0.5, true, false, &weights);
+
+            // Position weight should equal the multi_word multiplier
+            assert_eq!(s1.position_weight, weights.position_multipliers.multi_word);
+
+            // Exact match should increase the final score (multiplicative)
+            assert!(s2.final_score > s1.final_score);
+    }
+
+    #[test]
+    fn test_normalize_scores_zero_range() {
+            let mut scores = vec![
+                MatchScore {
+                    base_score: 10.0,
+                    position_weight: 1.0,
+                    proximity_boost: 0.0,
+                    is_exact_match: false,
+                    is_exact_unicode: false,
+                    final_score: 42.0,
+                    match_type: MatchType::FullWord,
+                },
+                MatchScore {
+                    base_score: 20.0,
+                    position_weight: 0.8,
+                    proximity_boost: 0.0,
+                    is_exact_match: false,
+                    is_exact_unicode: false,
+                    final_score: 42.0,
+                    match_type: MatchType::WordStart,
+                },
+            ];
+
+            normalize_scores(&mut scores);
+
+            // Range is zero so values should remain unchanged
+            assert_eq!(scores[0].final_score, 42.0);
+            assert_eq!(scores[1].final_score, 42.0);
     }
 
     #[test]
@@ -271,5 +324,49 @@ mod tests {
         let mut scores: Vec<MatchScore> = vec![];
         normalize_scores(&mut scores); // Should not panic
         assert!(scores.is_empty());
+    }
+
+    #[test]
+    fn test_calculate_unicode_exact_bonus() {
+        // Ensure that the unicode exact flag increases the final score
+        let mut weights = ScoringWeights::default();
+        weights.unicode_exact_bonus = 2.0;
+
+        let fuzzy = super::super::fuzzy::FuzzyMatch {
+            score: 50,
+            positions: vec![0],
+            match_type: MatchType::FullWord,
+        };
+
+        let s_no_unicode = MatchScore::calculate(&fuzzy, 0.1, false, false, &weights);
+        let s_with_unicode = MatchScore::calculate(&fuzzy, 0.1, false, true, &weights);
+
+        assert!(s_with_unicode.final_score > s_no_unicode.final_score, "Unicode exact bonus should increase final_score");
+    }
+
+    #[test]
+    fn test_position_weight_mappings() {
+        // Check that MatchType -> position_weight mapping is applied correctly
+        let weights = ScoringWeights::default();
+
+        let fuzzy_end = super::super::fuzzy::FuzzyMatch {
+            score: 10,
+            positions: vec![2],
+            match_type: MatchType::WordEnd,
+        };
+
+        let fuzzy_mid = super::super::fuzzy::FuzzyMatch {
+            score: 10,
+            positions: vec![2],
+            match_type: MatchType::WordMiddle,
+        };
+
+        let s_end = MatchScore::calculate(&fuzzy_end, 0.0, false, false, &weights);
+        let s_mid = MatchScore::calculate(&fuzzy_mid, 0.0, false, false, &weights);
+
+        assert_eq!(s_end.position_weight, weights.position_multipliers.word_end);
+        assert_eq!(s_mid.position_weight, weights.position_multipliers.word_middle);
+        // Given same base score, end should rank higher than middle because multiplier is larger
+        assert!(s_end.final_score > s_mid.final_score);
     }
 }

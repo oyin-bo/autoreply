@@ -15,6 +15,9 @@ pub mod session;
 pub mod storage;
 
 #[cfg(test)]
+mod auth_helper_tests;
+
+#[cfg(test)]
 mod oauth_tests;
 
 pub use callback_server::{CallbackResult, CallbackServer};

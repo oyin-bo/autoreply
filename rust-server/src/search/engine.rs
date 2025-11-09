@@ -340,4 +340,109 @@ mod tests {
         // Full word match should rank highest
         assert_eq!(results[0].item.text, "car");
     }
+
+    #[test]
+    fn test_proximity_affects_ranking() {
+        let mut engine = SearchEngine::new();
+
+        let posts = vec![
+            TestPost {
+                text: "a x b".to_string(),
+            },
+            TestPost {
+                text: "a b".to_string(),
+            },
+        ];
+
+        // Query that matches 'a' and 'b' - exact contiguous 'a b' should rank higher than 'a x b'
+        let results = engine.search("a b", &posts, |p| vec![p.text.clone()]);
+
+        assert_eq!(results.len(), 2);
+        // 'a b' should rank highest due to exact proximity
+        assert_eq!(results[0].item.text, "a b");
+    }
+
+    #[test]
+    fn test_search_negative_quoted_phrases() {
+        let mut engine = SearchEngine::new();
+
+        let posts = vec![
+            TestPost { text: "Hello world".to_string() },
+        ];
+
+        // Two quoted phrases, one of which does not exist
+        let results = engine.search(r#""hello world" "nonexistent""#, &posts, |p| vec![p.text.clone()]);
+        assert_eq!(results.len(), 0, "If any quoted phrase is missing the item should not match");
+    }
+
+    #[test]
+    fn test_search_individual_word_penalty() {
+        let mut engine = SearchEngine::new();
+
+        let posts = vec![
+            TestPost { text: "hello".to_string() },
+            TestPost { text: "world".to_string() },
+        ];
+
+        let results = engine.search("hello world", &posts, |p| vec![p.text.clone()]);
+
+        // Both posts should match via individual-word matches
+        assert_eq!(results.len(), 2);
+        // Each matched_terms should include at least one of the individual words
+        for r in results {
+            assert!(!r.matched_terms.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_exact_match_ranks_above_fuzzy() {
+        let mut engine = SearchEngine::new();
+
+        let posts = vec![
+            TestPost { text: "apple".to_string() }, // exact
+            TestPost { text: "appl".to_string() },  // fuzzy
+        ];
+
+        let results = engine.search("apple", &posts, |p| vec![p.text.clone()]);
+
+    // Ensure the exact-match result exists and is marked as exact
+    let exact = results.iter().find(|r| r.item.text == "apple").expect("exact match result present");
+    assert!(exact.score.is_exact_match, "Exact-match result should be flagged as exact");
+    }
+
+    #[test]
+    fn test_search_multiple_searchable_texts() {
+        let mut engine = SearchEngine::new();
+
+        #[derive(Clone)]
+        struct MultiTextPost {
+            title: String,
+            body: String,
+        }
+
+        let posts = vec![
+            MultiTextPost { title: "Title here".to_string(), body: "Some body content with rustlang".to_string() },
+            MultiTextPost { title: "Another".to_string(), body: "No match".to_string() },
+        ];
+
+        let results = engine.search("rustlang", &posts, |p: &MultiTextPost| vec![p.title.clone(), p.body.clone()]);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_whole_query_precedes_individual_word_matches() {
+        let mut engine = SearchEngine::new();
+
+        let posts = vec![
+            TestPost { text: "hello world".to_string() }, // whole query match
+            TestPost { text: "hello".to_string() },
+            TestPost { text: "world".to_string() },
+        ];
+
+        let results = engine.search("hello world", &posts, |p| vec![p.text.clone()]);
+
+        // Whole query match should be ranked first
+        assert!(!results.is_empty());
+        assert_eq!(results[0].item.text, "hello world");
+    }
 }

@@ -15,3 +15,7 @@ pub use fuzzy::FuzzyMatcher;
 pub use parser::{ParsedQuery, QueryParser};
 #[allow(unused_imports)]
 pub use ranking::{MatchScore, ScoringWeights};
+
+// Property tests for search (only compiled during tests)
+#[cfg(test)]
+mod property_tests2;
