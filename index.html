@@ -3,7 +3,7 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>autoreply - Your AI's Gateway to BlueSky</title>
+	<title>autoreply.ooo — Local Gemma 4 Co-Writer for Bluesky</title>
 	<style>
 		@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 		* { margin: 0; padding: 0; box-sizing: border-box; }
@@ -23,192 +23,367 @@
 			content: '';
 			position: fixed;
 			top: 0; left: 0; width: 100%; height: 100%;
-			background: rgba(15, 23, 42, 0.75);
-			backdrop-filter: blur(2px);
+			background: rgba(15, 23, 42, 0.78);
+			backdrop-filter: blur(3px);
 			z-index: 1;
 		}
 		.container { position: relative; z-index: 10; min-height: 100vh; display: flex; flex-direction: column; }
-		.header { padding: 2rem; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255,255,255,0.1); }
-		.logo-section { display: flex; align-items: center; gap: 1rem; }
-		.logo { font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; color: #fff; }
-		.logo-emoji { font-size: 2.5rem; }
-		.nav-links { display: flex; gap: 2rem; align-items: center; }
-		.nav-link { color: rgba(255,255,255,0.8); text-decoration: none; font-weight: 500; font-size: 0.95rem; padding: 0.75rem 1.5rem; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; transition: all 0.3s ease; background: rgba(255,255,255,0.05); }
+		.header { padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255,255,255,0.1); }
+		.logo-section { display: flex; align-items: center; gap: 0.75rem; }
+		.logo { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; color: #fff; }
+		.logo-emoji { font-size: 2rem; }
+		.nav-links { display: flex; gap: 1rem; align-items: center; }
+		.nav-link { color: rgba(255,255,255,0.85); text-decoration: none; font-weight: 500; font-size: 0.9rem; padding: 0.6rem 1.2rem; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; transition: all 0.2s ease; background: rgba(255,255,255,0.05); }
 		.nav-link:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); color: white; }
-		.main-content { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 4rem 2rem; text-align: center; }
-		.hero-section { max-width: 900px; margin: 0 auto; }
-		.title { font-size: clamp(3rem,8vw,6rem); font-weight: 300; line-height: 1.1; margin-bottom: 1.5rem; letter-spacing: -0.03em; }
+
+		.main-content { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 3.5rem 1.5rem; text-align: center; }
+		.hero-section { max-width: 960px; width: 100%; margin: 0 auto; }
+		.title { font-size: clamp(2.5rem, 6vw, 4.75rem); font-weight: 300; line-height: 1.1; margin-bottom: 1rem; letter-spacing: -0.03em; }
 		.title .highlight { font-weight: 600; color: #3b82f6; }
-		.subtitle { font-size: clamp(1.2rem,3vw,1.8rem); font-weight: 400; color: rgba(255,255,255,0.8); margin-bottom: 3rem; line-height: 1.5; }
-		.description { font-size: 1.1rem; color: rgba(255,255,255,0.7); line-height: 1.6; margin-bottom: 4rem; max-width: 700px; }
-		.cta-section { display: flex; flex-direction: column; gap: 2rem; align-items: center; margin-bottom: 4rem; }
-		.install-box { background: rgba(0,0,0,0.6); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 2rem; max-width: 600px; width: 100%; }
-		.install-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 1rem; color: #3b82f6; }
-		.install-command { font-family: 'JetBrains Mono', monospace; background: #0f172a; border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 1rem 1.5rem; font-size: 1rem; color: #06b6d4; margin: 1rem 0; text-align: left; position: relative; user-select: all; cursor: pointer; }
-		.install-command::before { content: '$'; color: rgba(255,255,255,0.5); margin-right: 0.5rem; }
-		.cta-buttons { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center; }
-		.cta-button { padding: 1rem 2rem; font-size: 1rem; font-weight: 600; text-decoration: none; color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; transition: all 0.3s ease; background: rgba(255,255,255,0.1); backdrop-filter: blur(20px); }
-		.cta-button.primary { background: rgba(59,130,246,0.8); border-color: #3b82f6; }
-		.cta-button:hover { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.5); transform: translateY(-2px); }
-		.cta-button.primary:hover { background: rgba(59,130,246,1); }
-		.features-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 2rem; max-width: 1200px; width: 100%; margin-top: 4rem; }
-		.feature-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 2rem; text-align: center; transition: all 0.3s ease; }
-		.feature-card:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.3); transform: translateY(-5px); }
-		.feature-icon { font-size: 2.5rem; margin-bottom: 1rem; display: block; }
-		.feature-title { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.75rem; color: white; }
-		.feature-description { font-size: 0.95rem; color: rgba(255,255,255,0.7); line-height: 1.5; }
-		.footer { padding: 2rem; text-align: center; background: rgba(0,0,0,0.3); backdrop-filter: blur(20px); border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.9rem; color: rgba(255,255,255,0.6); }
-		.footer-links { display: flex; gap: 2rem; justify-content: center; margin-bottom: 1rem; }
-		.footer-link { color: rgba(255,255,255,0.7); text-decoration: none; transition: color 0.3s ease; }
+		.subtitle { font-size: clamp(1.1rem, 2.5vw, 1.5rem); font-weight: 400; color: rgba(255,255,255,0.85); margin-bottom: 1.5rem; line-height: 1.5; }
+		.description { font-size: 1.02rem; color: rgba(255,255,255,0.72); line-height: 1.6; margin: 0 auto 2.5rem; max-width: 680px; }
+
+		.panels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; text-align: left; margin-bottom: 3rem; }
+		.panel { background: rgba(15, 23, 42, 0.72); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.16); border-radius: 16px; padding: 1.75rem; display: flex; flex-direction: column; gap: 1rem; }
+		.panel-title { font-size: 1.15rem; font-weight: 600; color: #93c5fd; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+		.panel-copy { font-size: 0.92rem; color: rgba(255,255,255,0.75); line-height: 1.55; }
+
+		.bookmarklet-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+		.bookmarklet-link {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.5rem;
+			padding: 0.85rem 1.4rem;
+			border-radius: 10px;
+			background: linear-gradient(135deg, #2563eb, #0284c7);
+			color: #fff;
+			font-weight: 600;
+			font-size: 0.98rem;
+			text-decoration: none;
+			border: 1px solid rgba(255,255,255,0.28);
+			box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
+			cursor: grab;
+			transition: transform 0.15s ease, box-shadow 0.15s ease;
+		}
+		.bookmarklet-link:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(37, 99, 235, 0.45); }
+		.bookmarklet-link:active { cursor: grabbing; }
+
+		.btn {
+			appearance: none;
+			padding: 0.65rem 1.1rem;
+			border-radius: 8px;
+			border: 1px solid rgba(255,255,255,0.22);
+			background: rgba(255,255,255,0.08);
+			color: #fff;
+			font-size: 0.88rem;
+			font-weight: 500;
+			cursor: pointer;
+			transition: background 0.15s ease, border-color 0.15s ease;
+		}
+		.btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.4); }
+		.btn-danger { border-color: rgba(239, 68, 68, 0.45); color: #fca5a5; }
+		.btn-danger:hover { background: rgba(239, 68, 68, 0.2); }
+
+		.code-box {
+			font-family: 'JetBrains Mono', monospace;
+			font-size: 0.78rem;
+			background: rgba(2, 6, 23, 0.85);
+			border: 1px solid rgba(59, 130, 246, 0.3);
+			border-radius: 8px;
+			padding: 0.75rem 0.9rem;
+			color: #38bdf8;
+			word-break: break-all;
+			user-select: all;
+		}
+
+		.select-input {
+			width: 100%;
+			padding: 0.7rem 0.9rem;
+			border-radius: 8px;
+			background: rgba(2, 6, 23, 0.85);
+			color: #f8fafc;
+			border: 1px solid rgba(255,255,255,0.22);
+			font-size: 0.92rem;
+		}
+
+		.status-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+		.badge {
+			font-size: 0.78rem;
+			padding: 0.28rem 0.65rem;
+			border-radius: 999px;
+			border: 1px solid rgba(255,255,255,0.18);
+			background: rgba(255,255,255,0.06);
+			color: rgba(255,255,255,0.85);
+		}
+		.badge.ok { border-color: rgba(34, 197, 94, 0.45); color: #86efac; background: rgba(34, 197, 94, 0.12); }
+		.badge.warn { border-color: rgba(245, 158, 11, 0.45); color: #fde68a; background: rgba(245, 158, 11, 0.12); }
+
+		.opfs-list {
+			font-family: 'JetBrains Mono', monospace;
+			font-size: 0.8rem;
+			background: rgba(2, 6, 23, 0.75);
+			border: 1px solid rgba(255,255,255,0.12);
+			border-radius: 8px;
+			padding: 0.75rem;
+			color: #cbd5e1;
+			min-height: 54px;
+		}
+
+		.features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.25rem; margin-top: 1rem; text-align: left; }
+		.feature-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 1.5rem; }
+		.feature-title { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.5rem; color: white; }
+		.feature-description { font-size: 0.9rem; color: rgba(255,255,255,0.7); line-height: 1.5; }
+
+		.footer { padding: 1.75rem; text-align: center; background: rgba(0,0,0,0.35); backdrop-filter: blur(20px); border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.88rem; color: rgba(255,255,255,0.6); }
+		.footer-links { display: flex; gap: 1.5rem; justify-content: center; margin-bottom: 0.75rem; flex-wrap: wrap; }
+		.footer-link { color: rgba(255,255,255,0.75); text-decoration: none; }
 		.footer-link:hover { color: #3b82f6; }
+
 		@media (max-width: 768px) {
 			.header { flex-direction: column; gap: 1rem; }
-			.nav-links { flex-wrap: wrap; justify-content: center; }
 			.main-content { padding: 2rem 1rem; }
-			.cta-buttons { flex-direction: column; align-items: center; }
-			.features-grid { grid-template-columns: 1fr; gap: 1.5rem; }
-			.footer-links { flex-direction: column; gap: 1rem; }
 		}
-		.fade-in { animation: fadeIn 1s ease-out; }
-		@keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-		.slide-up { animation: slideUp 0.8s ease-out; }
-		@keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-		.copied { background: rgba(34,197,94,0.2) !important; border-color: #22c55e !important; color: #22c55e !important; }
 	</style>
 </head>
 <body>
 	<div class="container">
-		<header class="header fade-in">
+		<header class="header">
 			<div class="logo-section">
 				<span class="logo-emoji">✉️</span>
-				<span class="logo">autoreply</span>
+				<span class="logo">autoreply.ooo</span>
 			</div>
 			<nav class="nav-links">
-				<a href="https://github.com/oyin-bo/autoreply" class="nav-link" target="_blank">GitHub</a>
-				<a href="https://bsky.app/profile/autoreply.ooo" class="nav-link" target="_blank">BlueSky Profile</a>
-				<a href="#install" class="nav-link">Install</a>
+				<a href="https://github.com/oyin-bo/autoreply" class="nav-link" target="_blank" rel="noopener">GitHub</a>
+				<a href="https://bsky.app/profile/autoreply.ooo" class="nav-link" target="_blank" rel="noopener">Bluesky</a>
 			</nav>
 		</header>
+
 		<main class="main-content">
-			<div class="hero-section slide-up">
+			<div class="hero-section">
 				<h1 class="title">
-					Your AI's Gateway to <span class="highlight">BlueSky</span>
+					Local Gemma 4 Co-Writer for <span class="highlight">Bluesky</span>
 				</h1>
 				<p class="subtitle">
-					Model Context Protocol for the Social Web
+					Ghost-text autocomplete &amp; thread-aware replies running 100% in your browser via WebGPU
 				</p>
 				<p class="description">
-					A lightweight MCP server that plugs directly into your AI assistant, giving it the power to read, write, and interact on BlueSky as if it were a person. Stop scrolling—let your AI curate, analyze, and post for you.
+					Drag the bookmarklet to your bookmarks bar, open <strong>bsky.app</strong>, and click it whenever you want on-device AI co-writing powered by <code>@litert-lm/core</code>. No API keys, no server calls, no DOM corruption.
 				</p>
-				<div class="cta-section" id="install">
-					<div class="install-box">
-						<h3 class="install-title">Ready to Launch?</h3>
-						<p style="margin-bottom: 1rem; color: rgba(255,255,255,0.8);">
-							Skip the configuration hassle. One command gets you started:
+
+				<div class="panels-grid">
+					<section class="panel">
+						<div class="panel-title">
+							<span>1. Bookmarklet</span>
+							<span class="badge" id="origin-badge">https://autoreply.ooo</span>
+						</div>
+						<p class="panel-copy">
+							Drag this button to your bookmarks bar, then click it while on <code>bsky.app</code>:
 						</p>
-						<div class="install-command" title="Click to copy">npx autoreply install</div>
-						<p style="font-size: 0.9rem; color: rgba(255,255,255,0.7);">
-							That's it! Your AI assistant is now ready to talk to BlueSky.
+						<div class="bookmarklet-row">
+							<a class="bookmarklet-link" id="bookmarklet-link" href="#">✉️ autoreply</a>
+							<button class="btn" id="copy-bookmarklet">Copy Bookmarklet</button>
+						</div>
+						<div class="code-box" id="bookmarklet-code"></div>
+					</section>
+
+					<section class="panel">
+						<div class="panel-title">
+							<span>2. Model &amp; Browser Status</span>
+						</div>
+						<div class="status-badges">
+							<span class="badge" id="webgpu-badge">Checking WebGPU...</span>
+							<span class="badge" id="opfs-badge">Checking OPFS...</span>
+						</div>
+						<div>
+							<label for="model-select" class="panel-copy" style="display:block; margin-bottom:0.45rem;">Default Gemma 4 WebGPU Weights:</label>
+							<select class="select-input" id="model-select">
+								<option value="gemma-4-E2B-it-gpu.litertlm">gemma-4-E2B-it-gpu.litertlm (~2.3 GB, Default)</option>
+								<option value="gemma-4-E4B-it-gpu.litertlm">gemma-4-E4B-it-gpu.litertlm (~4.5 GB)</option>
+							</select>
+						</div>
+						<p class="panel-copy" style="font-size:0.82rem;">
+							Selecting a model updates the bookmarklet above and saves your preference locally.
 						</p>
-					</div>
-					<div class="cta-buttons">
-						<a href="https://github.com/oyin-bo/autoreply" class="cta-button primary" target="_blank">View Documentation</a>
-						<a href="https://bsky.app/profile/autoreply.ooo" class="cta-button" target="_blank">Follow @autoreply.ooo</a>
-					</div>
+					</section>
+
+					<section class="panel">
+						<div class="panel-title">
+							<span>3. Local OPFS Cache</span>
+							<button class="btn" id="refresh-opfs" style="padding:0.35rem 0.7rem; font-size:0.78rem;">Refresh</button>
+						</div>
+						<div class="opfs-list" id="opfs-status">Scanning browser storage...</div>
+						<div class="bookmarklet-row">
+							<button class="btn btn-danger" id="purge-opfs">Purge Cached Weights</button>
+						</div>
+						<p class="panel-copy" style="font-size:0.8rem;">
+							Note: Browsers partition OPFS per top-level site. Weights downloaded while on <code>bsky.app</code> can also be purged from the floating <code>autoreply</code> pill on Bluesky.
+						</p>
+					</section>
 				</div>
+
 				<div class="features-grid">
 					<div class="feature-card">
-						<span class="feature-icon">🚀</span>
-						<h3 class="feature-title">Lightning Fast</h3>
-						<p class="feature-description">Minimal dependencies built on @atcute/client for maximum performance and reliability.</p>
+						<h3 class="feature-title">Double-Isolated Execution</h3>
+						<p class="feature-description">Runs inside a hidden cross-origin <code>&lt;iframe&gt;</code> spawning a dedicated module <code>worker.js</code> so WebGPU and WASM stay isolated from <code>bsky.app</code>.</p>
 					</div>
 					<div class="feature-card">
-						<span class="feature-icon">🔐</span>
-						<h3 class="feature-title">Secure & Private</h3>
-						<p class="feature-description">Log in once with your BlueSky handle and app password. Credentials stored securely in your system.</p>
+						<h3 class="feature-title">Persona-Aligned Framing</h3>
+						<p class="feature-description">Maps your own posts to <code>assistant</code> and other participants to <code>user</code>, so Gemma 4 naturally continues your tone, stance, and voice.</p>
 					</div>
 					<div class="feature-card">
-						<span class="feature-icon">🤖</span>
-						<h3 class="feature-title">AI-Powered</h3>
-						<p class="feature-description">Your AI can read feeds, search posts, analyze trends, and post content automatically.</p>
-					</div>
-					<div class="feature-card">
-						<span class="feature-icon">🌐</span>
-						<h3 class="feature-title">Universal Access</h3>
-						<p class="feature-description">Access public BlueSky data without authentication. Perfect for research and analysis.</p>
-					</div>
-					<div class="feature-card">
-						<span class="feature-icon">⚡</span>
-						<h3 class="feature-title">Complete Toolkit</h3>
-						<p class="feature-description">Feed reading, search, profiles, threads, posting, liking, reposting, and content management.</p>
-					</div>
-					<div class="feature-card">
-						<span class="feature-icon">🎯</span>
-						<h3 class="feature-title">MCP Compatible</h3>
-						<p class="feature-description">Works with Gemini CLI, VSCode, and any MCP-compatible AI assistant or tool.</p>
+						<h3 class="feature-title">ProseMirror-Safe Ghost Text</h3>
+						<p class="feature-description">Renders a synchronized overlay without mutating Bluesky's <code>contenteditable</code> DOM. Press <code>Tab</code> to accept cleanly or keep typing to cancel.</p>
 					</div>
 				</div>
 			</div>
 		</main>
+
 		<footer class="footer">
 			<div class="footer-links">
-				<a href="https://github.com/oyin-bo/autoreply" class="footer-link" target="_blank">GitHub Repository</a>
-				<a href="https://bsky.app/profile/autoreply.ooo" class="footer-link" target="_blank">BlueSky @autoreply.ooo</a>
-				<a href="https://modelcontextprotocol.io" class="footer-link" target="_blank">Model Context Protocol</a>
+				<a href="https://github.com/oyin-bo/autoreply" class="footer-link" target="_blank" rel="noopener">GitHub Repository</a>
+				<a href="https://bsky.app/profile/autoreply.ooo" class="footer-link" target="_blank" rel="noopener">Bluesky @autoreply.ooo</a>
 			</div>
-			<p>Built with precision for the decentralized social web • Powered by BlueSky & MCP</p>
+			<p>100% client-side on WebGPU • Powered by Gemma 4 &amp; @litert-lm/core</p>
 		</footer>
 	</div>
+
 	<script>
-		document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-			anchor.addEventListener('click', function (e) {
-				e.preventDefault();
-				const target = document.querySelector(this.getAttribute('href'));
-				if (target) {
-					target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		const STORAGE_MODEL_KEY = '__autoreply_model';
+		const modelSelect = document.getElementById('model-select');
+		const bookmarkletLink = document.getElementById('bookmarklet-link');
+		const bookmarkletCode = document.getElementById('bookmarklet-code');
+		const copyBtn = document.getElementById('copy-bookmarklet');
+		const originBadge = document.getElementById('origin-badge');
+		const webgpuBadge = document.getElementById('webgpu-badge');
+		const opfsBadge = document.getElementById('opfs-badge');
+		const opfsStatus = document.getElementById('opfs-status');
+		const refreshOpfsBtn = document.getElementById('refresh-opfs');
+		const purgeOpfsBtn = document.getElementById('purge-opfs');
+
+		const hostOrigin =
+			window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+				? window.location.origin
+				: 'https://autoreply.ooo';
+		originBadge.textContent = hostOrigin;
+
+		const savedModel = localStorage.getItem(STORAGE_MODEL_KEY);
+		if (savedModel && [...modelSelect.options].some(o => o.value === savedModel)) {
+			modelSelect.value = savedModel;
+		}
+
+		function buildBookmarkletHref() {
+			const model = modelSelect.value;
+			if (model === 'gemma-4-E2B-it-gpu.litertlm') {
+				return `javascript:(function(){import('${hostOrigin}/bookm.js?t='+Date.now());})();`;
+			}
+			return `javascript:(function(){import('${hostOrigin}/bookm.js?model=${encodeURIComponent(model)}&t='+Date.now());})();`;
+		}
+
+		function updateBookmarklet() {
+			const href = buildBookmarkletHref();
+			bookmarkletLink.href = href;
+			bookmarkletCode.textContent = href;
+		}
+
+		modelSelect.addEventListener('change', () => {
+			localStorage.setItem(STORAGE_MODEL_KEY, modelSelect.value);
+			updateBookmarklet();
+		});
+
+		copyBtn.addEventListener('click', async () => {
+			const href = buildBookmarkletHref();
+			try {
+				await navigator.clipboard.writeText(href);
+				copyBtn.textContent = 'Copied!';
+				setTimeout(() => (copyBtn.textContent = 'Copy Bookmarklet'), 1500);
+			} catch {
+				copyBtn.textContent = 'Copy failed';
+			}
+		});
+
+		async function checkCapabilities() {
+			if (navigator.gpu) {
+				try {
+					const adapter = await navigator.gpu.requestAdapter();
+					if (adapter) {
+						webgpuBadge.textContent = 'WebGPU: Ready';
+						webgpuBadge.className = 'badge ok';
+					} else {
+						webgpuBadge.textContent = 'WebGPU: No Adapter';
+						webgpuBadge.className = 'badge warn';
+					}
+				} catch {
+					webgpuBadge.textContent = 'WebGPU: Unavailable';
+					webgpuBadge.className = 'badge warn';
 				}
-			});
-		});
-		const installCommand = document.querySelector('.install-command');
-		installCommand.addEventListener('click', function() {
-			const command = 'npx autoreply install';
-			navigator.clipboard.writeText(command).then(function() {
-				installCommand.textContent = 'Copied to clipboard!';
-				installCommand.classList.add('copied');
-				setTimeout(() => {
-					installCommand.textContent = 'npx autoreply install';
-					installCommand.classList.remove('copied');
-				}, 1500);
-			}).catch(function() {
-				const textArea = document.createElement('textarea');
-				textArea.value = command;
-				document.body.appendChild(textArea);
-				textArea.select();
-				document.execCommand('copy');
-				document.body.removeChild(textArea);
-				installCommand.textContent = 'Copied to clipboard!';
-				installCommand.classList.add('copied');
-				setTimeout(() => {
-					installCommand.textContent = 'npx autoreply install';
-					installCommand.classList.remove('copied');
-				}, 1500);
-			});
-		});
-		const observerOptions = { threshold: 0.1, rootMargin: '0px 0px -50px 0px' };
-		const observer = new IntersectionObserver((entries) => {
-			entries.forEach(entry => {
-				if (entry.isIntersecting) {
-					entry.target.style.opacity = '1';
-					entry.target.style.transform = 'translateY(0)';
+			} else {
+				webgpuBadge.textContent = 'WebGPU: Not Supported';
+				webgpuBadge.className = 'badge warn';
+			}
+
+			if (navigator.storage && navigator.storage.getDirectory) {
+				opfsBadge.textContent = 'OPFS: Supported';
+				opfsBadge.className = 'badge ok';
+			} else {
+				opfsBadge.textContent = 'OPFS: Not Supported';
+				opfsBadge.className = 'badge warn';
+			}
+		}
+
+		function formatBytes(bytes) {
+			if (!bytes) return '0 MB';
+			const gb = bytes / 1_000_000_000;
+			if (gb >= 1) return `${gb.toFixed(2)} GB`;
+			return `${(bytes / 1_000_000).toFixed(1)} MB`;
+		}
+
+		async function refreshOpfs() {
+			if (!navigator.storage?.getDirectory) {
+				opfsStatus.textContent = 'OPFS not supported in this browser.';
+				return;
+			}
+			try {
+				const root = await navigator.storage.getDirectory();
+				const entries = [];
+				for await (const [name, handle] of root.entries()) {
+					if (handle.kind === 'file' && (name.endsWith('.litertlm') || name.endsWith('.part'))) {
+						const file = await handle.getFile();
+						entries.push(`${name} (${formatBytes(file.size)})`);
+					}
 				}
-			});
-		}, observerOptions);
-		document.querySelectorAll('.feature-card').forEach((card, index) => {
-			card.style.opacity = '0';
-			card.style.transform = 'translateY(30px)';
-			card.style.transition = `all 0.6s ease ${index * 0.1}s`;
-			observer.observe(card);
+				const est = navigator.storage.estimate ? await navigator.storage.estimate() : null;
+				const estLine = est
+					? `Quota: ${formatBytes(est.usage || 0)} used / ${formatBytes(est.quota || 0)} available`
+					: '';
+				opfsStatus.textContent = entries.length
+					? `${entries.join('\n')}\n${estLine}`
+					: `No cached .litertlm weights in this origin's OPFS.\n${estLine}`;
+				opfsStatus.style.whiteSpace = 'pre-wrap';
+			} catch (err) {
+				opfsStatus.textContent = `OPFS error: ${err.message}`;
+			}
+		}
+
+		purgeOpfsBtn.addEventListener('click', async () => {
+			if (!navigator.storage?.getDirectory) return;
+			try {
+				const root = await navigator.storage.getDirectory();
+				for await (const [name] of root.entries()) {
+					if (name.endsWith('.litertlm') || name.endsWith('.part')) {
+						await root.removeEntry(name);
+					}
+				}
+				await refreshOpfs();
+			} catch (err) {
+				opfsStatus.textContent = `Purge error: ${err.message}`;
+			}
 		});
+
+		refreshOpfsBtn.addEventListener('click', refreshOpfs);
+
+		updateBookmarklet();
+		checkCapabilities();
+		refreshOpfs();
 	</script>
 </body>
 </html>

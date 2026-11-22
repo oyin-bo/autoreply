@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>autoreply.ooo Worker Bridge</title>
+</head>
+<body>
+  <script type="module">
+    let worker = null;
+
+    function postToParent(payload) {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ source: 'autoreply-iframe', ...payload }, '*');
+      }
+    }
+
+    function spawnWorker() {
+      if (worker) {
+        try {
+          worker.terminate();
+        } catch {
+          // Ignore
+        }
+        worker = null;
+      }
+
+      worker = new Worker('./worker.js', { type: 'module' });
+
+      worker.addEventListener('message', (event) => {
+        postToParent(event.data);
+      });
+
+      worker.addEventListener('error', (event) => {
+        postToParent({
+          type: 'WORKER_ERROR',
+          error: event.message || 'Worker crashed',
+          fatal: true,
+        });
+      });
+
+      worker.addEventListener('messageerror', () => {
+        postToParent({
+          type: 'WORKER_ERROR',
+          error: 'Worker message deserialization error',
+          fatal: false,
+        });
+      });
+    }
+
+    window.addEventListener('message', (event) => {
+      if (event.source !== window.parent) return;
+      const msg = event.data;
+      if (!msg || msg.source !== 'autoreply-host') return;
+
+      if (msg.type === 'RESTART_WORKER') {
+        spawnWorker();
+        return;
+      }
+
+      if (!worker) {
+        spawnWorker();
+      }
+      worker.postMessage(msg);
+    });
+
+    spawnWorker();
+    postToParent({ type: 'IFRAME_READY' });
+  </script>
+</body>
+</html>
