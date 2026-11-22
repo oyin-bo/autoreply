@@ -1,5 +1,7 @@
 (() => {
-  const SCRIPT_URL = new URL(import.meta.url);
+  const SCRIPT_URL = new URL(
+    (document.currentScript && document.currentScript.src) || 'https://autoreply.ooo/bookm.js'
+  );
   const BASE_URL = new URL('.', SCRIPT_URL).href.replace(/\/$/, '');
   const IFRAME_ORIGIN = SCRIPT_URL.origin;
   const DEFAULT_MODEL =
@@ -689,10 +691,23 @@
 
     const messages = [{ role: 'system', content: systemPrompt }];
 
+    // Helper to keep strict user/assistant alternation after system
+    function pushAlternating(role, content) {
+      const prev = messages[messages.length - 1];
+      if (prev && prev.role === role) {
+        prev.content += '\n\n' + content;
+      } else {
+        messages.push({ role, content });
+      }
+    }
+
     // Case 1: Pre-typed partial draft
     if (draft.trim().length > 0) {
-      messages.push(...threadMessages);
-      messages.push({ role: 'assistant', content: `<thinking> ${draft} </thinking>` });
+      for (const m of threadMessages) pushAlternating(m.role, m.content);
+      if (messages[messages.length - 1]?.role === 'assistant') {
+        pushAlternating('user', 'Go on.');
+      }
+      pushAlternating('assistant', `<thinking> ${draft} </thinking>`);
       return {
         prefaceMessages: messages,
         userPrompt: 'What was that?',
@@ -704,14 +719,15 @@
       const recent = getRecentPosts().slice(0, 2);
       if (recent.length > 0) {
         recent.reverse().forEach((postText, idx) => {
-          messages.push({
-            role: 'user',
-            content: idx === 0 ? 'What have you been posting about lately?' : 'Anything else?',
-          });
-          messages.push({ role: 'assistant', content: postText });
+          pushAlternating(
+            'user',
+            idx === 0 ? 'What have you been posting about lately?' : 'Anything else?'
+          );
+          pushAlternating('assistant', postText);
         });
+        pushAlternating('user', 'Nice.');
       }
-      messages.push({ role: 'assistant', content: 'Anyway I want to post another thread.' });
+      pushAlternating('assistant', 'Anyway I want to post another thread.');
       return {
         prefaceMessages: messages,
         userPrompt: 'Go on.',
@@ -721,7 +737,7 @@
     // Case 3: Replying in an existing thread (empty draft)
     const lastMsg = threadMessages[threadMessages.length - 1];
     if (lastMsg.role === 'user') {
-      messages.push(...threadMessages.slice(0, -1));
+      for (const m of threadMessages.slice(0, -1)) pushAlternating(m.role, m.content);
       return {
         prefaceMessages: messages,
         userPrompt: lastMsg.content,
@@ -729,7 +745,7 @@
     }
 
     // Last post in thread is by the current user (represented as assistant)
-    messages.push(...threadMessages);
+    for (const m of threadMessages) pushAlternating(m.role, m.content);
     return {
       prefaceMessages: messages,
       userPrompt: 'so?',

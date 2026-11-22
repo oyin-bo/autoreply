@@ -273,10 +273,11 @@
 
 		function buildBookmarkletHref() {
 			const model = modelSelect.value;
-			if (model === 'gemma-4-E2B-it-gpu.litertlm') {
-				return `javascript:(function(){import('${hostOrigin}/bookm.js?t='+Date.now());})();`;
-			}
-			return `javascript:(function(){import('${hostOrigin}/bookm.js?model=${encodeURIComponent(model)}&t='+Date.now());})();`;
+			const query =
+				model === 'gemma-4-E2B-it-gpu.litertlm'
+					? '?t='
+					: `?model=${encodeURIComponent(model)}&t=`;
+			return `javascript:(function(){var s=document.createElement('script');s.src='${hostOrigin}/bookm.js${query}'+Date.now();document.head.appendChild(s);})();`;
 		}
 
 		function updateBookmarklet() {
