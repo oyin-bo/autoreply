@@ -32,6 +32,7 @@ function resolveModel(modelId) {
 async function getCachedResponse(model) {
   if (typeof caches === 'undefined') return null;
   try {
+    caches.delete('autoreply-models-v1').catch(() => {});
     const cache = await caches.open(CACHE_NAME);
     const resp = await cache.match(model.url);
     if (!resp) return null;
