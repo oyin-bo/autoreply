@@ -225,7 +225,9 @@ async function downloadModel(modelId) {
   downloadAbortController = new AbortController();
 
   try {
-    const canCache = typeof caches !== 'undefined';
+    if (typeof caches === 'undefined') {
+      throw new Error('Browser Cache API is not available in this context.');
+    }
 
     const response = await fetch(model.url, {
       mode: 'cors',
@@ -240,51 +242,17 @@ async function downloadModel(modelId) {
     const total = Number(response.headers.get('content-length')) || model.approxBytes;
     const progressStream = createProgressStream(response.body, model, total);
 
-    if (canCache) {
-      try {
-        const cache = await caches.open(CACHE_NAME);
-        const headers = new Headers({
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': String(total),
-        });
-        await cache.put(model.url, new Response(progressStream, { status: 200, headers }));
-        self.postMessage({
-          type: 'DOWNLOAD_COMPLETE',
-          modelId: model.id,
-          size: total,
-        });
-        return;
-      } catch (cacheErr) {
-        if (cacheErr?.name !== 'QuotaExceededError' && !/quota/i.test(cacheErr?.message || '')) {
-          throw cacheErr;
-        }
-        // Storage quota exceeded: fall through to direct streaming into WebGPU Engine
-        self.postMessage({
-          type: 'CACHE_SKIPPED_QUOTA',
-          modelId: model.id,
-          message: 'Storage quota too small to cache 2.3 GB—streaming directly into WebGPU...',
-        });
-        const retryResp = await fetch(model.url, {
-          mode: 'cors',
-          credentials: 'omit',
-          signal: downloadAbortController.signal,
-        });
-        if (!retryResp.ok || !retryResp.body) {
-          throw new Error(`Failed to fetch model (${retryResp.status} ${retryResp.statusText})`);
-        }
-        const retryStream = createProgressStream(retryResp.body, model, total);
-        await loadEngineFromStream(model, retryStream);
-        return;
-      }
-    }
-
-    // Quota estimate already showed < model size: stream directly without caching
-    self.postMessage({
-      type: 'CACHE_SKIPPED_QUOTA',
-      modelId: model.id,
-      message: 'Browser storage quota < model size—streaming directly into WebGPU...',
+    const cache = await caches.open(CACHE_NAME);
+    const headers = new Headers({
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(total),
     });
-    await loadEngineFromStream(model, progressStream);
+    await cache.put(model.url, new Response(progressStream, { status: 200, headers }));
+    self.postMessage({
+      type: 'DOWNLOAD_COMPLETE',
+      modelId: model.id,
+      size: total,
+    });
   } catch (err) {
     if (err?.name === 'AbortError') {
       self.postMessage({ type: 'DOWNLOAD_CANCELLED', modelId: model.id });
