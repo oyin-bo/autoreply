@@ -17,6 +17,7 @@ const MODELS = {
 
 const DEFAULT_MODEL_ID = 'gemma-4-E2B-it-gpu.litertlm';
 const CACHE_NAME = 'autoreply-models-v1';
+const CHUNK_SIZE = 32 * 1024 * 1024; // 32 MB per Cache API entry
 
 let EngineClass = null;
 let engine = null;
@@ -29,12 +30,29 @@ function resolveModel(modelId) {
   return MODELS[modelId] || MODELS[DEFAULT_MODEL_ID];
 }
 
-async function getCachedResponse(model) {
+function metaKey(model) {
+  return `${model.url}#meta`;
+}
+
+function chunkKey(model, index) {
+  return `${model.url}#chunk-${index}`;
+}
+
+async function getCachedModelMeta(model) {
   if (typeof caches === 'undefined') return null;
   try {
     const cache = await caches.open(CACHE_NAME);
-    const match = await cache.match(model.url);
-    return match || null;
+    const metaResp = await cache.match(metaKey(model));
+    if (!metaResp) return null;
+    const meta = await metaResp.json();
+    if (!meta || !meta.totalSize || !meta.numChunks) return null;
+
+    // Verify all chunks are present
+    for (let i = 0; i < meta.numChunks; i++) {
+      const hit = await cache.match(chunkKey(model, i));
+      if (!hit) return null;
+    }
+    return meta;
   } catch {
     return null;
   }
@@ -42,7 +60,7 @@ async function getCachedResponse(model) {
 
 async function checkCache(modelId) {
   const model = resolveModel(modelId);
-  const cachedResp = await getCachedResponse(model);
+  const meta = await getCachedModelMeta(model);
   let estimate = { usage: 0, quota: 0 };
   try {
     if (navigator.storage?.estimate) {
@@ -52,16 +70,12 @@ async function checkCache(modelId) {
     // Ignore estimate errors
   }
 
-  const size = cachedResp
-    ? Number(cachedResp.headers.get('content-length')) || model.approxBytes
-    : 0;
-
   return {
     modelId: model.id,
     label: model.label,
     approxSizeLabel: model.approxSizeLabel,
-    cached: Boolean(cachedResp),
-    size,
+    cached: Boolean(meta),
+    size: meta ? meta.totalSize : 0,
     estimate,
   };
 }
@@ -116,51 +130,43 @@ async function purgeCache() {
   return removed;
 }
 
-function createProgressStream(body, model, total) {
-  let loaded = 0;
-  let lastProgressAt = 0;
+function createCachedModelStream(model, meta) {
+  let index = 0;
+  let currentReader = null;
+  let cachePromise = caches.open(CACHE_NAME);
 
-  self.postMessage({
-    type: 'DOWNLOAD_PROGRESS',
-    modelId: model.id,
-    loaded: 0,
-    total,
-    percent: 0,
-  });
-
-  const reader = body.getReader();
   return new ReadableStream({
     async pull(controller) {
-      const { done, value } = await reader.read();
-      if (done) {
-        self.postMessage({
-          type: 'DOWNLOAD_PROGRESS',
-          modelId: model.id,
-          loaded,
-          total: loaded || total,
-          percent: 100,
-        });
-        controller.close();
+      while (true) {
+        if (!currentReader) {
+          if (index >= meta.numChunks) {
+            controller.close();
+            return;
+          }
+          const cache = await cachePromise;
+          const resp = await cache.match(chunkKey(model, index));
+          if (!resp || !resp.body) {
+            controller.error(new Error(`Missing cached chunk ${index} for ${model.id}`));
+            return;
+          }
+          currentReader = resp.body.getReader();
+          index += 1;
+        }
+
+        const { done, value } = await currentReader.read();
+        if (done) {
+          currentReader = null;
+          continue;
+        }
+        controller.enqueue(value);
         return;
       }
-
-      loaded += value.byteLength;
-      const now = performance.now();
-      if (now - lastProgressAt >= 150) {
-        lastProgressAt = now;
-        const percent = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0;
-        self.postMessage({
-          type: 'DOWNLOAD_PROGRESS',
-          modelId: model.id,
-          loaded,
-          total,
-          percent,
-        });
-      }
-      controller.enqueue(value);
     },
-    cancel(reason) {
-      return reader.cancel(reason);
+    async cancel(reason) {
+      if (currentReader) {
+        await currentReader.cancel(reason);
+        currentReader = null;
+      }
     },
   });
 }
@@ -206,52 +212,179 @@ async function loadEngineFromStream(model, stream) {
   return engine;
 }
 
+async function fetchWithRetry(url, init, retries = 2) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const resp = await fetch(url, init);
+      if (resp.ok) return resp;
+      lastErr = new Error(`HTTP ${resp.status} ${resp.statusText} for ${url}`);
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastErr = err;
+    }
+    if (attempt < retries) {
+      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 async function downloadModel(modelId) {
   const model = resolveModel(modelId);
-  const existing = await getCachedResponse(model);
-  if (existing) {
-    const size = Number(existing.headers.get('content-length')) || model.approxBytes;
+  const existingMeta = await getCachedModelMeta(model);
+  if (existingMeta) {
     self.postMessage({
       type: 'DOWNLOAD_COMPLETE',
       modelId: model.id,
-      size,
+      size: existingMeta.totalSize,
     });
     return;
+  }
+
+  if (typeof caches === 'undefined') {
+    throw new Error('Browser Cache API is not available in this context.');
   }
 
   if (downloadAbortController) {
     downloadAbortController.abort();
   }
   downloadAbortController = new AbortController();
+  const signal = downloadAbortController.signal;
 
   try {
-    if (typeof caches === 'undefined') {
-      throw new Error('Browser Cache API is not available in this context.');
-    }
-
-    const response = await fetch(model.url, {
+    // Probe total file size via Range 0-0 (also resolves CDN URL if redirected)
+    const probeResp = await fetchWithRetry(model.url, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-0' },
       mode: 'cors',
       credentials: 'omit',
-      signal: downloadAbortController.signal,
+      signal,
     });
 
-    if (!response.ok || !response.body) {
-      throw new Error(`Failed to fetch model (${response.status} ${response.statusText})`);
+    const contentRange = probeResp.headers.get('content-range') || '';
+    const rangeMatch = contentRange.match(/\/(\d+)$/);
+    const totalSize = rangeMatch
+      ? Number(rangeMatch[1])
+      : Number(probeResp.headers.get('content-length')) || model.approxBytes;
+    try {
+      await probeResp.body?.cancel();
+    } catch {
+      // Ignore cancel error
     }
 
-    const total = Number(response.headers.get('content-length')) || model.approxBytes;
-    const progressStream = createProgressStream(response.body, model, total);
-
+    const numChunks = Math.ceil(totalSize / CHUNK_SIZE);
     const cache = await caches.open(CACHE_NAME);
-    const headers = new Headers({
-      'Content-Type': 'application/octet-stream',
-      'Content-Length': String(total),
+
+    // Save metadata upfront (validity still requires all chunks to exist)
+    await cache.put(
+      metaKey(model),
+      new Response(JSON.stringify({ totalSize, chunkSize: CHUNK_SIZE, numChunks }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    let loaded = 0;
+    let lastProgressAt = 0;
+
+    self.postMessage({
+      type: 'DOWNLOAD_PROGRESS',
+      modelId: model.id,
+      loaded: 0,
+      total: totalSize,
+      percent: 0,
     });
-    await cache.put(model.url, new Response(progressStream, { status: 200, headers }));
+
+    for (let i = 0; i < numChunks; i++) {
+      if (signal.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(totalSize - 1, start + CHUNK_SIZE - 1);
+      const expectedLen = end - start + 1;
+
+      const existingChunk = await cache.match(chunkKey(model, i));
+      if (existingChunk) {
+        const cachedLen = Number(existingChunk.headers.get('content-length')) || expectedLen;
+        if (cachedLen === expectedLen) {
+          loaded += expectedLen;
+          const percent = Math.min(99, Math.round((loaded / totalSize) * 100));
+          self.postMessage({
+            type: 'DOWNLOAD_PROGRESS',
+            modelId: model.id,
+            loaded,
+            total: totalSize,
+            percent,
+          });
+          continue;
+        }
+      }
+
+      // Re-fetch from model.url on each chunk so signed CDN URLs stay fresh
+      const chunkResp = await fetchWithRetry(model.url, {
+        method: 'GET',
+        headers: { Range: `bytes=${start}-${end}` },
+        mode: 'cors',
+        credentials: 'omit',
+        signal,
+      });
+
+      const reader = chunkResp.body.getReader();
+      const buffer = new Uint8Array(expectedLen);
+      let offset = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (offset + value.byteLength > buffer.byteLength) {
+          throw new Error(`Chunk ${i} exceeded expected length`);
+        }
+        buffer.set(value, offset);
+        offset += value.byteLength;
+        loaded += value.byteLength;
+
+        const now = performance.now();
+        if (now - lastProgressAt >= 150) {
+          lastProgressAt = now;
+          const percent = Math.min(99, Math.round((loaded / totalSize) * 100));
+          self.postMessage({
+            type: 'DOWNLOAD_PROGRESS',
+            modelId: model.id,
+            loaded,
+            total: totalSize,
+            percent,
+          });
+        }
+      }
+
+      if (offset !== expectedLen) {
+        throw new Error(`Incomplete chunk ${i}: got ${offset} of ${expectedLen} bytes`);
+      }
+
+      await cache.put(
+        chunkKey(model, i),
+        new Response(buffer, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': String(expectedLen),
+          },
+        })
+      );
+    }
+
+    self.postMessage({
+      type: 'DOWNLOAD_PROGRESS',
+      modelId: model.id,
+      loaded: totalSize,
+      total: totalSize,
+      percent: 100,
+    });
     self.postMessage({
       type: 'DOWNLOAD_COMPLETE',
       modelId: model.id,
-      size: total,
+      size: totalSize,
     });
   } catch (err) {
     if (err?.name === 'AbortError') {
@@ -270,12 +403,13 @@ async function ensureEngine(modelId) {
     return engine;
   }
 
-  const cachedResp = await getCachedResponse(model);
-  if (!cachedResp || !cachedResp.body) {
+  const meta = await getCachedModelMeta(model);
+  if (!meta) {
     throw new Error(`Model ${model.id} is not cached.`);
   }
 
-  return loadEngineFromStream(model, cachedResp.body);
+  const stream = createCachedModelStream(model, meta);
+  return loadEngineFromStream(model, stream);
 }
 
 function extractTextFromChunk(chunk) {
