@@ -225,19 +225,7 @@ async function downloadModel(modelId) {
   downloadAbortController = new AbortController();
 
   try {
-    // Check if storage quota can hold the model in Cache API
-    let canCache = typeof caches !== 'undefined';
-    if (canCache && navigator.storage?.estimate) {
-      try {
-        const est = await navigator.storage.estimate();
-        const available = (est.quota || 0) - (est.usage || 0);
-        if (est.quota && available < model.approxBytes * 1.02) {
-          canCache = false;
-        }
-      } catch {
-        // Ignore estimate errors
-      }
-    }
+    const canCache = typeof caches !== 'undefined';
 
     const response = await fetch(model.url, {
       mode: 'cors',
