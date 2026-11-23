@@ -20,6 +20,8 @@ const CACHE_NAME = 'autoreply-models-v2';
 
 let EngineClass = null;
 let engine = null;
+let engineInitPromise = null;
+let engineInitModelId = null;
 let loadedModelId = null;
 let activeConversation = null;
 let activeRequestId = null;
@@ -290,14 +292,26 @@ async function ensureEngine(modelId) {
   if (engine && loadedModelId === model.id) {
     return engine;
   }
+  if (engineInitPromise && engineInitModelId === model.id) {
+    return engineInitPromise;
+  }
 
   const resp = await getCachedResponse(model);
   if (!resp) {
     throw new Error(`Model ${model.id} is not cached.`);
   }
 
-  const blob = await resp.blob();
-  return loadEngineFromStream(model, blob.stream());
+  engineInitModelId = model.id;
+  engineInitPromise = (async () => {
+    try {
+      const blob = await resp.blob();
+      return await loadEngineFromStream(model, blob.stream());
+    } finally {
+      engineInitPromise = null;
+      engineInitModelId = null;
+    }
+  })();
+  return engineInitPromise;
 }
 
 function extractTextFromChunk(chunk) {

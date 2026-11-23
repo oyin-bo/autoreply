@@ -893,7 +893,6 @@
     if (!msg || msg.source !== 'autoreply-iframe') return;
 
     switch (msg.type) {
-      case 'IFRAME_READY':
       case 'WORKER_BOOTED': {
         postToWorker({ type: 'CHECK_CACHE', modelId: state.modelId });
         break;
