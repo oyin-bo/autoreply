@@ -31,11 +31,11 @@ function resolveModel(modelId) {
 }
 
 function metaKey(model) {
-  return `${model.url}#meta`;
+  return `${model.url}?autoreply_meta=2`;
 }
 
 function chunkKey(model, index) {
-  return `${model.url}#chunk-${index}`;
+  return `${model.url}?autoreply_chunk=${index}`;
 }
 
 async function getCachedModelMeta(model) {
