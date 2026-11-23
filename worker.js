@@ -3,7 +3,7 @@ const MODELS = {
     id: 'gemma-4-E2B-it-gpu.litertlm',
     label: 'Gemma 4 E2B',
     approxSizeLabel: '~2.3 GB',
-    approxBytes: 2_300_000_000,
+    approxBytes: 2_340_870_772,
     url: 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-gpu.litertlm',
   },
   'gemma-4-E4B-it-gpu.litertlm': {
@@ -16,6 +16,7 @@ const MODELS = {
 };
 
 const DEFAULT_MODEL_ID = 'gemma-4-E2B-it-gpu.litertlm';
+const CACHE_NAME = 'autoreply-models-v1';
 
 let EngineClass = null;
 let engine = null;
@@ -28,30 +29,20 @@ function resolveModel(modelId) {
   return MODELS[modelId] || MODELS[DEFAULT_MODEL_ID];
 }
 
-async function getOpfsRoot() {
-  if (!navigator.storage || !navigator.storage.getDirectory) {
-    throw new Error('Origin Private File System (OPFS) is not supported in this browser.');
-  }
-  return navigator.storage.getDirectory();
-}
-
-async function getCachedModelFile(modelId) {
-  const root = await getOpfsRoot();
+async function getCachedResponse(model) {
+  if (typeof caches === 'undefined') return null;
   try {
-    const handle = await root.getFileHandle(modelId);
-    const file = await handle.getFile();
-    if (file && file.size > 0) {
-      return file;
-    }
+    const cache = await caches.open(CACHE_NAME);
+    const match = await cache.match(model.url);
+    return match || null;
   } catch {
-    // Not cached
+    return null;
   }
-  return null;
 }
 
 async function checkCache(modelId) {
   const model = resolveModel(modelId);
-  const file = await getCachedModelFile(model.id);
+  const cachedResp = await getCachedResponse(model);
   let estimate = { usage: 0, quota: 0 };
   try {
     if (navigator.storage?.estimate) {
@@ -61,12 +52,16 @@ async function checkCache(modelId) {
     // Ignore estimate errors
   }
 
+  const size = cachedResp
+    ? Number(cachedResp.headers.get('content-length')) || model.approxBytes
+    : 0;
+
   return {
     modelId: model.id,
     label: model.label,
     approxSizeLabel: model.approxSizeLabel,
-    cached: Boolean(file),
-    size: file ? file.size : 0,
+    cached: Boolean(cachedResp),
+    size,
     estimate,
   };
 }
@@ -97,69 +92,59 @@ async function purgeCache() {
     loadedModelId = null;
   }
 
-  const root = await getOpfsRoot();
   const removed = [];
-  for await (const [name] of root.entries()) {
-    if (name.endsWith('.litertlm') || name.endsWith('.part')) {
-      await root.removeEntry(name);
-      removed.push(name);
-    }
+  if (typeof caches !== 'undefined') {
+    const deleted = await caches.delete(CACHE_NAME);
+    if (deleted) removed.push(CACHE_NAME);
   }
+
+  // Also clean up any legacy OPFS entries
+  try {
+    if (navigator.storage?.getDirectory) {
+      const root = await navigator.storage.getDirectory();
+      for await (const [name] of root.entries()) {
+        if (name.endsWith('.litertlm') || name.endsWith('.part')) {
+          await root.removeEntry(name);
+          removed.push(name);
+        }
+      }
+    }
+  } catch {
+    // Ignore OPFS cleanup errors
+  }
+
   return removed;
 }
 
-async function downloadModel(modelId) {
-  const model = resolveModel(modelId);
-  const existing = await getCachedModelFile(model.id);
-  if (existing) {
-    self.postMessage({
-      type: 'DOWNLOAD_COMPLETE',
-      modelId: model.id,
-      size: existing.size,
-    });
-    return existing;
-  }
+function createProgressStream(body, model, total) {
+  let loaded = 0;
+  let lastProgressAt = 0;
 
-  if (downloadAbortController) {
-    downloadAbortController.abort();
-  }
-  downloadAbortController = new AbortController();
+  self.postMessage({
+    type: 'DOWNLOAD_PROGRESS',
+    modelId: model.id,
+    loaded: 0,
+    total,
+    percent: 0,
+  });
 
-  const root = await getOpfsRoot();
-  const partName = `${model.id}.part`;
-  const partHandle = await root.getFileHandle(partName, { create: true });
-  const writable = await partHandle.createWritable();
-
-  try {
-    const response = await fetch(model.url, {
-      mode: 'cors',
-      credentials: 'omit',
-      signal: downloadAbortController.signal,
-    });
-
-    if (!response.ok || !response.body) {
-      throw new Error(`Failed to fetch model (${response.status} ${response.statusText})`);
-    }
-
-    const total = Number(response.headers.get('content-length')) || model.approxBytes;
-    const reader = response.body.getReader();
-    let loaded = 0;
-    let lastProgressAt = 0;
-
-    self.postMessage({
-      type: 'DOWNLOAD_PROGRESS',
-      modelId: model.id,
-      loaded: 0,
-      total,
-      percent: 0,
-    });
-
-    while (true) {
+  const reader = body.getReader();
+  return new ReadableStream({
+    async pull(controller) {
       const { done, value } = await reader.read();
-      if (done) break;
-      await writable.write(value);
-      loaded += value.byteLength;
+      if (done) {
+        self.postMessage({
+          type: 'DOWNLOAD_PROGRESS',
+          modelId: model.id,
+          loaded,
+          total: loaded || total,
+          percent: 100,
+        });
+        controller.close();
+        return;
+      }
 
+      loaded += value.byteLength;
       const now = performance.now();
       if (now - lastProgressAt >= 150) {
         lastProgressAt = now;
@@ -172,68 +157,17 @@ async function downloadModel(modelId) {
           percent,
         });
       }
-    }
-
-    await writable.close();
-
-    if (typeof partHandle.move === 'function') {
-      await partHandle.move(model.id);
-    } else {
-      const finalHandle = await root.getFileHandle(model.id, { create: true });
-      const finalWritable = await finalHandle.createWritable();
-      const partFile = await partHandle.getFile();
-      await partFile.stream().pipeTo(finalWritable);
-      await root.removeEntry(partName);
-    }
-
-    const finalFile = await getCachedModelFile(model.id);
-    self.postMessage({
-      type: 'DOWNLOAD_PROGRESS',
-      modelId: model.id,
-      loaded: finalFile?.size || loaded,
-      total: finalFile?.size || loaded,
-      percent: 100,
-    });
-    self.postMessage({
-      type: 'DOWNLOAD_COMPLETE',
-      modelId: model.id,
-      size: finalFile?.size || loaded,
-    });
-    return finalFile;
-  } catch (err) {
-    try {
-      await writable.abort();
-    } catch {
-      // Ignore abort failure
-    }
-    try {
-      await root.removeEntry(partName);
-    } catch {
-      // Ignore cleanup failure
-    }
-    if (err?.name === 'AbortError') {
-      self.postMessage({ type: 'DOWNLOAD_CANCELLED', modelId: model.id });
-      return null;
-    }
-    throw err;
-  } finally {
-    downloadAbortController = null;
-  }
+      controller.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
 }
 
-async function ensureEngine(modelId) {
-  const model = resolveModel(modelId);
-  if (engine && loadedModelId === model.id) {
-    return engine;
-  }
-
+async function loadEngineFromStream(model, stream) {
   if (!navigator.gpu) {
     throw new Error('WebGPU is not available in this browser.');
-  }
-
-  const file = await getCachedModelFile(model.id);
-  if (!file) {
-    throw new Error(`Model ${model.id} is not cached in OPFS.`);
   }
 
   if (activeConversation) {
@@ -264,12 +198,128 @@ async function ensureEngine(modelId) {
   }
 
   engine = await EngineClass.create({
-    model: file.stream(),
+    model: stream,
   });
   loadedModelId = model.id;
 
   self.postMessage({ type: 'ENGINE_READY', modelId: model.id });
   return engine;
+}
+
+async function downloadModel(modelId) {
+  const model = resolveModel(modelId);
+  const existing = await getCachedResponse(model);
+  if (existing) {
+    const size = Number(existing.headers.get('content-length')) || model.approxBytes;
+    self.postMessage({
+      type: 'DOWNLOAD_COMPLETE',
+      modelId: model.id,
+      size,
+    });
+    return;
+  }
+
+  if (downloadAbortController) {
+    downloadAbortController.abort();
+  }
+  downloadAbortController = new AbortController();
+
+  try {
+    // Check if storage quota can hold the model in Cache API
+    let canCache = typeof caches !== 'undefined';
+    if (canCache && navigator.storage?.estimate) {
+      try {
+        const est = await navigator.storage.estimate();
+        const available = (est.quota || 0) - (est.usage || 0);
+        if (est.quota && available < model.approxBytes * 1.02) {
+          canCache = false;
+        }
+      } catch {
+        // Ignore estimate errors
+      }
+    }
+
+    const response = await fetch(model.url, {
+      mode: 'cors',
+      credentials: 'omit',
+      signal: downloadAbortController.signal,
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Failed to fetch model (${response.status} ${response.statusText})`);
+    }
+
+    const total = Number(response.headers.get('content-length')) || model.approxBytes;
+    const progressStream = createProgressStream(response.body, model, total);
+
+    if (canCache) {
+      try {
+        const cache = await caches.open(CACHE_NAME);
+        const headers = new Headers({
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(total),
+        });
+        await cache.put(model.url, new Response(progressStream, { status: 200, headers }));
+        self.postMessage({
+          type: 'DOWNLOAD_COMPLETE',
+          modelId: model.id,
+          size: total,
+        });
+        return;
+      } catch (cacheErr) {
+        if (cacheErr?.name !== 'QuotaExceededError' && !/quota/i.test(cacheErr?.message || '')) {
+          throw cacheErr;
+        }
+        // Storage quota exceeded: fall through to direct streaming into WebGPU Engine
+        self.postMessage({
+          type: 'CACHE_SKIPPED_QUOTA',
+          modelId: model.id,
+          message: 'Storage quota too small to cache 2.3 GB—streaming directly into WebGPU...',
+        });
+        const retryResp = await fetch(model.url, {
+          mode: 'cors',
+          credentials: 'omit',
+          signal: downloadAbortController.signal,
+        });
+        if (!retryResp.ok || !retryResp.body) {
+          throw new Error(`Failed to fetch model (${retryResp.status} ${retryResp.statusText})`);
+        }
+        const retryStream = createProgressStream(retryResp.body, model, total);
+        await loadEngineFromStream(model, retryStream);
+        return;
+      }
+    }
+
+    // Quota estimate already showed < model size: stream directly without caching
+    self.postMessage({
+      type: 'CACHE_SKIPPED_QUOTA',
+      modelId: model.id,
+      message: 'Browser storage quota < model size—streaming directly into WebGPU...',
+    });
+    await loadEngineFromStream(model, progressStream);
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      self.postMessage({ type: 'DOWNLOAD_CANCELLED', modelId: model.id });
+      return;
+    }
+    throw err;
+  } finally {
+    downloadAbortController = null;
+  }
+}
+
+async function ensureEngine(modelId) {
+  const model = resolveModel(modelId);
+  if (engine && loadedModelId === model.id) {
+    return engine;
+  }
+
+  const cachedResp = await getCachedResponse(model);
+  if (!cachedResp || !cachedResp.body) {
+    throw new Error(`Model ${model.id} is not cached.`);
+  }
+
+  return loadEngineFromStream(model, cachedResp.body);
 }
 
 function extractTextFromChunk(chunk) {

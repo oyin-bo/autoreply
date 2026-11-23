@@ -946,7 +946,15 @@
         break;
       }
 
+      case 'CACHE_SKIPPED_QUOTA': {
+        state.status = 'loading';
+        state.statusDetail = msg.message || 'Streaming directly into WebGPU...';
+        renderStatus();
+        break;
+      }
+
       case 'ENGINE_LOADING': {
+        showConsentCard(false);
         state.status = 'loading';
         state.statusDetail = 'Compiling WebGPU shaders...';
         renderStatus();
@@ -954,6 +962,8 @@
       }
 
       case 'ENGINE_READY': {
+        showConsentCard(false);
+        state.cached = true;
         state.status = 'ready';
         state.statusDetail = `Ready (${state.modelId})`;
         renderStatus();
@@ -991,6 +1001,8 @@
       }
 
       case 'WORKER_ERROR': {
+        showConsentCard(false);
+        elDownloadUi.style.display = 'none';
         state.isStreaming = false;
         state.activeRequestId = null;
         state.status = 'error';
