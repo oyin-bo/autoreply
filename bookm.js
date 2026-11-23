@@ -36,6 +36,8 @@
     suggestionDraft: '',
     isStreaming: false,
     lastContextPayload: null,
+    lastReplyTargetUri: '',
+    threadCache: new Map(),
   };
 
   // --- Hidden Cross-Origin Iframe ---
@@ -565,6 +567,7 @@
 
     let handle = '';
     let displayName = '';
+    let did = '';
     if (profileLink) {
       const href = profileLink.getAttribute('href') || '';
       const match = href.match(/^\/profile\/([^/?#]+)/);
@@ -577,13 +580,92 @@
         const parsed = JSON.parse(raw);
         const sess = parsed?.session?.currentAccount;
         if (!handle && sess?.handle) handle = sess.handle.toLowerCase();
+        if (sess?.did) did = sess.did;
         if (sess?.displayName) displayName = sess.displayName.trim();
       }
     } catch {
       // Ignore storage errors
     }
 
-    return { handle, displayName };
+    return { handle, displayName, did };
+  }
+
+  function postHrefToAtUri(href) {
+    if (!href) return '';
+    const m = href.match(/\/profile\/([^/?#]+)\/post\/([^/?#]+)/);
+    if (!m) return '';
+    return `at://${m[1].toLowerCase()}/app.bsky.feed.post/${m[2]}`;
+  }
+
+  // Capture which post's Reply button was clicked so we know its at:// URI inside the modal
+  document.addEventListener(
+    'click',
+    (e) => {
+      const target = e.target;
+      if (!target || typeof target.closest !== 'function') return;
+      const replyBtn = target.closest('[data-testid="replyBtn"]');
+      if (!replyBtn) return;
+
+      const postContainer =
+        replyBtn.closest('[data-testid="feedItem"]') ||
+        replyBtn.closest('[data-testid^="postThreadItem"]') ||
+        replyBtn.parentElement?.parentElement?.parentElement;
+
+      let uri = '';
+      if (postContainer) {
+        const postLink = postContainer.querySelector('a[href*="/post/"]');
+        if (postLink) {
+          uri = postHrefToAtUri(postLink.getAttribute('href') || '');
+        }
+      }
+      if (!uri && window.location.pathname.includes('/post/')) {
+        uri = postHrefToAtUri(window.location.pathname);
+      }
+      state.lastReplyTargetUri = uri;
+    },
+    { capture: true }
+  );
+
+  async function fetchFullThreadByUri(atUri, currentUser) {
+    if (!atUri) return null;
+    if (state.threadCache.has(atUri)) {
+      return state.threadCache.get(atUri);
+    }
+    try {
+      const url = `https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=${encodeURIComponent(atUri)}&depth=0&parentHeight=25`;
+      const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const chain = [];
+      let node = data?.thread;
+      while (node && node.post) {
+        const author = node.post.author || {};
+        const text = (node.post.record?.text || '').trim();
+        if (text) {
+          const authorHandle = (author.handle || '').toLowerCase();
+          const authorName = (author.displayName || authorHandle || 'someone').trim();
+          const isSelf =
+            (currentUser.did && author.did === currentUser.did) ||
+            (currentUser.handle && authorHandle === currentUser.handle);
+          chain.unshift({
+            role: isSelf ? 'assistant' : 'user',
+            authorHandle: authorHandle || authorName,
+            content: isSelf
+              ? text
+              : `@${authorHandle || authorName}${authorName && authorName !== authorHandle ? ` (${authorName})` : ''}: ${text}`,
+          });
+          if (isSelf) saveRecentPost(text);
+        }
+        node = node.parent;
+      }
+      if (chain.length > 0) {
+        state.threadCache.set(atUri, chain);
+        return chain;
+      }
+    } catch {
+      // Fall back to DOM scraping
+    }
+    return null;
   }
 
   async function prefetchRecentUserPosts() {
@@ -638,41 +720,51 @@
     const href = authorLink?.getAttribute('href') || '';
     const match = href.match(/^\/profile\/([^/?#]+)/);
     const authorHandle = match ? match[1].toLowerCase() : '';
+    const isSelf = Boolean(currentHandle && authorHandle === currentHandle);
 
     return {
-      role: currentHandle && authorHandle === currentHandle ? 'assistant' : 'user',
+      role: isSelf ? 'assistant' : 'user',
       authorHandle,
-      content: text,
+      content: isSelf ? text : `@${authorHandle || 'someone'}: ${text}`,
     };
   }
 
-  function scrapeThreadContext(composer) {
-    const { handle: currentHandle, displayName: currentDisplayName } = getCurrentUser();
+  async function scrapeThreadContext(composer) {
+    const currentUser = getCurrentUser();
+    const { handle: currentHandle, displayName: currentDisplayName } = currentUser;
     const modal = composer.closest('[role="dialog"]');
-    const scope = modal || document;
 
-    const candidates = Array.from(
-      scope.querySelectorAll('[data-testid^="postThreadItem"], [data-testid="feedItem"]')
-    );
+    // Try full ancestor thread fetch first when replying in a modal or on a /post/ page
+    const targetUri = modal
+      ? state.lastReplyTargetUri
+      : window.location.pathname.includes('/post/')
+        ? postHrefToAtUri(window.location.pathname)
+        : '';
 
-    const rawPosts = [];
-    for (const el of candidates) {
-      if (el.contains(composer)) continue;
-      // Only include posts that appear before the composer in DOM order
-      const pos = el.compareDocumentPosition(composer);
-      if (!(pos & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+    let rawPosts = (await fetchFullThreadByUri(targetUri, currentUser)) || [];
 
-      const post = extractPostFromElement(el, currentHandle);
-      if (post) {
-        if (post.role === 'assistant') {
-          saveRecentPost(post.content);
+    if (rawPosts.length === 0) {
+      const scope = modal || document;
+      const candidates = Array.from(
+        scope.querySelectorAll('[data-testid^="postThreadItem"], [data-testid="feedItem"]')
+      );
+
+      for (const el of candidates) {
+        if (el.contains(composer)) continue;
+        const pos = el.compareDocumentPosition(composer);
+        if (!(pos & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+
+        const post = extractPostFromElement(el, currentHandle);
+        if (post) {
+          if (post.role === 'assistant') {
+            saveRecentPost(post.content);
+          }
+          rawPosts.push(post);
         }
-        rawPosts.push(post);
       }
     }
 
-    // In Bluesky's reply modal, the parent post has no postThreadItem/postText testid
-    // and no /profile/ links; it lives before composePostView with userAvatarImage.
+    // In Bluesky's reply modal, fallback to DOM if AppView fetch had no URI
     if (modal && rawPosts.length === 0) {
       const composeView = modal.querySelector('[data-testid="composePostView"]') || composer;
       const avatars = Array.from(modal.querySelectorAll('[data-testid="userAvatarImage"]'));
@@ -697,7 +789,7 @@
           rawPosts.push({
             role: isSelf ? 'assistant' : 'user',
             authorHandle: authorName,
-            content: text,
+            content: isSelf ? text : `${authorName}: ${text}`,
           });
         }
       }
@@ -705,7 +797,7 @@
 
     // Merge consecutive posts by the same role so alternation holds
     const merged = [];
-    for (const p of rawPosts.slice(-8)) {
+    for (const p of rawPosts.slice(-16)) {
       const prev = merged[merged.length - 1];
       if (prev && prev.role === p.role) {
         prev.content += '\n\n' + p.content;
@@ -717,13 +809,21 @@
   }
 
   function buildPromptPayload(threadMessages, draft, isRetry) {
+    const { handle, displayName } = getCurrentUser();
+    const personaIdentity = handle
+      ? displayName
+        ? `${displayName} (@${handle})`
+        : `@${handle}`
+      : 'the Bluesky user';
+
     const systemPrompt = [
-      'You are co-writing a Bluesky post in the exact voice, tone, and style of the assistant.',
+      `You are ${personaIdentity} on Bluesky, co-writing your own post in your exact voice, tone, and style.`,
+      'Each message from another user is prefixed with their name/handle; you are the assistant.',
       'Strictly stay under 300 characters total.',
-      'Output ONLY the post text—no quotes, no explanations, no meta commentary.',
+      'Output ONLY the post text—no quotes, no handle prefix, no explanations, no meta commentary.',
       draft
         ? 'When the user asks "What was that?", output ONLY the remaining words that directly continue the incomplete thought inside <thinking> without repeating what was already written.'
-        : 'Match the user/assistant conversation style naturally and concisely.',
+        : 'Match the conversation context and your style naturally and concisely.',
       isRetry ? 'Provide a fresh, alternative phrasing.' : '',
     ]
       .filter(Boolean)
@@ -807,13 +907,14 @@
     }
   }
 
-  function triggerGeneration(composer, isRetry = false) {
+  async function triggerGeneration(composer, isRetry = false) {
     if (!state.enabled || !state.cached) return;
     if (state.status === 'downloading' || state.status === 'error') return;
     if (!isCaretAtEnd(composer)) return;
 
     const draft = getComposerText(composer);
-    const threadMessages = scrapeThreadContext(composer);
+    const threadMessages = await scrapeThreadContext(composer);
+    if (!document.contains(composer)) return;
     const payload = buildPromptPayload(threadMessages, draft, isRetry);
 
     cancelGeneration();
