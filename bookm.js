@@ -822,11 +822,11 @@
     const modal = composer.closest('[role="dialog"]');
 
     // Try full ancestor thread fetch first when replying in a modal or on a /post/ page
-    const targetUri = modal
-      ? state.lastReplyTargetUri
-      : window.location.pathname.includes('/post/')
+    const targetUri =
+      (modal && state.lastReplyTargetUri) ||
+      (window.location.pathname.includes('/post/')
         ? postHrefToAtUri(window.location.pathname)
-        : '';
+        : '');
 
     let rawPosts = (await fetchFullThreadByUri(targetUri, currentUser)) || [];
 
@@ -860,7 +860,9 @@
         const pos = avatar.compareDocumentPosition(composeView);
         if (!(pos & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
 
-        const container = avatar.closest('[role="button"]') || avatar.parentElement?.parentElement;
+        const container =
+          avatar.closest('button, [role="button"]') ||
+          avatar.parentElement?.parentElement?.parentElement;
         if (!container) continue;
 
         const lines = (container.innerText || '')
@@ -1107,6 +1109,7 @@
     }
     if (state.activeComposer && !document.contains(state.activeComposer)) {
       state.activeComposer = null;
+      state.lastReplyTargetUri = '';
       cancelGeneration();
       clearSuggestion();
     }
