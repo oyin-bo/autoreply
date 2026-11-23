@@ -585,6 +585,8 @@
     let handle = '';
     let displayName = '';
     let did = '';
+    let accessJwt = '';
+    let pdsUrl = '';
     if (profileLink) {
       const href = profileLink.getAttribute('href') || '';
       const match = href.match(/^\/profile\/([^/?#]+)/);
@@ -599,12 +601,75 @@
         if (!handle && sess?.handle) handle = sess.handle.toLowerCase();
         if (sess?.did) did = sess.did;
         if (sess?.displayName) displayName = sess.displayName.trim();
+        if (sess?.accessJwt) accessJwt = sess.accessJwt;
+        if (sess?.pdsUrl) pdsUrl = sess.pdsUrl.replace(/\/$/, '');
       }
     } catch {
       // Ignore storage errors
     }
 
-    return { handle, displayName, did };
+    if (state.userProfile) {
+      if (!handle && state.userProfile.handle) handle = state.userProfile.handle;
+      if (!displayName && state.userProfile.displayName) displayName = state.userProfile.displayName;
+      if (!did && state.userProfile.did) did = state.userProfile.did;
+    }
+
+    return {
+      handle,
+      displayName,
+      did,
+      accessJwt,
+      pdsUrl,
+      description: state.userProfile?.description || '',
+    };
+  }
+
+  async function xrpcGet(method, params) {
+    const { accessJwt, pdsUrl } = getCurrentUser();
+    const qs = new URLSearchParams(params).toString();
+
+    if (accessJwt) {
+      const authBase = pdsUrl || 'https://bsky.social';
+      try {
+        const resp = await fetch(`${authBase}/xrpc/${method}?${qs}`, {
+          mode: 'cors',
+          credentials: 'omit',
+          headers: { Authorization: `Bearer ${accessJwt}` },
+        });
+        if (resp.ok) return await resp.json();
+      } catch {
+        // Fall through to unauthenticated public AppView
+      }
+    }
+
+    const pubResp = await fetch(`https://public.api.bsky.app/xrpc/${method}?${qs}`, {
+      mode: 'cors',
+      credentials: 'omit',
+    });
+    if (!pubResp.ok) return null;
+    return await pubResp.json();
+  }
+
+  async function ensureUserProfile() {
+    if (state.userProfile) return state.userProfile;
+    const { did, handle } = getCurrentUser();
+    const actor = did || handle;
+    if (!actor) return null;
+    try {
+      const profile = await xrpcGet('app.bsky.actor.getProfile', { actor });
+      if (profile) {
+        state.userProfile = {
+          did: profile.did || did,
+          handle: (profile.handle || handle || '').toLowerCase(),
+          displayName: (profile.displayName || '').trim(),
+          description: (profile.description || '').trim(),
+        };
+        return state.userProfile;
+      }
+    } catch {
+      // Ignore profile fetch errors
+    }
+    return null;
   }
 
   function postHrefToAtUri(href) {
@@ -688,14 +753,17 @@
   }
 
   async function prefetchRecentUserPosts() {
+    await ensureUserProfile();
     if (getRecentPosts().length >= 2) return;
-    const { handle } = getCurrentUser();
-    if (!handle) return;
+    const { did, handle } = getCurrentUser();
+    const actor = did || handle;
+    if (!actor) return;
     try {
-      const url = `https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(handle)}&limit=6&filter=posts_no_replies`;
-      const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
-      if (!resp.ok) return;
-      const data = await resp.json();
+      const data = await xrpcGet('app.bsky.feed.getAuthorFeed', {
+        actor,
+        limit: '6',
+        filter: 'posts_no_replies',
+      });
       const feed = Array.isArray(data?.feed) ? data.feed : [];
       for (const item of feed.reverse()) {
         const text = item?.post?.record?.text;
