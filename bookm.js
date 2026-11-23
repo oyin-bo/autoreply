@@ -564,26 +564,47 @@
       document.querySelector('a[aria-label="Profile"][href^="/profile/"]');
 
     let handle = '';
+    let displayName = '';
     if (profileLink) {
       const href = profileLink.getAttribute('href') || '';
       const match = href.match(/^\/profile\/([^/?#]+)/);
       if (match) handle = match[1].toLowerCase();
     }
 
-    if (!handle) {
-      try {
-        const raw = localStorage.getItem('BSKY_STORAGE');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const sess = parsed?.session?.currentAccount;
-          if (sess?.handle) handle = sess.handle.toLowerCase();
-        }
-      } catch {
-        // Ignore storage errors
+    try {
+      const raw = localStorage.getItem('BSKY_STORAGE');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const sess = parsed?.session?.currentAccount;
+        if (!handle && sess?.handle) handle = sess.handle.toLowerCase();
+        if (sess?.displayName) displayName = sess.displayName.trim();
       }
+    } catch {
+      // Ignore storage errors
     }
 
-    return { handle };
+    return { handle, displayName };
+  }
+
+  async function prefetchRecentUserPosts() {
+    if (getRecentPosts().length >= 2) return;
+    const { handle } = getCurrentUser();
+    if (!handle) return;
+    try {
+      const url = `https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(handle)}&limit=6&filter=posts_no_replies`;
+      const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const feed = Array.isArray(data?.feed) ? data.feed : [];
+      for (const item of feed.reverse()) {
+        const text = item?.post?.record?.text;
+        if (typeof text === 'string' && text.trim()) {
+          saveRecentPost(text);
+        }
+      }
+    } catch {
+      // Ignore network/CSP errors
+    }
   }
 
   function getRecentPosts() {
@@ -626,7 +647,7 @@
   }
 
   function scrapeThreadContext(composer) {
-    const { handle: currentHandle } = getCurrentUser();
+    const { handle: currentHandle, displayName: currentDisplayName } = getCurrentUser();
     const modal = composer.closest('[role="dialog"]');
     const scope = modal || document;
 
@@ -650,16 +671,35 @@
       }
     }
 
-    // In a reply modal, Bluesky sometimes renders the parent post without postThreadItem testid
+    // In Bluesky's reply modal, the parent post has no postThreadItem/postText testid
+    // and no /profile/ links; it lives before composePostView with userAvatarImage.
     if (modal && rawPosts.length === 0) {
-      const modalTexts = Array.from(modal.querySelectorAll('[data-testid="postText"]'));
-      for (const textEl of modalTexts) {
-        if (composer.contains(textEl)) continue;
-        const pos = textEl.compareDocumentPosition(composer);
+      const composeView = modal.querySelector('[data-testid="composePostView"]') || composer;
+      const avatars = Array.from(modal.querySelectorAll('[data-testid="userAvatarImage"]'));
+      for (const avatar of avatars) {
+        if (composeView.contains(avatar)) continue;
+        const pos = avatar.compareDocumentPosition(composeView);
         if (!(pos & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
-        const container = textEl.closest('div')?.parentElement || modal;
-        const post = extractPostFromElement(container, currentHandle);
-        if (post) rawPosts.push(post);
+
+        const container = avatar.closest('[role="button"]') || avatar.parentElement?.parentElement;
+        if (!container) continue;
+
+        const lines = (container.innerText || '')
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (lines.length >= 2) {
+          const authorName = lines[0];
+          const text = lines.slice(1).join('\n');
+          const isSelf =
+            (currentDisplayName && authorName === currentDisplayName) ||
+            (currentHandle && authorName.toLowerCase().includes(currentHandle));
+          rawPosts.push({
+            role: isSelf ? 'assistant' : 'user',
+            authorHandle: authorName,
+            content: text,
+          });
+        }
       }
     }
 
@@ -1042,4 +1082,5 @@
   };
 
   renderStatus();
+  prefetchRecentUserPosts();
 })();
