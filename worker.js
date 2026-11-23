@@ -314,15 +314,36 @@ async function ensureEngine(modelId) {
   return engineInitPromise;
 }
 
-function extractTextFromChunk(chunk) {
-  if (!chunk) return '';
-  if (typeof chunk.content === 'string') return chunk.content;
-  if (Array.isArray(chunk.content)) {
-    return chunk.content
-      .map((part) => (part && part.type === 'text' ? part.text || '' : ''))
+function extractTextFromChunk(rawValue) {
+  if (!rawValue) return { text: '', thought: '' };
+  let chunk = rawValue;
+  if (typeof chunk === 'string') {
+    try {
+      chunk = JSON.parse(chunk);
+    } catch {
+      return { text: chunk, thought: '' };
+    }
+  }
+
+  let text = '';
+  if (typeof chunk.content === 'string') {
+    text = chunk.content;
+  } else if (Array.isArray(chunk.content)) {
+    text = chunk.content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part.text === 'string') return part.text;
+        return '';
+      })
       .join('');
   }
-  return '';
+
+  const thought =
+    chunk?.channels && typeof chunk.channels.thought === 'string'
+      ? chunk.channels.thought
+      : '';
+
+  return { text, thought };
 }
 
 async function generate({ requestId, modelId, prefaceMessages, userPrompt }) {
@@ -350,8 +371,12 @@ async function generate({ requestId, modelId, prefaceMessages, userPrompt }) {
 
   if (activeRequestId !== requestId) return;
 
-  const stream = activeConversation.sendMessageStreaming(userPrompt);
+  const stream = activeConversation.sendMessageStreaming({
+    role: 'user',
+    content: [{ type: 'text', text: userPrompt }],
+  });
   const reader = stream.getReader();
+  let totalEmittedChars = 0;
 
   try {
     while (true) {
@@ -367,20 +392,31 @@ async function generate({ requestId, modelId, prefaceMessages, userPrompt }) {
         break;
       }
 
-      const textChunk = extractTextFromChunk(value);
-      if (textChunk) {
+      const { text, thought } = extractTextFromChunk(value);
+      if (thought && !text) {
+        self.postMessage({
+          type: 'GENERATION_THINKING',
+          requestId,
+        });
+      }
+      if (text) {
+        totalEmittedChars += text.length;
         self.postMessage({
           type: 'GENERATION_CHUNK',
           requestId,
-          chunk: textChunk,
+          chunk: text,
         });
       }
     }
 
     if (activeRequestId === requestId) {
+      if (totalEmittedChars === 0) {
+        console.warn('[autoreply] Generation finished with 0 output chars');
+      }
       self.postMessage({
         type: 'GENERATION_DONE',
         requestId,
+        empty: totalEmittedChars === 0,
       });
     }
   } finally {

@@ -726,6 +726,8 @@
           pushAlternating('assistant', postText);
         });
         pushAlternating('user', 'Nice.');
+      } else {
+        pushAlternating('user', 'Hey, what are you thinking of posting?');
       }
       pushAlternating('assistant', 'Anyway I want to post another thread.');
       return {
@@ -969,6 +971,14 @@
         if (state.activeComposer) {
           scheduleHesitation(state.activeComposer);
         }
+        break;
+      }
+
+      case 'GENERATION_THINKING': {
+        if (msg.requestId !== state.activeRequestId) return;
+        state.status = 'generating';
+        state.statusDetail = 'Thinking...';
+        renderStatus();
         break;
       }
 
