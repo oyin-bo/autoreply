@@ -342,13 +342,15 @@
 			const entries = [];
 			try {
 				if (typeof caches !== 'undefined') {
-					const cache = await caches.open('autoreply-models-v1');
-					const keys = await cache.keys();
-					for (const req of keys) {
-						const resp = await cache.match(req);
-						const len = Number(resp?.headers.get('content-length')) || 0;
-						const name = req.url.split('/').pop() || req.url;
-						entries.push(`Cache API: ${name}${len ? ` (${formatBytes(len)})` : ''}`);
+					for (const cacheName of ['autoreply-models-v2', 'autoreply-models-v1']) {
+						const cache = await caches.open(cacheName);
+						const keys = await cache.keys();
+						for (const req of keys) {
+							const resp = await cache.match(req);
+							const len = Number(resp?.headers.get('content-length')) || 0;
+							const name = req.url.split('/').pop() || req.url;
+							entries.push(`Cache API (${cacheName}): ${name}${len ? ` (${formatBytes(len)})` : ''}`);
+						}
 					}
 				}
 				if (navigator.storage?.getDirectory) {
@@ -376,6 +378,7 @@
 		purgeOpfsBtn.addEventListener('click', async () => {
 			try {
 				if (typeof caches !== 'undefined') {
+					await caches.delete('autoreply-models-v2');
 					await caches.delete('autoreply-models-v1');
 				}
 				if (navigator.storage?.getDirectory) {
