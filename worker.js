@@ -17,7 +17,6 @@ const MODELS = {
 
 const DEFAULT_MODEL_ID = 'gemma-4-E2B-it-gpu.litertlm';
 const CACHE_NAME = 'autoreply-models-v1';
-const CHUNK_SIZE = 32 * 1024 * 1024; // 32 MB per Cache API entry
 
 let EngineClass = null;
 let engine = null;
@@ -30,29 +29,12 @@ function resolveModel(modelId) {
   return MODELS[modelId] || MODELS[DEFAULT_MODEL_ID];
 }
 
-function metaKey(model) {
-  return `${model.url}?autoreply_meta=2`;
-}
-
-function chunkKey(model, index) {
-  return `${model.url}?autoreply_chunk=${index}`;
-}
-
-async function getCachedModelMeta(model) {
+async function getCachedResponse(model) {
   if (typeof caches === 'undefined') return null;
   try {
     const cache = await caches.open(CACHE_NAME);
-    const metaResp = await cache.match(metaKey(model));
-    if (!metaResp) return null;
-    const meta = await metaResp.json();
-    if (!meta || !meta.totalSize || !meta.numChunks) return null;
-
-    // Verify all chunks are present
-    for (let i = 0; i < meta.numChunks; i++) {
-      const hit = await cache.match(chunkKey(model, i));
-      if (!hit) return null;
-    }
-    return meta;
+    const resp = await cache.match(model.url);
+    return resp || null;
   } catch {
     return null;
   }
@@ -60,7 +42,7 @@ async function getCachedModelMeta(model) {
 
 async function checkCache(modelId) {
   const model = resolveModel(modelId);
-  const meta = await getCachedModelMeta(model);
+  const resp = await getCachedResponse(model);
   let estimate = { usage: 0, quota: 0 };
   try {
     if (navigator.storage?.estimate) {
@@ -70,12 +52,16 @@ async function checkCache(modelId) {
     // Ignore estimate errors
   }
 
+  const size = resp
+    ? Number(resp.headers.get('content-length')) || model.approxBytes
+    : 0;
+
   return {
     modelId: model.id,
     label: model.label,
     approxSizeLabel: model.approxSizeLabel,
-    cached: Boolean(meta),
-    size: meta ? meta.totalSize : 0,
+    cached: Boolean(resp),
+    size,
     estimate,
   };
 }
@@ -112,7 +98,6 @@ async function purgeCache() {
     if (deleted) removed.push(CACHE_NAME);
   }
 
-  // Also clean up any legacy OPFS entries
   try {
     if (navigator.storage?.getDirectory) {
       const root = await navigator.storage.getDirectory();
@@ -128,47 +113,6 @@ async function purgeCache() {
   }
 
   return removed;
-}
-
-function createCachedModelStream(model, meta) {
-  let index = 0;
-  let currentReader = null;
-  let cachePromise = caches.open(CACHE_NAME);
-
-  return new ReadableStream({
-    async pull(controller) {
-      while (true) {
-        if (!currentReader) {
-          if (index >= meta.numChunks) {
-            controller.close();
-            return;
-          }
-          const cache = await cachePromise;
-          const resp = await cache.match(chunkKey(model, index));
-          if (!resp || !resp.body) {
-            controller.error(new Error(`Missing cached chunk ${index} for ${model.id}`));
-            return;
-          }
-          currentReader = resp.body.getReader();
-          index += 1;
-        }
-
-        const { done, value } = await currentReader.read();
-        if (done) {
-          currentReader = null;
-          continue;
-        }
-        controller.enqueue(value);
-        return;
-      }
-    },
-    async cancel(reason) {
-      if (currentReader) {
-        await currentReader.cancel(reason);
-        currentReader = null;
-      }
-    },
-  });
 }
 
 async function loadEngineFromStream(model, stream) {
@@ -238,32 +182,15 @@ async function loadEngineFromStream(model, stream) {
   return engine;
 }
 
-async function fetchWithRetry(url, init, retries = 2) {
-  let lastErr = null;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const resp = await fetch(url, init);
-      if (resp.ok) return resp;
-      lastErr = new Error(`HTTP ${resp.status} ${resp.statusText} for ${url}`);
-    } catch (err) {
-      if (err?.name === 'AbortError') throw err;
-      lastErr = err;
-    }
-    if (attempt < retries) {
-      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
-    }
-  }
-  throw lastErr;
-}
-
 async function downloadModel(modelId) {
   const model = resolveModel(modelId);
-  const existingMeta = await getCachedModelMeta(model);
-  if (existingMeta) {
+  const existing = await getCachedResponse(model);
+  if (existing) {
+    const size = Number(existing.headers.get('content-length')) || model.approxBytes;
     self.postMessage({
       type: 'DOWNLOAD_COMPLETE',
       modelId: model.id,
-      size: existingMeta.totalSize,
+      size,
     });
     return;
   }
@@ -276,39 +203,22 @@ async function downloadModel(modelId) {
     downloadAbortController.abort();
   }
   downloadAbortController = new AbortController();
-  const signal = downloadAbortController.signal;
 
   try {
-    // Probe total file size via Range 0-0 (also resolves CDN URL if redirected)
-    const probeResp = await fetchWithRetry(model.url, {
-      method: 'GET',
-      headers: { Range: 'bytes=0-0' },
+    const resp = await fetch(model.url, {
       mode: 'cors',
       credentials: 'omit',
-      signal,
+      signal: downloadAbortController.signal,
     });
 
-    const contentRange = probeResp.headers.get('content-range') || '';
-    const rangeMatch = contentRange.match(/\/(\d+)$/);
-    const totalSize = rangeMatch
-      ? Number(rangeMatch[1])
-      : Number(probeResp.headers.get('content-length')) || model.approxBytes;
-    try {
-      await probeResp.body?.cancel();
-    } catch {
-      // Ignore cancel error
+    if (!resp.ok || !resp.body) {
+      throw new Error(`HTTP ${resp.status} from ${resp.url || model.url}`);
     }
 
-    const numChunks = Math.ceil(totalSize / CHUNK_SIZE);
+    const total = Number(resp.headers.get('content-length')) || model.approxBytes;
     const cache = await caches.open(CACHE_NAME);
-
-    // Save metadata upfront (validity still requires all chunks to exist)
-    await cache.put(
-      metaKey(model),
-      new Response(JSON.stringify({ totalSize, chunkSize: CHUNK_SIZE, numChunks }), {
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
+    const clone = resp.clone();
+    const reader = resp.body.getReader();
 
     let loaded = 0;
     let lastProgressAt = 0;
@@ -317,100 +227,43 @@ async function downloadModel(modelId) {
       type: 'DOWNLOAD_PROGRESS',
       modelId: model.id,
       loaded: 0,
-      total: totalSize,
+      total,
       percent: 0,
     });
 
-    for (let i = 0; i < numChunks; i++) {
-      if (signal.aborted) {
-        throw new DOMException('Aborted', 'AbortError');
-      }
-
-      const start = i * CHUNK_SIZE;
-      const end = Math.min(totalSize - 1, start + CHUNK_SIZE - 1);
-      const expectedLen = end - start + 1;
-
-      const existingChunk = await cache.match(chunkKey(model, i));
-      if (existingChunk) {
-        const cachedLen = Number(existingChunk.headers.get('content-length')) || expectedLen;
-        if (cachedLen === expectedLen) {
-          loaded += expectedLen;
-          const percent = Math.min(99, Math.round((loaded / totalSize) * 100));
-          self.postMessage({
-            type: 'DOWNLOAD_PROGRESS',
-            modelId: model.id,
-            loaded,
-            total: totalSize,
-            percent,
-          });
-          continue;
-        }
-      }
-
-      // Re-fetch from model.url on each chunk so signed CDN URLs stay fresh
-      const chunkResp = await fetchWithRetry(model.url, {
-        method: 'GET',
-        headers: { Range: `bytes=${start}-${end}` },
-        mode: 'cors',
-        credentials: 'omit',
-        signal,
-      });
-
-      const reader = chunkResp.body.getReader();
-      const buffer = new Uint8Array(expectedLen);
-      let offset = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (offset + value.byteLength > buffer.byteLength) {
-          throw new Error(`Chunk ${i} exceeded expected length`);
-        }
-        buffer.set(value, offset);
-        offset += value.byteLength;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
         loaded += value.byteLength;
-
         const now = performance.now();
         if (now - lastProgressAt >= 150) {
           lastProgressAt = now;
-          const percent = Math.min(99, Math.round((loaded / totalSize) * 100));
+          const percent = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0;
           self.postMessage({
             type: 'DOWNLOAD_PROGRESS',
             modelId: model.id,
             loaded,
-            total: totalSize,
+            total,
             percent,
           });
         }
       }
-
-      if (offset !== expectedLen) {
-        throw new Error(`Incomplete chunk ${i}: got ${offset} of ${expectedLen} bytes`);
-      }
-
-      await cache.put(
-        chunkKey(model, i),
-        new Response(buffer, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/octet-stream',
-            'Content-Length': String(expectedLen),
-          },
-        })
-      );
     }
+
+    await cache.put(model.url, clone);
 
     self.postMessage({
       type: 'DOWNLOAD_PROGRESS',
       modelId: model.id,
-      loaded: totalSize,
-      total: totalSize,
+      loaded: total,
+      total,
       percent: 100,
     });
     self.postMessage({
       type: 'DOWNLOAD_COMPLETE',
       modelId: model.id,
-      size: totalSize,
+      size: total,
     });
   } catch (err) {
     if (err?.name === 'AbortError') {
@@ -429,13 +282,13 @@ async function ensureEngine(modelId) {
     return engine;
   }
 
-  const meta = await getCachedModelMeta(model);
-  if (!meta) {
+  const resp = await getCachedResponse(model);
+  if (!resp) {
     throw new Error(`Model ${model.id} is not cached.`);
   }
 
-  const stream = createCachedModelStream(model, meta);
-  return loadEngineFromStream(model, stream);
+  const blob = await resp.blob();
+  return loadEngineFromStream(model, blob.stream());
 }
 
 function extractTextFromChunk(chunk) {
