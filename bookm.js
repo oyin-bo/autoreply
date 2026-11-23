@@ -38,7 +38,20 @@
     lastContextPayload: null,
     lastReplyTargetUri: '',
     threadCache: new Map(),
+    userProfile: null,
   };
+
+  const styleTag = document.createElement('style');
+  styleTag.id = 'autoreply-host-styles';
+  styleTag.textContent = `
+    .autoreply-has-suggestion .is-empty::before,
+    .autoreply-has-suggestion .is-editor-empty::before,
+    .autoreply-has-suggestion [data-placeholder]::before {
+      opacity: 0 !important;
+      transition: opacity 0.15s ease;
+    }
+  `;
+  (document.head || document.documentElement).appendChild(styleTag);
 
   // --- Hidden Cross-Origin Iframe ---
   const iframe = document.createElement('iframe');
@@ -471,6 +484,7 @@
     elGhost.style.textIndent = `${indentPx}px`;
     elGhost.textContent = cleanSuggestionForDisplay(state.suggestionDraft, state.suggestionText);
     elGhost.style.display = 'block';
+    composer.classList.toggle('autoreply-has-suggestion', Boolean(elGhost.textContent));
 
     const actionTop = Math.min(window.innerHeight - 44, composerRect.bottom + 8);
     const actionLeft = Math.max(8, Math.min(window.innerWidth - 230, composerRect.left));
@@ -512,6 +526,9 @@
   }
 
   function clearSuggestion() {
+    if (state.activeComposer) {
+      state.activeComposer.classList.remove('autoreply-has-suggestion');
+    }
     state.suggestionText = '';
     state.suggestionDraft = '';
     state.isStreaming = false;
@@ -632,10 +649,12 @@
       return state.threadCache.get(atUri);
     }
     try {
-      const url = `https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=${encodeURIComponent(atUri)}&depth=0&parentHeight=25`;
-      const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
-      if (!resp.ok) return null;
-      const data = await resp.json();
+      const data = await xrpcGet('app.bsky.feed.getPostThread', {
+        uri: atUri,
+        depth: '0',
+        parentHeight: '25',
+      });
+      if (!data) return null;
       const chain = [];
       let node = data?.thread;
       while (node && node.post) {
@@ -809,15 +828,12 @@
   }
 
   function buildPromptPayload(threadMessages, draft, isRetry) {
-    const { handle, displayName } = getCurrentUser();
-    const personaIdentity = handle
-      ? displayName
-        ? `${displayName} (@${handle})`
-        : `@${handle}`
-      : 'the Bluesky user';
+    const { handle, displayName, description } = getCurrentUser();
+    const identityLine = `You are ${displayName || handle || 'User'} / ${handle || 'unknown'} your profile is: ${description || '(no bio)'}.`;
 
     const systemPrompt = [
-      `You are ${personaIdentity} on Bluesky, co-writing your own post in your exact voice, tone, and style.`,
+      identityLine,
+      'You are co-writing your own Bluesky post in your exact voice, tone, and style.',
       'Each message from another user is prefixed with their name/handle; you are the assistant.',
       'Strictly stay under 300 characters total.',
       'Output ONLY the post text—no quotes, no handle prefix, no explanations, no meta commentary.',
@@ -913,6 +929,7 @@
     if (!isCaretAtEnd(composer)) return;
 
     const draft = getComposerText(composer);
+    await ensureUserProfile();
     const threadMessages = await scrapeThreadContext(composer);
     if (!document.contains(composer)) return;
     const payload = buildPromptPayload(threadMessages, draft, isRetry);
