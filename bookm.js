@@ -688,17 +688,15 @@
       const replyBtn = target.closest('[data-testid="replyBtn"]');
       if (!replyBtn) return;
 
-      const postContainer =
-        replyBtn.closest('[data-testid="feedItem"]') ||
-        replyBtn.closest('[data-testid^="postThreadItem"]') ||
-        replyBtn.parentElement?.parentElement?.parentElement;
-
       let uri = '';
-      if (postContainer) {
-        const postLink = postContainer.querySelector('a[href*="/post/"]');
+      let node = replyBtn.parentElement;
+      for (let depth = 0; depth < 12 && node && node !== document.body; depth++) {
+        const postLink = node.querySelector('a[href*="/post/"]');
         if (postLink) {
           uri = postHrefToAtUri(postLink.getAttribute('href') || '');
+          if (uri) break;
         }
+        node = node.parentElement;
       }
       if (!uri && window.location.pathname.includes('/post/')) {
         uri = postHrefToAtUri(window.location.pathname);
@@ -860,10 +858,13 @@
         const pos = avatar.compareDocumentPosition(composeView);
         if (!(pos & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
 
-        const container =
-          avatar.closest('button, [role="button"]') ||
-          avatar.parentElement?.parentElement?.parentElement;
-        if (!container) continue;
+        // Walk up from avatar until the next parent also contains composeView;
+        // that element is the full parent post row (avatar + author + text columns).
+        let container = avatar;
+        while (container.parentElement && !container.parentElement.contains(composeView)) {
+          container = container.parentElement;
+        }
+        if (!container || container === modal) continue;
 
         const lines = (container.innerText || '')
           .split(/\r?\n/)
