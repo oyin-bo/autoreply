@@ -199,12 +199,29 @@ async function loadEngineFromStream(model, stream) {
   self.postMessage({ type: 'ENGINE_LOADING', modelId: model.id });
 
   if (!EngineClass) {
-    const mod = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm');
-    EngineClass = mod.Engine;
+    const mod = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core@0.19.0/+esm');
+    EngineClass = mod;
   }
 
-  engine = await EngineClass.create({
+  const backendEnum = EngineClass.Backend?.GPU_ARTISAN ?? EngineClass.Backend?.GPU ?? 2;
+  engine = await EngineClass.Engine.create({
     model: stream,
+    backend: backendEnum,
+    mainExecutorSettings: {
+      maxNumTokens: 4096,
+      backendConfig: {
+        num_output_candidates: 1,
+        wait_for_weight_uploads: true,
+        num_decode_steps_per_sync: 1,
+        sequence_batch_size: 0,
+        supported_lora_ranks: [],
+        max_top_k: 64,
+        enable_decode_logits: false,
+        enable_external_embeddings: false,
+        use_submodel: true,
+        use_autosized_ringbuffers: true,
+      },
+    },
   });
   loadedModelId = model.id;
 
