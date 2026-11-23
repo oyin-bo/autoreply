@@ -16,7 +16,7 @@ const MODELS = {
 };
 
 const DEFAULT_MODEL_ID = 'gemma-4-E2B-it-gpu.litertlm';
-const CACHE_NAME = 'autoreply-models-v1';
+const CACHE_NAME = 'autoreply-models-v2';
 
 let EngineClass = null;
 let engine = null;
@@ -34,7 +34,14 @@ async function getCachedResponse(model) {
   try {
     const cache = await caches.open(CACHE_NAME);
     const resp = await cache.match(model.url);
-    return resp || null;
+    if (!resp) return null;
+    const ct = (resp.headers.get('content-type') || '').toLowerCase();
+    const cl = Number(resp.headers.get('content-length') || 0);
+    if (ct.includes('json') || (cl > 0 && cl < 10_000_000)) {
+      await cache.delete(model.url);
+      return null;
+    }
+    return resp;
   } catch {
     return null;
   }
@@ -94,8 +101,9 @@ async function purgeCache() {
 
   const removed = [];
   if (typeof caches !== 'undefined') {
-    const deleted = await caches.delete(CACHE_NAME);
-    if (deleted) removed.push(CACHE_NAME);
+    for (const name of [CACHE_NAME, 'autoreply-models-v1']) {
+      if (await caches.delete(name)) removed.push(name);
+    }
   }
 
   try {
