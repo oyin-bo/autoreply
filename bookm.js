@@ -1236,6 +1236,9 @@
       }
 
       case 'WORKER_ERROR': {
+        if (msg.requestId && msg.requestId !== state.activeRequestId) {
+          return;
+        }
         showConsentCard(false);
         elDownloadUi.style.display = 'none';
         state.isStreaming = false;

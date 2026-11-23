@@ -381,14 +381,32 @@ async function generate({ requestId, modelId, prefaceMessages, userPrompt }) {
   try {
     while (true) {
       if (activeRequestId !== requestId) {
-        await reader.cancel();
+        try {
+          await reader.cancel();
+        } catch {
+          // Ignore cancel errors
+        }
         break;
       }
 
-      const { done, value } = await reader.read();
+      let readResult;
+      try {
+        readResult = await reader.read();
+      } catch (readErr) {
+        if (activeRequestId !== requestId || /cancel|abort/i.test(readErr?.message || '')) {
+          break;
+        }
+        throw readErr;
+      }
+
+      const { done, value } = readResult;
       if (done) break;
       if (activeRequestId !== requestId) {
-        await reader.cancel();
+        try {
+          await reader.cancel();
+        } catch {
+          // Ignore cancel errors
+        }
         break;
       }
 
@@ -506,6 +524,13 @@ self.addEventListener('message', async (event) => {
     }
   } catch (err) {
     const errMsg = err?.message || String(err);
+    if (
+      msg.type === 'GENERATE' &&
+      (msg.requestId !== activeRequestId || /cancel|abort/i.test(errMsg))
+    ) {
+      self.postMessage({ type: 'GENERATION_CANCELLED', requestId: msg.requestId });
+      return;
+    }
     self.postMessage({
       type: 'WORKER_ERROR',
       requestId: msg.requestId,
