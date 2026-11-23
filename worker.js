@@ -203,6 +203,15 @@ async function loadEngineFromStream(model, stream) {
     EngineClass = mod;
   }
 
+  // @litert-lm/core calls createWasmLib without a fileLocator, so in a Worker
+  // Emscripten defaults to self.location's origin unless self.Module.locateFile is set.
+  self.Module = {
+    locateFile: (file) =>
+      /^https?:\/\//.test(file)
+        ? file
+        : `https://cdn.jsdelivr.net/npm/@litert-lm/core@0.19.0/wasm/${file}`,
+  };
+
   const backendEnum = EngineClass.Backend?.GPU_ARTISAN ?? EngineClass.Backend?.GPU ?? 2;
   engine = await EngineClass.Engine.create({
     model: stream,
