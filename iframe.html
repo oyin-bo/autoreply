@@ -24,7 +24,7 @@
         worker = null;
       }
 
-      worker = new Worker('./worker.js', { type: 'module' });
+      worker = new Worker('./worker.js');
 
       worker.addEventListener('message', (event) => {
         postToParent(event.data);
